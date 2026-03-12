@@ -15,7 +15,7 @@ from agentlite.commons.fastmcp import mcp
 def get_parser():
     import argparse
     parser = argparse.ArgumentParser(description="EHR MCP Tool Server")
-    parser.add_argument('--data_path', type=str, default="/home/ma-user/work/liaoyusheng/projects/EHRAgent/datas/datas/sample/db/patients_new", help='Path to the EHR data directory')
+    parser.add_argument('--data_path', type=str, default="/home/efs/zlt/AgentEHR/data/MIMICIIIAgentBench/database", help='Path to the EHR data directory')
     parser.add_argument('--mode', type=str, default="studio", choices=["studio", "http"], help='Mode to run the server in')
     parser.add_argument('--host', type=str, default="127.0.0.1", help='Host IP for HTTP mode')
     parser.add_argument('--port', type=int, default=9000, help='Port for HTTP mode')

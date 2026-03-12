@@ -26,7 +26,7 @@ TASKS=(
 # TASKS=("diagnoses_ccs")
 
 # --- 新增和推断的配置 ---
-CONDA_ENV_NAME="ehragent" 
+CONDA_ENV_NAME="base" 
 # 根据您的上下文推断出的项目根目录，test_mcp.py 应该在此目录下
 PROJECT_ROOT="./"
 # --- 配置区结束 ---

@@ -14,6 +14,7 @@ from agentlite.agent_prompts.ReasoningBankPrompt import ReasoningBankPromptGen
 from agentlite.agent_prompts.prompt_utils import DEFAULT_PROMPT
 from agentlite.agents.agent_utils import *
 from agentlite.commons import AgentAct, TaskPackage, EHRManager
+from agentlite.commons.embedding_paths import resolve_bge_m3_path
 from agentlite.commons.AgentAct import ActObsChainType
 from agentlite.llm.agent_llms import BaseLLM
 from agentlite.logging import DefaultLogger
@@ -56,7 +57,7 @@ class MCPReasoningBankAgent(MCPBaseAgent):
         # Retriever settings
         top_k_retrieval: int = 3,
         similarity_threshold: float = 0.5,
-        embedding_model_path: str = "/sfs/data/ShareModels/Embeddings/bge-m3",
+        embedding_model_path: str = None,
         embedding_device: int = 0,
         # Extractor settings
         extraction_temperature: float = 0.9,
@@ -103,6 +104,8 @@ class MCPReasoningBankAgent(MCPBaseAgent):
             enable_logging: Enable logging (default: True)
             **kwargs: Additional arguments for MCPBaseAgent
         """
+        embedding_model_path = kwargs.get("retriever_path", embedding_model_path)
+        embedding_model_path = resolve_bge_m3_path(embedding_model_path)
         # Initialize parent class
         super().__init__(
             name=name,

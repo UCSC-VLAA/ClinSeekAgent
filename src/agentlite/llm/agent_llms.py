@@ -2,8 +2,18 @@ import json
 from openai import OpenAI
 import torch
 import copy
+from types import SimpleNamespace
 from vllm import LLM, SamplingParams
 from transformers import AutoModelForCausalLM, AutoTokenizer
+
+# Claude Opus 4.6 via AWS Bedrock
+# 必须使用 inference profile ID（支持 on-demand），不能用直接模型 ID anthropic.claude-opus-4-6-v1
+# 参考 test.py: modelId="us.anthropic.claude-opus-4-6-v1"
+BEDROCK_CLAUDE_MODELS = [
+    "claude-opus-4-6-v1",
+    "us.anthropic.claude-opus-4-6-v1",
+]
+BEDROCK_INFERENCE_PROFILE_ID = "us.anthropic.claude-opus-4-6-v1"
 
 OPENAI_CHAT_MODELS = [
     "gpt-3.5-turbo",
@@ -288,11 +298,180 @@ class VLLMServer(BaseLLM):
             print(f"Error: {e}")
 
         return response
-    
+
+
+class ClaudeBedrockLLM:
+    """Claude Opus 4.6 via AWS Bedrock API (like test.py)."""
+
+    def __init__(self, model_args):
+        import boto3
+
+        raw = getattr(model_args, "model_name_or_path", BEDROCK_INFERENCE_PROFILE_ID)
+        if raw == "claude-opus-4-6-v1" or raw not in BEDROCK_CLAUDE_MODELS and not raw.startswith("us.anthropic.claude"):
+            self.model_name_or_path = BEDROCK_INFERENCE_PROFILE_ID
+        else:
+            self.model_name_or_path = raw
+        self.max_new_tokens = getattr(model_args, "max_new_tokens", 4096)
+        self.temperature = getattr(model_args, "temperature", 0.7)
+        self.top_p = getattr(model_args, "top_p", 0.8)
+        self.max_seq_len = getattr(model_args, "max_seq_len", 64000)
+        self.presence_penalty = getattr(model_args, "presence_penalty", 0.0)
+        self.input_tokens = 0
+        self.output_tokens = 0
+        self.region_name = getattr(model_args, "bedrock_region", "us-west-2")
+        self.bedrock = boto3.client(service_name="bedrock-runtime", region_name=self.region_name)
+
+    def _convert_tools_to_anthropic(self, available_tools):
+        """Convert OpenAI-style tools to Anthropic input_schema format."""
+        if not available_tools:
+            return None
+        anthropic_tools = []
+        for t in available_tools:
+            if t.get("type") == "function" and "function" in t:
+                fn = t["function"]
+                schema = fn.get("input_schema") or fn.get("parameters") or {"type": "object", "properties": {}}
+                anthropic_tools.append({
+                    "name": fn["name"],
+                    "description": fn.get("description", ""),
+                    "input_schema": schema,
+                })
+        return anthropic_tools if anthropic_tools else None
+
+    def _convert_messages_to_anthropic(self, messages):
+        """Convert OpenAI-style messages to Anthropic format."""
+        anthropic_messages = []
+        for msg in messages:
+            role = msg["role"]
+            if role == "system":
+                continue  # Anthropic uses system separately; we'll skip or prepend to first user
+            content = msg.get("content")
+            if role == "user":
+                if isinstance(content, list):
+                    anthropic_messages.append({"role": "user", "content": content})
+                else:
+                    anthropic_messages.append({"role": "user", "content": content or ""})
+            elif role == "assistant":
+                if "tool_calls" in msg and msg["tool_calls"]:
+                    blocks = []
+                    for tc in msg["tool_calls"]:
+                        fn = tc.get("function", {})
+                        args = fn.get("arguments")
+                        if isinstance(args, str):
+                            try:
+                                args = json.loads(args)
+                            except json.JSONDecodeError:
+                                args = {}
+                        blocks.append({
+                            "type": "tool_use",
+                            "id": tc.get("id", f"toolu_{len(blocks)}"),
+                            "name": fn.get("name", ""),
+                            "input": args or {},
+                        })
+                    anthropic_messages.append({"role": "assistant", "content": blocks})
+                else:
+                    text = content if isinstance(content, str) else (content or "")
+                    anthropic_messages.append({"role": "assistant", "content": text})
+            elif role == "tool":
+                tool_call_id = msg.get("tool_call_id")
+                tool_content = msg.get("content", "")
+                anthropic_messages.append({
+                    "role": "user",
+                    "content": [{"type": "tool_result", "tool_use_id": tool_call_id, "content": str(tool_content)}],
+                })
+        return anthropic_messages
+
+    def _convert_response_to_openai_like(self, response_body):
+        """Convert Anthropic/Bedrock response to OpenAI-like structure for action_parser."""
+        content_blocks = response_body.get("content", [])
+        stop_reason = response_body.get("stop_reason", "end_turn")
+
+        text_parts = []
+        tool_calls = []
+        for block in content_blocks:
+            if block.get("type") == "text":
+                text_parts.append(block.get("text", ""))
+            elif block.get("type") == "tool_use":
+                fn = SimpleNamespace(
+                    name=block.get("name", ""),
+                    arguments=json.dumps(block.get("input", {})),
+                )
+                tool_calls.append(SimpleNamespace(id=block.get("id", ""), type="function", function=fn))
+
+        finish_reason = "tool_calls" if stop_reason == "tool_use" else "stop"
+        message_content = "".join(text_parts).strip() if text_parts else None
+
+        msg = SimpleNamespace(
+            content=message_content,
+            tool_calls=tool_calls,
+            model_dump=lambda: {
+                "role": "assistant",
+                "content": message_content,
+                "tool_calls": [
+                    {"id": tc.id, "type": "function", "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
+                    for tc in tool_calls
+                ] if tool_calls else [],
+            },
+        )
+        choice = SimpleNamespace(finish_reason=finish_reason, message=msg)
+        return SimpleNamespace(choices=[choice])
+
+    def run(self, messages: list, available_tools: list = None, tool_choice: str = "auto", n: int = 1):
+        messages = copy.deepcopy(messages)
+        for turn in messages:
+            if turn.get("content") is None:
+                turn["content"] = ""
+            if "tool_calls" in turn:
+                for tc in turn["tool_calls"]:
+                    args = tc["function"].get("arguments")
+                    if isinstance(args, dict):
+                        tc["function"]["arguments"] = json.dumps(args)
+
+        anthropic_messages = self._convert_messages_to_anthropic(messages)
+        anthropic_tools = self._convert_tools_to_anthropic(available_tools)
+
+        body = {
+            "anthropic_version": "bedrock-2023-05-31",
+            "max_tokens": self.max_new_tokens,
+            "messages": anthropic_messages,
+            # "temperature": self.temperature,
+            # "top_p": self.top_p,
+        }
+        if anthropic_tools:
+            body["tools"] = anthropic_tools
+
+        body_str = json.dumps(body)
+        model_id = self.model_name_or_path
+        # print(f"[Bedrock] modelId={model_id} region={self.region_name} max_tokens={self.max_new_tokens} temperature={self.temperature} top_p={self.top_p} "
+        #       f"messages={len(anthropic_messages)} tools={len(anthropic_tools) if anthropic_tools else 0}", flush=True)
+        try:
+            response = self.bedrock.invoke_model(body=body_str, modelId=model_id)
+        except Exception as e:
+            err_str = str(e).lower()
+            if ("on-demand" in err_str or "inference profile" in err_str) and model_id != BEDROCK_INFERENCE_PROFILE_ID:
+                response = self.bedrock.invoke_model(body=body_str, modelId=BEDROCK_INFERENCE_PROFILE_ID)
+            else:
+                raise
+        response_body = json.loads(response["body"].read())
+
+        try:
+            usage = response_body.get("usage", {})
+            self.input_tokens += usage.get("input_tokens", 0)
+            self.output_tokens += usage.get("completion_tokens", usage.get("output_tokens", 0))
+        except Exception:
+            pass
+
+        return self._convert_response_to_openai_like(response_body)
+
 
 def get_llm_backend(model_args):
     if model_args.model_name_or_path in OPENAI_CHAT_MODELS:
         return GPT4o(model_args)
+
+    if model_args.model_name_or_path in BEDROCK_CLAUDE_MODELS or (
+        isinstance(model_args.model_name_or_path, str)
+        and "claude-opus-4-6" in model_args.model_name_or_path.lower()
+    ):
+        return ClaudeBedrockLLM(model_args)
 
     if model_args.model_name_or_path:
         model_args.model_name_or_path = model_args.model_name_or_path if model_args.model_name_or_path not in LOCAL_MODEL_PATHS else LOCAL_MODEL_PATHS[model_args.model_name_or_path]

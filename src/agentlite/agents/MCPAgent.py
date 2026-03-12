@@ -355,6 +355,11 @@ class MCPBaseAgent(BaseAgent):
         return str(observation)
     
     def __action_parser__(self, response, add_action_messages=True, log_thinking=False, force_terminal=False) -> AgentAct:
+        if response is None:
+            raise RuntimeError(
+                "LLM returned None after all retries. Check: 1) Bedrock model ID is valid and enabled in your AWS account; "
+                "2) AWS credentials and region (e.g. us-east-1, us-west-2); 3) Network connectivity."
+            )
         if log_thinking:
             try:
                 self.logger.get_thinking(response.choices[0].message.reasoning_content)
@@ -376,7 +381,12 @@ class MCPBaseAgent(BaseAgent):
             action.id = tool_call.id 
 
             if add_action_messages:
-                self.messages.append(content.message.model_dump())
+                dump = content.message.model_dump()
+                # Anthropic/Bedrock 要求每个 tool_use 都有对应的 tool_result；agent 每次只执行一个工具，
+                # 故只保留实际执行的 tool_call，避免 "tool_use ids without tool_result" 错误
+                if dump.get("tool_calls") and len(dump["tool_calls"]) > 1:
+                    dump["tool_calls"] = [dump["tool_calls"][0]]
+                self.messages.append(dump)
         
         # elif content.finish_reason == "stop":
         #     final_response = content.message.content.strip()

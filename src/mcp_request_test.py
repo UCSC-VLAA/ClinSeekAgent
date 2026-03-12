@@ -49,8 +49,10 @@ async def main():
         from pprint import pprint
         pprint(response)
         # response = await mcp_client.call_tool('get_candidates_by_semantic_similarity', {'table_name': 'diagnoses_ccs_candidates', 'query': 'infection'})
+        
         # response = await mcp_client.call_tool('retrieve_pubmed', {'query': 'infection'})
         # print(response)
+
         # response = await mcp_client.call_tool('load_ehr', {'subject_id': '11398418', 'timestamp': '2133-04-04 11:10:00'})
         # print(response)
 

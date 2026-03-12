@@ -1,4 +1,3 @@
-
 from sentence_transformers.models import Transformer, Pooling
 from sentence_transformers import SentenceTransformer
 import os
@@ -13,6 +12,12 @@ from fastmcp import Context
 
 from agentlite.commons.fastmcp import mcp
 
+# MedCPT 路径：优先使用共享路径，否则使用本地 Embeddings
+_MEDCPT_DEFAULT = "/sfs/data/ShareModels/Embeddings/MedCPT-Query-Encoder"
+_MEDCPT_LOCAL = os.path.join(os.path.dirname(__file__), "..", "..", "..", "models", "Embeddings", "MedCPT-Query-Encoder")
+def _get_medcpt_path():
+    return _MEDCPT_DEFAULT if os.path.exists(_MEDCPT_DEFAULT) else _MEDCPT_LOCAL
+
 corpus_names = {
     "PubMed": ["pubmed"],
     "Textbooks": ["textbooks"],
@@ -20,15 +25,16 @@ corpus_names = {
     "Wikipedia": ["wikipedia"],
     "MedText": ["textbooks", "statpearls"],
     "MedCorp": ["pubmed", "textbooks", "statpearls", "wikipedia"],
+    "MedCorp_without_statpearls": ["pubmed", "textbooks", "wikipedia"],
 }
 
 retriever_names = {
     "BM25": ["bm25"],
     "Contriever": ["facebook/contriever"],
     "SPECTER": ["allenai/specter"],
-    "MedCPT": ["/sfs/data/ShareModels/Embeddings/MedCPT-Query-Encoder"],
-    "RRF-2": ["bm25", "/sfs/data/ShareModels/Embeddings/MedCPT-Query-Encoder"],
-    "RRF-4": ["bm25", "facebook/contriever", "allenai/specter", "/sfs/data/ShareModels/Embeddings/MedCPT-Query-Encoder"]
+    "MedCPT": [_get_medcpt_path()],
+    "RRF-2": ["bm25", _get_medcpt_path()],
+    "RRF-4": ["bm25", "facebook/contriever", "allenai/specter", _get_medcpt_path()]
 }
 
 def ends_with_ending_punctuation(s):
@@ -133,7 +139,9 @@ def construct_index(index_dir, model_name, h_dim=768, HNSW=False, M=32):
 
 class Retriever: 
 
-    def __init__(self, retriever_name="/sfs/data/ShareModels/Embeddings/MedCPT-Query-Encoder", corpus_name="textbooks", db_dir="./corpus", HNSW=False, **kwarg):
+    def __init__(self, retriever_name=None, corpus_name="textbooks", db_dir="./corpus", HNSW=False, **kwarg):
+        if retriever_name is None:
+            retriever_name = _get_medcpt_path()
         self.retriever_name = retriever_name
         self.corpus_name = corpus_name
 
@@ -168,7 +176,7 @@ class Retriever:
                 self.metadatas = [json.loads(line) for line in open(os.path.join(self.index_dir, "metadatas.jsonl")).read().strip().split('\n')]
             else:
                 print("[In progress] Embedding the {:s} corpus with the {:s} retriever...".format(self.corpus_name, self.retriever_name.replace("Query-Encoder", "Article-Encoder")))
-                if self.corpus_name in ["textbooks", "pubmed", "wikipedia"] and self.retriever_name in ["allenai/specter", "facebook/contriever", "/sfs/data/ShareModels/Embeddings/MedCPT-Query-Encoder"] and not os.path.exists(os.path.join(self.index_dir, "embedding")):
+                if self.corpus_name in ["textbooks", "pubmed", "wikipedia"] and (self.retriever_name in ["allenai/specter", "facebook/contriever"] or "MedCPT" in self.retriever_name) and not os.path.exists(os.path.join(self.index_dir, "embedding")):
                     print("[In progress] Downloading the {:s} embeddings given by the {:s} model...".format(self.corpus_name, self.retriever_name.replace("Query-Encoder", "Article-Encoder")))
                     os.makedirs(self.index_dir, exist_ok=True)
                     if self.corpus_name == "textbooks":
@@ -176,21 +184,21 @@ class Retriever:
                             os.system("wget -O {:s} https://myuva-my.sharepoint.com/:u:/g/personal/hhu4zu_virginia_edu/EYRRpJbNDyBOmfzCOqfQzrsBwUX0_UT8-j_geDPcVXFnig?download=1".format(os.path.join(self.index_dir, "embedding.zip")))
                         elif self.retriever_name == "facebook/contriever":
                             os.system("wget -O {:s} https://myuva-my.sharepoint.com/:u:/g/personal/hhu4zu_virginia_edu/EQqzldVMCCVIpiFV4goC7qEBSkl8kj5lQHtNq8DvHJdAfw?download=1".format(os.path.join(self.index_dir, "embedding.zip")))
-                        elif self.retriever_name == "/sfs/data/ShareModels/Embeddings/MedCPT-Query-Encoder":
+                        elif "MedCPT" in self.retriever_name:
                             os.system("wget -O {:s} https://myuva-my.sharepoint.com/:u:/g/personal/hhu4zu_virginia_edu/EQ8uXe4RiqJJm0Tmnx7fUUkBKKvTwhu9AqecPA3ULUxUqQ?download=1".format(os.path.join(self.index_dir, "embedding.zip")))
                     elif self.corpus_name == "pubmed":
                         if self.retriever_name == "allenai/specter":
                             os.system("wget -O {:s} https://myuva-my.sharepoint.com/:u:/g/personal/hhu4zu_virginia_edu/Ebz8ySXt815FotxC1KkDbuABNycudBCoirTWkKfl8SEswA?download=1".format(os.path.join(self.index_dir, "embedding.zip")))
                         elif self.retriever_name == "facebook/contriever":
                             os.system("wget -O {:s} https://myuva-my.sharepoint.com/:u:/g/personal/hhu4zu_virginia_edu/EWecRNfTxbRMnM0ByGMdiAsBJbGJOX_bpnUoyXY9Bj4_jQ?download=1".format(os.path.join(self.index_dir, "embedding.zip")))
-                        elif self.retriever_name == "/sfs/data/ShareModels/Embeddings/MedCPT-Query-Encoder":
+                        elif "MedCPT" in self.retriever_name:
                             os.system("wget -O {:s} https://myuva-my.sharepoint.com/:u:/g/personal/hhu4zu_virginia_edu/EVCuryzOqy5Am5xzRu6KJz4B6dho7Tv7OuTeHSh3zyrOAw?download=1".format(os.path.join(self.index_dir, "embedding.zip")))
                     elif self.corpus_name == "wikipedia":
                         if self.retriever_name == "allenai/specter":
                             os.system("wget -O {:s} https://myuva-my.sharepoint.com/:u:/g/personal/hhu4zu_virginia_edu/Ed7zG3_ce-JOmGTbgof3IK0BdD40XcuZ7AGZRcV_5D2jkA?download=1".format(os.path.join(self.index_dir, "embedding.zip")))
                         elif self.retriever_name == "facebook/contriever":
                             os.system("wget -O {:s} https://myuva-my.sharepoint.com/:u:/g/personal/hhu4zu_virginia_edu/ETKHGV9_KNBPmDM60MWjEdsBXR4P4c7zZk1HLLc0KVaTJw?download=1".format(os.path.join(self.index_dir, "embedding.zip")))
-                        elif self.retriever_name == "/sfs/data/ShareModels/Embeddings/MedCPT-Query-Encoder":
+                        elif "MedCPT" in self.retriever_name:
                             os.system("wget -O {:s} https://myuva-my.sharepoint.com/:u:/g/personal/hhu4zu_virginia_edu/EXoxEANb_xBFm6fa2VLRmAcBIfCuTL-5VH6vl4GxJ06oCQ?download=1".format(os.path.join(self.index_dir, "embedding.zip")))
                     os.system("unzip {:s} -d {:s}".format(os.path.join(self.index_dir, "embedding.zip"), self.index_dir))
                     os.system("rm {:s}".format(os.path.join(self.index_dir, "embedding.zip")))
@@ -322,8 +330,12 @@ class RetrievalSystem:
 
 
 retriever_name = "BM25"
-corpus_name = "MedCorp"
-db_dir = "/sfs/data/Datasets/MedRAG"
+# corpus_name = "MedCorp"
+corpus_name = "MedCorp_without_statpearls"
+# 优先使用共享路径，否则使用项目内 datasets 文件夹
+_MEDRAG_DEFAULT = "/sfs/data/Datasets/MedRAG"
+_MEDRAG_LOCAL = os.path.join(os.path.dirname(__file__), "..", "..", "..", "datasets")
+db_dir = _MEDRAG_DEFAULT if os.path.exists(_MEDRAG_DEFAULT) else _MEDRAG_LOCAL
 retriever = RetrievalSystem(retriever_name, corpus_name, db_dir, cache=False, HNSW=False)
 
 # "MedCorp": ["pubmed", "textbooks", "statpearls", "wikipedia"],

@@ -1,3 +1,4 @@
+import os
 import numpy as np
 import torch
 from sentence_transformers import SentenceTransformer
@@ -117,10 +118,15 @@ async def get_candidates_by_fuzzy_matching(
 
 
 class EmbeddingModel:
+    _default_path = "/sfs/data/ShareModels/Embeddings/BioLORD-2023"
+    _local_path = os.path.join(os.path.dirname(__file__), "..", "..", "..", "models", "BioLORD-2023")
+
     def __init__(
-        self, 
-        model_path: str = "/sfs/data/ShareModels/Embeddings/BioLORD-2023"
+        self,
+        model_path: str = None,
     ):
+        if model_path is None:
+            model_path = self._default_path if os.path.exists(self._default_path) else self._local_path
         self.model_path = model_path
         self.embedding_cache = {}
         self.load_model()

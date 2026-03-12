@@ -10,6 +10,7 @@ except ImportError:
     AutoModel = None
     AutoTokenizer = None
 
+from agentlite.commons.embedding_paths import resolve_bge_m3_path
 from .models import MemoryEntry, MemoryItem
 
 
@@ -30,7 +31,7 @@ class EHRRetriever:
         top_k: int = 5, 
         similarity_threshold: float = 0.5,
         cache_path: str = "/sfs/rhome/xuanchuan/EHRAgent/cache/embedding_cache.json",
-        embedding_model_path: str = "/sfs/data/ShareModels/Embeddings/bge-m3",
+        embedding_model_path: str = None,
         embedding_device: int = 0,
         update_cache: bool = True
     ):
@@ -46,6 +47,7 @@ class EHRRetriever:
             embedding_device: Device to use for embedding model
             update_cache: Whether to save new embeddings to cache (default: True)
         """
+        embedding_model_path = resolve_bge_m3_path(embedding_model_path)
         self.llm = llm
         self.top_k = top_k
         self.similarity_threshold = similarity_threshold
