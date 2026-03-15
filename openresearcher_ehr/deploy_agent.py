@@ -363,7 +363,14 @@ async def main():
     with open(output_file, 'w', encoding='utf-8') as out_f:
         for item in data:
             qid = item.get('qid', item.get('query_id', 'unknown'))
-            question = item.get('question', item.get('query', ''))
+
+            # Generate question from task data if not present
+            if 'question' in item or 'query' in item:
+                question = item.get('question', item.get('query', ''))
+            else:
+                # Generate question from task data using original prompt template
+                from data_utils import generate_question_from_task
+                question = generate_question_from_task(item)
 
             print(f"\n{'='*80}")
             print(f"Processing qid={qid}: {question[:100]}...")

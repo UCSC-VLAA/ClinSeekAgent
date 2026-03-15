@@ -4,6 +4,65 @@ Combines browser tools with EHR clinical reasoning tools.
 """
 import json
 
+# Task prompt templates (from original EHR system)
+TASK_PROMPT_TEMPLATES = {
+    "diagnoses_ccs": """<task_instruction>
+Your current task is to act as a diagnostician.
+
+Your objective is to determine all plausible diagnoses for the patient's current condition by analyzing the patient's complete history.
+
+You must find the most likely official CCS candidates using the **`diagnoses_ccs_candidates`** reference table.
+
+When you need medical knowledge or clinical information to support your diagnostic reasoning, use the `browser.search` tool to find authoritative medical information from reliable sources.
+
+Present your final answer as a **list format** with `finish` tool calling, which must contain **multiple plausible diagnoses**. Each item in the list must be a string representing an official CCS diagnosis name, and **must not contain any codes or other additional information**.
+</task_instruction>
+
+<patient_info>
+Current Time: {current_time}
+Patient Subject ID: {subject_id}
+</patient_info>""",
+
+    "procedures_ccs": """<task_instruction>
+Your current task is to act as a surgical planner.
+
+Your objective is to determine all necessary surgical procedures for the patient by analyzing their complete medical history and established diagnoses.
+
+You must find the most likely official CCS procedure candidates using the **`procedures_ccs_candidates`** reference table.
+
+When you need medical knowledge or clinical information to support your procedure planning, use the `browser.search` tool to find authoritative medical information from reliable sources.
+
+Present your final answer as a **list format** with `finish` tool calling, which must contain **multiple plausible procedures**. Each item in the list must be a string representing an official CCS procedure name, and **must not contain any codes or other additional information**.
+</task_instruction>
+
+<patient_info>
+Current Time: {current_time}
+Patient Subject ID: {subject_id}
+</patient_info>""",
+}
+
+def generate_question_from_task(task_data):
+    """
+    Generate question prompt from task data based on task type.
+
+    Args:
+        task_data: dict with keys: subject_id, prediction_time, task, ground_truth
+
+    Returns:
+        str: formatted question prompt
+    """
+    task_type = task_data.get("task", "diagnoses_ccs")
+    subject_id = task_data["subject_id"]
+    current_time = task_data["prediction_time"]
+
+    # Get template for task type, default to diagnoses_ccs
+    template = TASK_PROMPT_TEMPLATES.get(task_type, TASK_PROMPT_TEMPLATES["diagnoses_ccs"])
+
+    # Format with patient info
+    question = template.format(current_time=current_time, subject_id=subject_id)
+
+    return question
+
 # System prompts for different model types
 DEVELOPER_CONTENT = """
 You are a helpful assistant and harmless assistant.
@@ -21,27 +80,23 @@ sources=web
 DEVELOPER_CONTENT_CLAUDE = """
 You are a research assistant with access to both web browsing and clinical EHR tools.
 
-**Browser Tools** (for general web research):
-- browser.search: Search the web for information
+**Browser Tools** (for web research and medical knowledge):
+- browser.search: Search the web for information, medical knowledge, clinical guidelines, diagnostic criteria
 - browser.open: Open and read web pages
 - browser.find: Find text within pages
 
-**EHR Tools** (for clinical data and medical research):
-- ehr.load_ehr: Load patient EHR database (must be called first)
+**EHR Tools** (for clinical data analysis):
+- ehr.load_ehr: Load patient EHR database (must be called first for clinical tasks)
 - ehr.get_table_names: List available patient data tables
 - ehr.get_column_names: Get table column information
 - ehr.get_records_by_time: Query patient records within time range
 - ehr.run_sql_query: Execute SQL queries on patient database
-- ehr.get_candidates_by_semantic_similarity: Search medical terminology
-- ehr.retrieve_pubmed: Search PubMed medical literature
+- ehr.get_candidates_by_semantic_similarity: Search medical terminology/diagnosis codes
+- ehr.get_candidates_by_keyword: Search diagnosis codes by keyword
+- ehr.think: Record your reasoning process
+- ehr.finish: Submit your final answer
 
-**Workflow:**
-1. For clinical EHR tasks: Start with ehr.load_ehr to initialize patient context
-2. For general questions: Use browser.search
-3. For clinical queries: Use ehr.get_table_names to explore available data
-4. For patient analysis: Use ehr.get_records_by_time and ehr.run_sql_query
-5. For medical terminology: Use ehr.get_candidates_by_semantic_similarity
-6. For medical literature: Use ehr.retrieve_pubmed (more focused than web search)
+**Important:** Use browser.search when you need medical knowledge or clinical information to support your analysis. You are NOT expected to know all medical information from memory - search for authoritative sources as needed.
 
 The `cursor` appears in brackets before each browsing display: `[{cursor}]`.
 Cite web sources using: 【{cursor}†L{line_start}(-L{line_end})?】
