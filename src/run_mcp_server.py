@@ -24,6 +24,46 @@ def get_parser():
 args = get_parser()
 ehr_manager = EHRManager(args.data_path)
 
+@mcp.resource("cache://ehr/ehr_data/{subject_id}/{table_name}.json")
+async def get_ehr_table_resource(subject_id: str, table_name: str):
+    """Dynamic resource for EHR table data."""
+    if not hasattr(ehr_manager, 'ehr_data') or not ehr_manager.ehr_data:
+        return TextResource(uri=f"cache://ehr/ehr_data/{subject_id}/{table_name}.json", text=json.dumps({}), mime_type="application/json")
+
+    table_data = ehr_manager.ehr_data.get(table_name)
+    if table_data is None:
+        return TextResource(uri=f"cache://ehr/ehr_data/{subject_id}/{table_name}.json", text=json.dumps({}), mime_type="application/json")
+
+    df = table_data.astype(str)
+    return TextResource(uri=f"cache://ehr/ehr_data/{subject_id}/{table_name}.json", text=json.dumps(df.to_dict(orient='list')), mime_type="application/json")
+
+@mcp.resource("cache://ehr/ehr_data/{subject_id}/table_list.json")
+async def get_ehr_table_list_resource(subject_id: str):
+    """Dynamic resource for EHR table list."""
+    if not hasattr(ehr_manager, 'ehr_data') or not ehr_manager.ehr_data:
+        return TextResource(uri=f"cache://ehr/ehr_data/{subject_id}/table_list.json", text=json.dumps([]), mime_type="application/json")
+    return TextResource(uri=f"cache://ehr/ehr_data/{subject_id}/table_list.json", text=json.dumps(list(ehr_manager.ehr_data.keys())), mime_type="application/json")
+
+@mcp.resource("cache://ehr/candidate_data/{table_name}.json")
+async def get_candidate_table_resource(table_name: str):
+    """Dynamic resource for candidate table data."""
+    table_data = ehr_manager.candidate_data.get(table_name)
+    if table_data is None:
+        return TextResource(uri=f"cache://ehr/candidate_data/{table_name}.json", text=json.dumps({}), mime_type="application/json")
+
+    df = table_data.astype(str)
+    return TextResource(uri=f"cache://ehr/candidate_data/{table_name}.json", text=json.dumps(df.to_dict(orient='list')), mime_type="application/json")
+
+@mcp.resource("cache://ehr/candidate_data/table_list.json")
+async def get_candidate_table_list_resource():
+    """Dynamic resource for candidate table list."""
+    return TextResource(uri=f"cache://ehr/candidate_data/table_list.json", text=json.dumps(list(ehr_manager.candidate_data.keys())), mime_type="application/json")
+
+@mcp.resource("cache://ehr/descriptions.json")
+async def get_descriptions_resource():
+    """Dynamic resource for table descriptions."""
+    return TextResource(uri=f"cache://ehr/descriptions.json", text=json.dumps(ehr_manager.descriptions), mime_type="application/json")
+
 @mcp.tool(
     name="load_ehr",
     description="Load the ehr data for the given subject_id and current_timestamp. This action should be taken once at the beginning of each task.",
@@ -42,27 +82,6 @@ def load_ehr(
     """
     try:
         load_log = ehr_manager.load_ehr_for_sample(subject_id, timestamp)
-        
-        ehr_data = ehr_manager.get_ehr_data_json()
-        for table_name in ehr_data:
-            mcp.add_resource(TextResource(uri=f"cache://ehr/ehr_data/{subject_id}/{table_name}.json", text=json.dumps(ehr_data[table_name]), mime_type="application/json"))
-        print("test 1")
-
-        ehr_data_table_list = ehr_manager.get_ehr_table_names()
-        mcp.add_resource(TextResource(uri=f"cache://ehr/ehr_data/{subject_id}/table_list.json", text=json.dumps(ehr_data_table_list), mime_type="application/json"))
-        print("test 2")
-        
-        cand_data = ehr_manager.get_candidate_data_json()
-        for table_name in cand_data:
-            mcp.add_resource(TextResource(uri=f"cache://ehr/candidate_data/{table_name}.json", text=json.dumps(cand_data[table_name]), mime_type="application/json"))
-        print("test 3")
-
-        cand_data_table_list = ehr_manager.get_candidate_table_names()
-        mcp.add_resource(TextResource(uri=f"cache://ehr/candidate_data/table_list.json", text=json.dumps(cand_data_table_list), mime_type="application/json"))
-
-        descriptions = ehr_manager.descriptions
-        mcp.add_resource(TextResource(uri=f"cache://ehr/descriptions.json", text=json.dumps(descriptions), mime_type="application/json"))
-
         return load_log
     except Exception as e:
         return f"An error occurred while loading EHR database: {str(e)}"
@@ -71,7 +90,8 @@ def load_ehr(
 import agentlite.mcp_tools.table_tools
 import agentlite.mcp_tools.record_tools
 import agentlite.mcp_tools.candidate_tools
-import agentlite.mcp_tools.knowledge_tools
+# Skip knowledge_tools to avoid large dataset downloads - use web search instead
+# import agentlite.mcp_tools.knowledge_tools
 import agentlite.mcp_tools.resource_tools
 import agentlite.mcp_tools.inner_tools
 

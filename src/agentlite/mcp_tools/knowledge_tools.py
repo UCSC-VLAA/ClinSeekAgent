@@ -336,7 +336,15 @@ corpus_name = "MedCorp_without_statpearls"
 _MEDRAG_DEFAULT = "/sfs/data/Datasets/MedRAG"
 _MEDRAG_LOCAL = os.path.join(os.path.dirname(__file__), "..", "..", "..", "datasets")
 db_dir = _MEDRAG_DEFAULT if os.path.exists(_MEDRAG_DEFAULT) else _MEDRAG_LOCAL
-retriever = RetrievalSystem(retriever_name, corpus_name, db_dir, cache=False, HNSW=False)
+
+# Lazy initialization to avoid blocking server startup
+retriever = None
+
+def _get_retriever():
+    global retriever
+    if retriever is None:
+        retriever = RetrievalSystem(retriever_name, corpus_name, db_dir, cache=False, HNSW=False)
+    return retriever
 
 # "MedCorp": ["pubmed", "textbooks", "statpearls", "wikipedia"],
 

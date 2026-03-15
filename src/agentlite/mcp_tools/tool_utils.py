@@ -40,28 +40,77 @@ def find_timestamp_column(df: pd.DataFrame) -> Optional[str]:
     return None
 
 
+def _get_ehr_manager():
+    """Get the global EHRManager instance."""
+    # Import here to avoid circular imports
+    from agentlite.commons.fastmcp import mcp
+    import sys
+    # Get the run_mcp_server module from sys.modules
+    server_module = sys.modules.get('__main__')
+    if server_module and hasattr(server_module, 'ehr_manager'):
+        return server_module.ehr_manager
+    return None
+
 async def get_resource_df(ctx: Context, uri: str) -> pd.DataFrame:
+    """Get resource as DataFrame, falling back to global EHRManager if resource not found."""
+    # Try to read from context resources first
     try:
         blocks = await ctx.read_resource(uri)
-        if not blocks:
-            return None
-
-        blk = blocks[0]
-        text = blk.content
-        data = json.loads(text)
-        return pd.DataFrame(data)
+        if blocks:
+            blk = blocks[0]
+            text = blk.content
+            data = json.loads(text)
+            return pd.DataFrame(data)
     except:
+        pass
+
+    # Fall back to global EHRManager
+    ehr_mgr = _get_ehr_manager()
+    if ehr_mgr is None:
         return None
 
-async def get_resource(ctx: Context, uri: str) -> pd.DataFrame:
+    # Parse URI to determine what data to get
+    if "ehr_data/" in uri and ".json" in uri:
+        parts = uri.split("/")
+        if len(parts) >= 4:
+            subject_id = parts[-2]
+            table_name = parts[-1].replace(".json", "")
+            if hasattr(ehr_mgr, 'ehr_data') and table_name in ehr_mgr.ehr_data:
+                return ehr_mgr.ehr_data[table_name]
+    elif "candidate_data/" in uri:
+        parts = uri.split("/")
+        table_name = parts[-1].replace(".json", "")
+        if table_name in ehr_mgr.candidate_data:
+            return ehr_mgr.candidate_data[table_name]
+
+    return None
+
+async def get_resource(ctx: Context, uri: str):
+    """Get resource data, falling back to global EHRManager if resource not found."""
+    # Try to read from context resources first
     try:
         blocks = await ctx.read_resource(uri)
-        if not blocks:
-            return None
-
-        blk = blocks[0]
-        text = blk.content
-        data = json.loads(text)
-        return data
+        if blocks:
+            blk = blocks[0]
+            text = blk.content
+            data = json.loads(text)
+            return data
     except:
+        pass
+
+    # Fall back to global EHRManager
+    ehr_mgr = _get_ehr_manager()
+    if ehr_mgr is None:
         return None
+
+    # Parse URI to determine what data to get
+    if "table_list.json" in uri:
+        if "ehr_data/" in uri:
+            if hasattr(ehr_mgr, 'ehr_data'):
+                return list(ehr_mgr.ehr_data.keys())
+        elif "candidate_data/" in uri:
+            return list(ehr_mgr.candidate_data.keys())
+    elif "descriptions.json" in uri:
+        return ehr_mgr.descriptions
+
+    return None

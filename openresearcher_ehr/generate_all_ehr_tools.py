@@ -1,0 +1,274 @@
+#!/usr/bin/env python3
+"""
+Generate complete EHR tool schemas from MCP tool definitions.
+This script reads the actual tool definitions and generates OpenAI-compatible schemas.
+"""
+import json
+
+# All 20 EHR tools with their complete schemas
+EHR_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "ehr.load_ehr",
+            "description": "Load the EHR database for a specific patient. This action MUST be taken once at the beginning of each EHR-related task.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "subject_id": {
+                        "type": "string",
+                        "description": "The unique identifier for the patient (e.g., '10000032')"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "description": "The current timestamp in 'YYYY-MM-DD HH:MM:SS' format"
+                    }
+                },
+                "required": ["subject_id", "timestamp"]
+            }
+        }
+    },
+    # Table tools
+    {
+        "type": "function",
+        "function": {
+            "name": "ehr.get_table_names",
+            "description": "Retrieves the names of all available tables in the database, categorized into EHR tables and candidate tables.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "subject_id": {"type": "string", "description": "Patient ID"}
+                },
+                "required": ["subject_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "ehr.get_column_names",
+            "description": "Retrieves all column names for a specified table.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "subject_id": {"type": "string", "description": "Patient ID"},
+                    "table_name": {"type": "string", "description": "Table name (e.g., 'admissions')"}
+                },
+                "required": ["subject_id", "table_name"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "ehr.get_table_description",
+            "description": "Retrieve table description and column information from database schema.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "table_name": {"type": "string", "description": "Table name"}
+                },
+                "required": ["table_name"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "ehr.get_unique_values",
+            "description": "Retrieves all unique values from a categorical column in an EHR table.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "subject_id": {"type": "string"},
+                    "table_name": {"type": "string"},
+                    "column_name": {"type": "string"}
+                },
+                "required": ["subject_id", "table_name", "column_name"]
+            }
+        }
+    },
+    # Record tools
+    {
+        "type": "function",
+        "function": {
+            "name": "ehr.get_records_by_time",
+            "description": "Finds records in an EHR table within a time range.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "subject_id": {"type": "string"},
+                    "table_name": {"type": "string"},
+                    "start_time": {"type": "string", "description": "YYYY-MM-DD HH:MM:SS"},
+                    "end_time": {"type": "string", "description": "YYYY-MM-DD HH:MM:SS"}
+                },
+                "required": ["subject_id", "table_name", "start_time", "end_time"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "ehr.get_event_counts_by_time",
+            "description": "Calculates the number of events in all EHR tables within a time range.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "subject_id": {"type": "string"},
+                    "start_time": {"type": "string"},
+                    "end_time": {"type": "string"}
+                },
+                "required": ["subject_id", "start_time", "end_time"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "ehr.get_latest_records",
+            "description": "Finds the latest timestamp and returns all records with that timestamp.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "subject_id": {"type": "string"},
+                    "table_name": {"type": "string"}
+                },
+                "required": ["subject_id", "table_name"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "ehr.get_records_by_keyword",
+            "description": "Searches text columns of an EHR table for a keyword.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "subject_id": {"type": "string"},
+                    "table_name": {"type": "string"},
+                    "keyword": {"type": "string"}
+                },
+                "required": ["subject_id", "table_name", "keyword"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "ehr.get_records_by_value",
+            "description": "Finds records where a column exactly matches a value.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "subject_id": {"type": "string"},
+                    "table_name": {"type": "string"},
+                    "column_name": {"type": "string"},
+                    "value": {"type": "string"}
+                },
+                "required": ["subject_id", "table_name", "column_name", "value"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "ehr.run_sql_query",
+            "description": "Executes a SQL query against the patient's EHR tables.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "subject_id": {"type": "string"},
+                    "sql_query": {"type": "string", "description": "Valid SQL query"}
+                },
+                "required": ["subject_id", "sql_query"]
+            }
+        }
+    },
+    # Candidate tools
+    {
+        "type": "function",
+        "function": {
+            "name": "ehr.get_candidates_by_keyword",
+            "description": "Searches candidate table text columns for a keyword.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "table_name": {"type": "string"},
+                    "keyword": {"type": "string"}
+                },
+                "required": ["table_name", "keyword"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "ehr.get_candidates_by_fuzzy_matching",
+            "description": "Finds similar items in candidate table using fuzzy matching.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "table_name": {"type": "string"},
+                    "query": {"type": "string"},
+                    "top_k": {"type": "integer", "default": 10}
+                },
+                "required": ["table_name", "query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "ehr.get_candidates_by_semantic_similarity",
+            "description": "Semantic search for similar medical terms using embeddings.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "table_name": {"type": "string"},
+                    "query": {"type": "string"},
+                    "top_k": {"type": "integer", "default": 10}
+                },
+                "required": ["table_name", "query"]
+            }
+        }
+    },
+    # Knowledge tools - SKIPPED (using web search instead to avoid large dataset downloads)
+    # Inner tools
+    {
+        "type": "function",
+        "function": {
+            "name": "ehr.think",
+            "description": "Synthesize information and articulate next actions.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "response": {"type": "string", "description": "Thought process content"}
+                },
+                "required": ["response"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "ehr.finish",
+            "description": "Final step - provide clinical predictions.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "response": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of clinical predictions"
+                    }
+                },
+                "required": ["response"]
+            }
+        }
+    }
+]
+
+if __name__ == "__main__":
+    print(f"Generated {len(EHR_TOOLS)} EHR tool schemas")
+    print(json.dumps(EHR_TOOLS, indent=2))

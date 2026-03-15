@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# Results and logs
+test_results/
+results/
+*.log
+smoke_results/
+my_results/
+ehr_results/
+hybrid_results/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+smoke_test.jsonl
+my_query.jsonl
+ehr_query.jsonl
+hybrid_query.jsonl
+
+# AWS
+.aws/
+
+# Environment
+.env

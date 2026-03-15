@@ -36,11 +36,11 @@ async def get_records_by_time(
     table_list = await get_resource(ctx, f"cache://ehr/ehr_data/{subject_id}/table_list.json")
     candidate_tables = await get_resource(ctx, f"cache://ehr/candidate_data/table_list.json")
     if df is None:
-        if table_name in candidate_tables:
+        if candidate_tables and table_name in candidate_tables:
             function_name = inspect.currentframe().f_code.co_name
             return f"Error: The tool `{function_name}` cannot be used to search the Candidate Table: `{table_name}`."
         else:
-            return f"Error: Table '{table_name}' not found in EHR Table list: {table_list}."
+            return f"Error: Table '{table_name}' not found in EHR Table list: {table_list}. Make sure to call load_ehr first."
 
     # 使用封装好的函数来找到时间戳列
     timestamp_column = find_timestamp_column(df)
@@ -97,9 +97,12 @@ async def get_event_counts_by_time(
         
     # 從 EHRManager 獲取所有 EHR 表的名稱
     ehr_table_names = await get_resource(ctx, f"cache://ehr/ehr_data/{subject_id}/table_list.json")
-    
+
+    if ehr_table_names is None:
+        return "Error: No EHR data loaded. Please call load_ehr first."
+
     counts: Dict[str, int] = {}
-    
+
     # 遍歷每個 EHR 表
     for table_name in ehr_table_names:
         df = await get_resource_df(ctx, f"cache://ehr/ehr_data/{subject_id}/{table_name}.json")
@@ -150,11 +153,11 @@ async def get_latest_records(
     table_list = await get_resource(ctx, f"cache://ehr/ehr_data/{subject_id}/table_list.json")
     candidate_tables = await get_resource(ctx, f"cache://ehr/candidate_data/table_list.json")
     if df is None:
-        if table_name in candidate_tables:
+        if candidate_tables and table_name in candidate_tables:
             function_name = inspect.currentframe().f_code.co_name
             return f"Error: The tool `{function_name}` cannot be used to search the Candidate Table: `{table_name}`."
         else:
-            return f"Error: Table '{table_name}' not found in EHR Table list: {table_list}."
+            return f"Error: Table '{table_name}' not found in EHR Table list: {table_list}. Make sure to call load_ehr first."
 
     # 使用工具函数找到时间戳列
     timestamp_column = find_timestamp_column(df)
@@ -195,11 +198,11 @@ async def get_records_by_keyword(
     table_list = await get_resource(ctx, f"cache://ehr/ehr_data/{subject_id}/table_list.json")
     candidate_tables = await get_resource(ctx, f"cache://ehr/candidate_data/table_list.json")
     if df is None:
-        if table_name in candidate_tables:
+        if candidate_tables and table_name in candidate_tables:
             function_name = inspect.currentframe().f_code.co_name
             return f"Error: The tool `{function_name}` cannot be used to search the Candidate Table: `{table_name}`."
         else:
-            return f"Error: Table '{table_name}' not found in EHR Table list: {table_list}."
+            return f"Error: Table '{table_name}' not found in EHR Table list: {table_list}. Make sure to call load_ehr first."
 
     # 将关键词转换为小写，以进行不区分大小写的匹配
     search_keyword = keyword.lower()
@@ -256,11 +259,11 @@ async def get_records_by_value(
     table_list = await get_resource(ctx, f"cache://ehr/ehr_data/{subject_id}/table_list.json")
     candidate_tables = await get_resource(ctx, f"cache://ehr/candidate_data/table_list.json")
     if df is None:
-        if table_name in candidate_tables:
+        if candidate_tables and table_name in candidate_tables:
             function_name = inspect.currentframe().f_code.co_name
             return f"Error: The tool `{function_name}` cannot be used to search the Candidate Table: `{table_name}`."
         else:
-            return f"Error: Table '{table_name}' not found in EHR Table list: {table_list}."
+            return f"Error: Table '{table_name}' not found in EHR Table list: {table_list}. Make sure to call load_ehr first."
         
     if column_name not in df.columns:
         return f"Error: Column '{column_name}' not found in table '{table_name}'."
@@ -307,9 +310,12 @@ async def run_sql_query(
     try:
         record_list = await get_resource(ctx, f"cache://ehr/ehr_data/{subject_id}/table_list.json")
         candidate_list = await get_resource(ctx, f"cache://ehr/candidate_data/table_list.json")
-        if not record_list:
-             return f"Error: No tables found for subject_id {subject_id}."
 
+        if not record_list:
+            return f"Error: No tables found for subject_id {subject_id}. Please call load_ehr first."
+
+        # Ensure candidate_list is a list (it might be None)
+        candidate_list = candidate_list or []
         table_list = record_list + candidate_list
     except Exception as e:
         return f"Error retrieving table list: {str(e)}"

@@ -1,0 +1,3 @@
+{"qid": "ehr_real_001", "question": "Load patient 10211's EHR at timestamp 2100-01-01 00:00:00. What tables are available? Then get their admission records."}
+{"qid": "ehr_real_002", "question": "For patient 10266 at 2100-01-01 00:00:00, load their EHR and find all diagnoses using SQL. What are the top 3 most common diagnosis codes?"}
+{"qid": "ehr_real_003", "question": "Load patient 10278's EHR at 2100-01-01 00:00:00. Get records from prescriptions table between 2099-01-01 and 2100-01-01. What medications were prescribed?"}

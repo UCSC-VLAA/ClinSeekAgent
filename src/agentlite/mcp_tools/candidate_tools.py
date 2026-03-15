@@ -22,10 +22,14 @@ async def get_candidates_by_keyword(
     keyword: Annotated[str, Field(description="The keyword to search for (e.g., 'pneumonia', 'fever').")]
 ) -> str:
     candidate_tables = await get_resource(ctx, f"cache://ehr/candidate_data/table_list.json")
+
+    if candidate_tables is None:
+        return "Error: No candidate data loaded. Please call load_ehr first."
+
     if table_name in candidate_tables:
         df = await get_resource_df(ctx, f"cache://ehr/candidate_data/{table_name}.json")
     else:
-        return f"Error: Table '{table_name}' not found in EHR table list: {candidate_tables}."
+        return f"Error: Table '{table_name}' not found in candidate table list: {candidate_tables}."
     
     if "candidate" not in df.columns:
         return f"Error: Column 'candidate' not found in table '{table_name}'."
@@ -78,6 +82,10 @@ async def get_candidates_by_fuzzy_matching(
 
     df = await get_resource_df(ctx, f"cache://ehr/candidate_data/{table_name}.json")
     table_list = await get_resource(ctx, f"cache://ehr/candidate_data/table_list.json")
+
+    if table_list is None:
+        return "Error: No candidate data loaded. Please call load_ehr first."
+
     if df is None:
         return f"Error: Table '{table_name}' not found in candidate table list: {table_list}."
     
