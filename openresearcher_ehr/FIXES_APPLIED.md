@@ -328,7 +328,7 @@ cd /fsx-shared/juncheng/EHR
 /fsx-shared/juncheng/EHR/openresearcher_ehr/.venv/bin/python src/run_mcp_server.py \
     --mode http \
     --host 127.0.0.1 \
-    --port 5002 \
+    --port 5003 \
     --data_path ./data/MIMICIIIAgentBench
 ```
 
@@ -345,7 +345,7 @@ python deploy_agent.py \
     --bedrock_region us-west-2 \
     --browser_backend serper \
     --enable_ehr \
-    --ehr_mcp_url http://127.0.0.1:5002/mcp \
+    --ehr_mcp_url http://127.0.0.1:5003/mcp \
     --max_rounds 30 \
     --verbose
 ```
@@ -365,7 +365,7 @@ import asyncio
 from ehr_pool import EHRToolPool
 
 async def test():
-    pool = EHRToolPool("http://127.0.0.1:5002/mcp")
+    pool = EHRToolPool("http://127.0.0.1:5003/mcp")
     await pool.init_session("test")
 
     # All 5 tests should pass

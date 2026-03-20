@@ -115,9 +115,9 @@ def main():
     try:
         import httpx
         client = httpx.Client(timeout=3.0)
-        response = client.get("http://127.0.0.1:5002/mcp/health")
+        response = client.get("http://127.0.0.1:5003/mcp/health")
         if response.status_code == 200:
-            check_status("MCP Server Running", True, "http://127.0.0.1:5002/mcp")
+            check_status("MCP Server Running", True, "http://127.0.0.1:5003/mcp")
         else:
             check_status(
                 "MCP Server Running",
@@ -129,7 +129,7 @@ def main():
         check_status(
             "MCP Server Running",
             False,
-            "Start with: cd ../; python src/run_mcp_server.py --mode http --port 5002 --data_path ./data/EHRAgentBench"
+            "Start with: cd ../; python src/run_mcp_server.py --mode http --port 5003 --data_path ./data/EHRAgentBench"
         )
         all_passed = False
 
@@ -240,7 +240,7 @@ def main():
         print("\nCommon fixes:")
         print("  1. Install dependencies: pip install -r requirements.txt")
         print("  2. Configure AWS: aws configure")
-        print("  3. Start MCP server: cd ../; python src/run_mcp_server.py --mode http --port 5002 --data_path ./data/EHRAgentBench")
+        print("  3. Start MCP server: cd ../; python src/run_mcp_server.py --mode http --port 5003 --data_path ./data/EHRAgentBench")
         print("\nSee QUICKSTART.md for detailed setup instructions.")
 
     print("\n" + "="*70)

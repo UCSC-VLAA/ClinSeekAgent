@@ -17,11 +17,132 @@ import dotenv
 
 # Verbose flag
 VERBOSE = False
+DEFAULT_BEDROCK_MODEL_ID = "us.anthropic.claude-sonnet-4-6"
+MAX_PARALLEL_QUERIES = 10
 
 def vprint(*args, **kwargs):
     """Verbose print: only prints when VERBOSE is True."""
     if VERBOSE:
         print(*args, **kwargs)
+
+
+def normalize_browser_tool_args(tool_name: str, tool_args: Dict[str, Any]) -> Dict[str, Any]:
+    """Coerce numeric browser arguments that Bedrock may emit as strings."""
+    if not isinstance(tool_args, dict):
+        return tool_args
+
+    normalized = dict(tool_args)
+    int_fields_by_tool = {
+        "open": ("id", "cursor", "loc", "num_lines"),
+        "find": ("cursor",),
+        "search": ("topn", "top_n"),
+    }
+
+    for field in int_fields_by_tool.get(tool_name.lower(), ()):
+        value = normalized.get(field)
+        if not isinstance(value, str):
+            continue
+
+        cleaned = value.strip()
+        if field == "id" and len(cleaned) >= 2 and cleaned[0] == cleaned[-1] and cleaned[0] in {"'", '"'}:
+            cleaned = cleaned[1:-1].strip()
+
+        if cleaned.lstrip("-").isdigit():
+            normalized[field] = int(cleaned)
+        else:
+            normalized[field] = cleaned
+
+    return normalized
+
+
+def _validate_records(records: Any, data_path: str, source_format: str) -> List[Dict[str, Any]]:
+    if isinstance(records, dict):
+        records = [records]
+
+    if not isinstance(records, list):
+        raise ValueError(
+            f"{data_path} parsed as {source_format}, but the top-level value is {type(records).__name__}; "
+            "expected an object or a list of objects"
+        )
+
+    for idx, record in enumerate(records, start=1):
+        if not isinstance(record, dict):
+            raise ValueError(
+                f"{data_path} parsed as {source_format}, but item {idx} is {type(record).__name__}; "
+                "expected every record to be a JSON object"
+            )
+
+    return records
+
+
+def _load_json_records(raw_text: str, data_path: str) -> List[Dict[str, Any]]:
+    if not raw_text.strip():
+        return []
+    return _validate_records(json.loads(raw_text), data_path, "JSON")
+
+
+def _load_jsonl_records(raw_text: str, data_path: str) -> List[Dict[str, Any]]:
+    records = []
+    for line_number, line in enumerate(raw_text.splitlines(), start=1):
+        stripped = line.strip()
+        if not stripped:
+            continue
+
+        record = json.loads(stripped)
+        if not isinstance(record, dict):
+            raise ValueError(
+                f"{data_path} parsed as JSONL, but line {line_number} is {type(record).__name__}; "
+                "expected each line to be a JSON object"
+            )
+        records.append(record)
+
+    return records
+
+
+def load_query_data(data_path: str) -> List[Dict[str, Any]]:
+    with open(data_path, 'r', encoding='utf-8') as f:
+        raw_text = f.read()
+
+    extension = os.path.splitext(data_path)[1].lower()
+    loaders = {
+        ".json": [("JSON", _load_json_records), ("JSONL", _load_jsonl_records)],
+        ".jsonl": [("JSONL", _load_jsonl_records), ("JSON", _load_json_records)],
+    }.get(extension, [("JSON", _load_json_records), ("JSONL", _load_jsonl_records)])
+
+    errors = []
+    for format_name, loader in loaders:
+        try:
+            return loader(raw_text, data_path)
+        except Exception as exc:
+            errors.append(f"{format_name}: {exc}")
+
+    raise ValueError(
+        f"Unsupported input format for {data_path}. Expected a JSON object/list or JSONL records. "
+        + " | ".join(errors)
+    )
+
+
+def resolve_qid(item: Dict[str, Any]) -> str:
+    qid = item.get('qid') or item.get('query_id')
+    if qid:
+        return str(qid)
+
+    subject_id = item.get("subject_id")
+    hadm_id = item.get("hadm_id")
+    task = item.get("task")
+    if subject_id is not None and task:
+        if hadm_id is not None:
+            return f"{task}_{subject_id}_{hadm_id}"
+        return f"{task}_{subject_id}"
+    return "unknown"
+
+
+def resolve_question(item: Dict[str, Any]) -> str:
+    if 'question' in item or 'query' in item:
+        return item.get('question', item.get('query', ''))
+
+    from data_utils import generate_question_from_task
+    return generate_question_from_task(item)
 
 
 class BrowserPool:
@@ -54,6 +175,8 @@ class BrowserPool:
         recipient = recipient_map.get(tool_name.lower())
         if not recipient:
             return f"Unknown browser tool: {tool_name}"
+
+        tool_args = normalize_browser_tool_args(tool_name, tool_args)
 
         # Create Harmony message with JSON args
         from openai_harmony import TextContent, Message, Role
@@ -227,6 +350,10 @@ async def run_one_native(
                 print(f"[qid={qid}] ✅ Round {round_num}: Found 'Final Answer:' or 'Answer:' - DONE", flush=True)
                 break
 
+            if content.strip():
+                print(f"[qid={qid}] ✅ Round {round_num}: Assistant returned final text without more tool calls", flush=True)
+                break
+
             # No tool calls and no answer detected
             print(f"[qid={qid}] Round {round_num}: No tool calls, no answer detected — ending conversation", flush=True)
             break
@@ -243,6 +370,7 @@ async def run_one_native(
 async def run_one_query(
     question: str,
     qid: Any,
+    session_id: Any,
     generator: Any,
     browser_pool: BrowserPool,
     ehr_pool: EHRToolPool = None,
@@ -252,7 +380,7 @@ async def run_one_query(
     try:
         messages = await run_one_native(
             question=question,
-            qid=qid,
+            qid=session_id,
             generator=generator,
             browser_pool=browser_pool,
             ehr_pool=ehr_pool,
@@ -278,6 +406,65 @@ async def run_one_query(
         }
 
 
+async def process_query_item(
+    item: Dict[str, Any],
+    index: int,
+    total: int,
+    generator: Any,
+    browser_pool: BrowserPool,
+    ehr_pool: EHRToolPool,
+    max_rounds: int,
+    semaphore: asyncio.Semaphore,
+    out_f: Any,
+    output_file: str,
+    write_lock: asyncio.Lock,
+    pending_results: Dict[int, Dict[str, Any]],
+    write_state: Dict[str, int],
+) -> Dict[str, Any]:
+    qid = resolve_qid(item)
+    session_id = f"{qid}__run_{index}"
+
+    try:
+        question = resolve_question(item)
+
+        async with semaphore:
+            print(f"\n{'='*80}")
+            print(f"Processing {index}/{total} qid={qid}: {question[:100]}...")
+            print(f"{'='*80}")
+
+            result = await run_one_query(
+                question=question,
+                qid=qid,
+                session_id=session_id,
+                generator=generator,
+                browser_pool=browser_pool,
+                ehr_pool=ehr_pool,
+                max_rounds=max_rounds
+            )
+    except Exception as e:
+        print(f"[qid={qid}] ERROR before completion: {e}")
+        traceback.print_exc()
+        result = {
+            "qid": qid,
+            "question": item.get('question', item.get('query', '')),
+            "messages": [],
+            "status": "error",
+            "error": str(e)
+        }
+
+    async with write_lock:
+        pending_results[index] = result
+        while write_state["next_index"] in pending_results:
+            next_index = write_state["next_index"]
+            next_result = pending_results.pop(next_index)
+            out_f.write(json.dumps(next_result, ensure_ascii=False) + '\n')
+            out_f.flush()
+            print(f"[qid={next_result['qid']}] Result written to {output_file}")
+            write_state["next_index"] += 1
+
+    return result
+
+
 async def main():
     """Main entry point."""
     # Load environment variables
@@ -286,7 +473,7 @@ async def main():
     parser = argparse.ArgumentParser(description="OpenResearcher with EHR integration")
 
     # Model configuration
-    parser.add_argument("--model_name_or_path", type=str, default="us.anthropic.claude-sonnet-4-5-v1:0",
+    parser.add_argument("--model_name_or_path", type=str, default=DEFAULT_BEDROCK_MODEL_ID,
                         help="Model name or Bedrock model ID")
     parser.add_argument("--use_bedrock", action="store_true", default=True,
                         help="Use AWS Bedrock (default: True)")
@@ -304,25 +491,49 @@ async def main():
     # EHR configuration
     parser.add_argument("--enable_ehr", action="store_true",
                         help="Enable EHR tools integration")
-    parser.add_argument("--ehr_mcp_url", type=str, default="http://127.0.0.1:5002/mcp",
+    parser.add_argument("--ehr_mcp_url", type=str, default="http://127.0.0.1:5003/mcp",
                         help="EHR MCP server URL")
 
     # Data configuration
     parser.add_argument("--data_path", type=str, required=True,
-                        help="Path to JSONL file with questions")
+                        help="Path to questions file in JSON or JSONL format")
     parser.add_argument("--output_dir", type=str, default="./results",
                         help="Output directory for results")
 
     # Execution configuration
     parser.add_argument("--max_rounds", type=int, default=200,
                         help="Maximum conversation rounds")
+    parser.add_argument("--max_concurrency", type=int, default=MAX_PARALLEL_QUERIES,
+                        help=f"Maximum parallel queries (capped at {MAX_PARALLEL_QUERIES})")
     parser.add_argument("--verbose", action="store_true",
                         help="Enable verbose output")
 
     args = parser.parse_args()
+    browser_backend_explicit = "--browser_backend" in os.sys.argv
 
     global VERBOSE
     VERBOSE = args.verbose
+
+    if (
+        not browser_backend_explicit
+        and args.browser_backend == "local"
+        and os.getenv("SERPER_API_KEY")
+    ):
+        args.browser_backend = "serper"
+        print("SERPER_API_KEY detected; using Serper browser backend")
+
+    if args.browser_backend == "serper" and not os.getenv("SERPER_API_KEY"):
+        raise ValueError("SERPER_API_KEY is required when using --browser_backend serper")
+
+    if args.max_concurrency < 1:
+        raise ValueError("--max_concurrency must be at least 1")
+
+    concurrency = min(args.max_concurrency, MAX_PARALLEL_QUERIES)
+    if concurrency != args.max_concurrency:
+        print(
+            f"--max_concurrency={args.max_concurrency} exceeds limit; "
+            f"capping to {MAX_PARALLEL_QUERIES}"
+        )
 
     # Create output directory
     os.makedirs(args.output_dir, exist_ok=True)
@@ -351,45 +562,45 @@ async def main():
         print(f"EHR tools enabled: {args.ehr_mcp_url}")
 
     # Load data
-    data = []
-    with open(args.data_path, 'r', encoding='utf-8') as f:
-        for line in f:
-            data.append(json.loads(line))
+    data = load_query_data(args.data_path)
 
     print(f"Loaded {len(data)} queries from {args.data_path}")
+    print(f"Running with max concurrency: {concurrency}")
+
+    if hasattr(generator, '_init_tokenizer'):
+        await generator._init_tokenizer()
 
     # Process queries
     output_file = os.path.join(args.output_dir, "results.jsonl")
     with open(output_file, 'w', encoding='utf-8') as out_f:
-        for item in data:
-            qid = item.get('qid', item.get('query_id', 'unknown'))
+        semaphore = asyncio.Semaphore(concurrency)
+        write_lock = asyncio.Lock()
+        pending_results: Dict[int, Dict[str, Any]] = {}
+        write_state = {"next_index": 1}
 
-            # Generate question from task data if not present
-            if 'question' in item or 'query' in item:
-                question = item.get('question', item.get('query', ''))
-            else:
-                # Generate question from task data using original prompt template
-                from data_utils import generate_question_from_task
-                question = generate_question_from_task(item)
-
-            print(f"\n{'='*80}")
-            print(f"Processing qid={qid}: {question[:100]}...")
-            print(f"{'='*80}")
-
-            result = await run_one_query(
-                question=question,
-                qid=qid,
-                generator=generator,
-                browser_pool=browser_pool,
-                ehr_pool=ehr_pool,
-                max_rounds=args.max_rounds
+        tasks = [
+            asyncio.create_task(
+                process_query_item(
+                    item=item,
+                    index=index,
+                    total=len(data),
+                    generator=generator,
+                    browser_pool=browser_pool,
+                    ehr_pool=ehr_pool,
+                    max_rounds=args.max_rounds,
+                    semaphore=semaphore,
+                    out_f=out_f,
+                    output_file=output_file,
+                    write_lock=write_lock,
+                    pending_results=pending_results,
+                    write_state=write_state,
+                )
             )
+            for index, item in enumerate(data, start=1)
+        ]
 
-            # Write result
-            out_f.write(json.dumps(result, ensure_ascii=False) + '\n')
-            out_f.flush()
-
-            print(f"[qid={qid}] Result written to {output_file}")
+        if tasks:
+            await asyncio.gather(*tasks)
 
     print(f"\n✅ All queries processed. Results in {output_file}")
 

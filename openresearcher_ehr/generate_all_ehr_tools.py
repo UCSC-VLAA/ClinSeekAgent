@@ -210,10 +210,14 @@ EHR_TOOLS = [
                 "type": "object",
                 "properties": {
                     "table_name": {"type": "string"},
-                    "query": {"type": "string"},
-                    "top_k": {"type": "integer", "default": 10}
+                    "keywords": {
+                        "anyOf": [
+                            {"type": "string"},
+                            {"type": "array", "items": {"type": "string"}}
+                        ]
+                    }
                 },
-                "required": ["table_name", "query"]
+                "required": ["table_name", "keywords"]
             }
         }
     },
@@ -226,8 +230,12 @@ EHR_TOOLS = [
                 "type": "object",
                 "properties": {
                     "table_name": {"type": "string"},
-                    "query": {"type": "string"},
-                    "top_k": {"type": "integer", "default": 10}
+                    "query": {
+                        "anyOf": [
+                            {"type": "string"},
+                            {"type": "array", "items": {"type": "string"}}
+                        ]
+                    }
                 },
                 "required": ["table_name", "query"]
             }

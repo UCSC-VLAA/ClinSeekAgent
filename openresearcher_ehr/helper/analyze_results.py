@@ -148,11 +148,12 @@ def analyze_results(results_file):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("Usage: python analyze_results.py <results.jsonl>")
-        print("\nExample:")
-        print("  python analyze_results.py ./test_results_opus/results.jsonl")
-        sys.exit(1)
+    # if len(sys.argv) < 2:
+    #     print("Usage: python analyze_results.py <results.jsonl>")
+    #     print("\nExample:")
+    #     print("  python analyze_results.py ./test_results_opus/results.jsonl")
+    #     sys.exit(1)
 
-    results_file = sys.argv[1]
+    # results_file = sys.argv[1]
+    results_file = '/home/efs/zlt/deepresearch/openresearcher_ehr/diagnoses_ccs_500_serper_results_fixed_20260316_2125/results.jsonl'
     analyze_results(results_file)

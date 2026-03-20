@@ -247,14 +247,14 @@ source openresearcher_ehr/.venv/bin/activate
 python src/run_mcp_server.py \
     --mode http \
     --host 127.0.0.1 \
-    --port 5002 \
+    --port 5003 \
     --data_path ./data/MIMICIIIAgentBench/database
 
 # Option 2: With MIMIC-IV data (when download completes)
 python src/run_mcp_server.py \
     --mode http \
     --host 127.0.0.1 \
-    --port 5002 \
+    --port 5003 \
     --data_path ./data/EHRAgentBench
 ```
 
@@ -275,7 +275,7 @@ python deploy_agent.py \
     --bedrock_region us-west-2 \
     --browser_backend serper \
     --enable_ehr \
-    --ehr_mcp_url http://127.0.0.1:5002/mcp \
+    --ehr_mcp_url http://127.0.0.1:5003/mcp \
     --max_rounds 50 \
     --verbose
 ```
@@ -441,7 +441,7 @@ Some queries may return large datasets (>10K rows)
 
 ### Issue: MCP Server Won't Start
 
-**Symptoms**: `Connection refused` when testing http://127.0.0.1:5002
+**Symptoms**: `Connection refused` when testing http://127.0.0.1:5003
 
 **Causes**:
 1. Port already in use
@@ -454,13 +454,13 @@ Some queries may return large datasets (>10K rows)
 pkill -f run_mcp_server.py
 
 # Check port
-lsof -i :5002
+lsof -i :5003
 
 # Verify database path
 ls ./data/MIMICIIIAgentBench/database/*.db
 
 # Start with explicit path
-python src/run_mcp_server.py --mode http --port 5002 --data_path $(pwd)/data/MIMICIIIAgentBench/database
+python src/run_mcp_server.py --mode http --port 5003 --data_path $(pwd)/data/MIMICIIIAgentBench/database
 ```
 
 ---
@@ -481,7 +481,7 @@ grep "TOOL_CALL" ./results_full_test/*.log | head -20
 
 **Check 3: Test MCP server directly**
 ```bash
-curl -X POST http://127.0.0.1:5002/mcp/tools/call \
+curl -X POST http://127.0.0.1:5003/mcp/tools/call \
   -H "Content-Type: application/json" \
   -d '{"name": "get_table_names", "arguments": {"subject_id": "10211"}}'
 ```

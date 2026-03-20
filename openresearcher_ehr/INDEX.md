@@ -100,7 +100,7 @@ python deploy_agent.py \
     --data_path test_queries_ehr.jsonl \
     --output_dir ./results \
     --enable_ehr \
-    --ehr_mcp_url http://127.0.0.1:5002/mcp
+    --ehr_mcp_url http://127.0.0.1:5003/mcp
 ```
 
 ### Programmatic
@@ -111,7 +111,7 @@ python example_usage.py
 ## Prerequisites
 
 1. **AWS Credentials**: `aws configure` (for Bedrock)
-2. **EHR MCP Server**: Running at `http://127.0.0.1:5002/mcp`
+2. **EHR MCP Server**: Running at `http://127.0.0.1:5003/mcp`
 3. **Python Packages**: `pip install -r requirements.txt`
 4. **Optional**: Serper API key for web search
 
@@ -161,7 +161,7 @@ openresearcher_ehr/
 
 | Component | Status | Notes |
 |-----------|--------|-------|
-| EHR MCP Server | ✅ Integrated | HTTP at port 5002 |
+| EHR MCP Server | ✅ Integrated | HTTP at port 5003 |
 | Browser Tools | ✅ Integrated | 3 tools from OpenResearcher |
 | AWS Bedrock | ✅ Integrated | Claude Sonnet 4.5 |
 | Tool Routing | ✅ Complete | Prefix-based dispatch |

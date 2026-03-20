@@ -27,7 +27,7 @@ cd /fsx-shared/juncheng/EHR
 python src/run_mcp_server.py \
     --mode http \
     --host 127.0.0.1 \
-    --port 5002 \
+    --port 5003 \
     --data_path ./data/EHRAgentBench
 ```
 
@@ -61,7 +61,7 @@ python deploy_agent.py \
     --data_path ehr_query.jsonl \
     --output_dir ./ehr_results \
     --enable_ehr \
-    --ehr_mcp_url http://127.0.0.1:5002/mcp \
+    --ehr_mcp_url http://127.0.0.1:5003/mcp \
     --verbose
 ```
 
@@ -173,7 +173,7 @@ aws configure
 ```bash
 # Solution: Start the EHR MCP server
 cd /fsx-shared/juncheng/EHR
-python src/run_mcp_server.py --mode http --port 5002 --data_path ./data/EHRAgentBench
+python src/run_mcp_server.py --mode http --port 5003 --data_path ./data/EHRAgentBench
 ```
 
 **Issue: "Module not found: openai_harmony"**

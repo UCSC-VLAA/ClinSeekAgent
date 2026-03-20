@@ -7,7 +7,7 @@ set -e
 OUTPUT_DIR="./test_results"
 MODEL="us.anthropic.claude-sonnet-4-5-v1:0"  # Bedrock model ID
 SEARCH_URL="http://localhost:8001"  # Local search backend (or use Serper)
-EHR_MCP_URL="http://127.0.0.1:5002/mcp"  # EHR MCP server
+EHR_MCP_URL="http://127.0.0.1:5003/mcp"  # EHR MCP server
 EHR_DATA_PATH="../data/EHRAgentBench"
 
 mkdir -p $OUTPUT_DIR
@@ -27,7 +27,7 @@ else
     nohup python src/run_mcp_server.py \
         --mode http \
         --host 127.0.0.1 \
-        --port 5002 \
+        --port 5003 \
         --data_path $EHR_DATA_PATH > $OUTPUT_DIR/ehr_server.log 2>&1 &
     EHR_PID=$!
     echo "Started EHR MCP server (PID: $EHR_PID)"

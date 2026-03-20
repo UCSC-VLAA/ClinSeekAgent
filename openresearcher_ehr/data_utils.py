@@ -684,17 +684,23 @@ EHR_TOOL_CONTENT_JSON = '''
           "table_name": {
             "type": "string"
           },
-          "query": {
-            "type": "string"
-          },
-          "top_k": {
-            "type": "integer",
-            "default": 10
+          "keywords": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            ]
           }
         },
         "required": [
           "table_name",
-          "query"
+          "keywords"
         ]
       }
     }
@@ -711,11 +717,17 @@ EHR_TOOL_CONTENT_JSON = '''
             "type": "string"
           },
           "query": {
-            "type": "string"
-          },
-          "top_k": {
-            "type": "integer",
-            "default": 10
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            ]
           }
         },
         "required": [

@@ -21,6 +21,7 @@ smoke_results/
 my_results/
 ehr_results/
 hybrid_results/
+diagnoses_ccs_500*/
 
 # IDE
 .vscode/

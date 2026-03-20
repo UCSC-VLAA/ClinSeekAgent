@@ -180,7 +180,7 @@ Successfully created a subfolder integration that combines **OpenResearcher's we
 - **MCP Server**: `/fsx-shared/juncheng/EHR/src/run_mcp_server.py`
 - **MCP Tools**: `/fsx-shared/juncheng/EHR/src/agentlite/mcp_tools/`
 - **Data**: `/fsx-shared/juncheng/EHR/data/EHRAgentBench/`
-- **Connection**: HTTP at `http://127.0.0.1:5002/mcp`
+- **Connection**: HTTP at `http://127.0.0.1:5003/mcp`
 
 ### With OpenResearcher
 - **Browser tools**: `browser.py` copied from OpenResearcher
@@ -230,10 +230,10 @@ python -c "import httpx, boto3; print('✅ Dependencies OK')"
 ```bash
 # Start server
 cd /fsx-shared/juncheng/EHR
-python src/run_mcp_server.py --mode http --port 5002 --data_path ./data/EHRAgentBench &
+python src/run_mcp_server.py --mode http --port 5003 --data_path ./data/EHRAgentBench &
 
 # Test connection
-curl http://127.0.0.1:5002/mcp/health
+curl http://127.0.0.1:5003/mcp/health
 ```
 
 ### 4. Quick Smoke Test
@@ -280,7 +280,7 @@ python deploy_agent.py \
     --data_path test_queries_hybrid.jsonl \
     --output_dir ./results \
     --enable_ehr \
-    --ehr_mcp_url http://127.0.0.1:5002/mcp
+    --ehr_mcp_url http://127.0.0.1:5003/mcp
 ```
 
 ### Programmatic

@@ -6,12 +6,12 @@ in your own Python code.
 """
 import asyncio
 import sys
-sys.path.append('/fsx-shared/juncheng/OpenResearcher')
+sys.path.append('/home/efs/zlt/deepresearch/openresearcher_ehr')
 
 from browser import LocalServiceBrowserBackend, SerperServiceBrowserBackend
 from ehr_pool import EHRToolPool
 from deploy_agent import BrowserPool, run_one_native
-from utils.bedrock_generator import BedrockAsyncGenerator
+from bedrock_generator import BedrockAsyncGenerator
 
 
 async def example_web_only():
@@ -22,7 +22,7 @@ async def example_web_only():
 
     # Initialize generator
     generator = BedrockAsyncGenerator(
-        model_id="us.anthropic.claude-sonnet-4-5-v1:0",
+        model_id="us.anthropic.claude-opus-4-6-v1",
         region_name="us-west-2",
         max_tokens_default=8192
     )
@@ -58,7 +58,7 @@ async def example_ehr_only():
 
     # Initialize generator
     generator = BedrockAsyncGenerator(
-        model_id="us.anthropic.claude-sonnet-4-5-v1:0",
+        model_id="us.anthropic.claude-opus-4-6-v1",
         region_name="us-west-2"
     )
 
@@ -69,7 +69,7 @@ async def example_ehr_only():
     )
 
     ehr_pool = EHRToolPool(
-        mcp_url="http://127.0.0.1:5002/mcp"
+        mcp_url="http://127.0.0.1:5003/mcp"
     )
 
     # Run query
@@ -102,7 +102,7 @@ async def example_hybrid():
 
     # Initialize generator
     generator = BedrockAsyncGenerator(
-        model_id="us.anthropic.claude-sonnet-4-5-v1:0",
+        model_id="us.anthropic.claude-opus-4-6-v1",
         region_name="us-west-2"
     )
 
@@ -113,7 +113,7 @@ async def example_hybrid():
     )
 
     ehr_pool = EHRToolPool(
-        mcp_url="http://127.0.0.1:5002/mcp"
+        mcp_url="http://127.0.0.1:5003/mcp"
     )
 
     # Run query
@@ -147,7 +147,7 @@ async def example_custom_workflow():
 
     # Initialize generator
     generator = BedrockAsyncGenerator(
-        model_id="us.anthropic.claude-sonnet-4-5-v1:0",
+        model_id="us.anthropic.claude-opus-4-6-v1",
         region_name="us-west-2"
     )
 
@@ -157,7 +157,7 @@ async def example_custom_workflow():
     )
 
     ehr_pool = EHRToolPool(
-        mcp_url="http://127.0.0.1:5002/mcp"
+        mcp_url="http://127.0.0.1:5003/mcp"
     )
 
     # Process multiple patients
@@ -240,7 +240,7 @@ if __name__ == "__main__":
     # Prerequisites check
     print("Prerequisites:")
     print("1. AWS credentials configured (aws configure)")
-    print("2. EHR MCP server running at http://127.0.0.1:5002/mcp")
+    print("2. EHR MCP server running at http://127.0.0.1:5003/mcp")
     print("3. SERPER_API_KEY environment variable set (for web search)")
     print()
 
@@ -250,5 +250,5 @@ if __name__ == "__main__":
     else:
         print("\nPlease complete prerequisites first:")
         print("  - aws configure")
-        print("  - python /fsx-shared/juncheng/EHR/src/run_mcp_server.py --mode http --port 5002 ...")
+        print("  - python /fsx-shared/juncheng/EHR/src/run_mcp_server.py --mode http --port 5003 ...")
         print("  - export SERPER_API_KEY=your_key")

@@ -64,7 +64,7 @@ cd /fsx-shared/juncheng/EHR
 python src/run_mcp_server.py \
     --mode http \
     --host 127.0.0.1 \
-    --port 5002 \
+    --port 5003 \
     --data_path ./data/EHRAgentBench
 ```
 
@@ -92,7 +92,7 @@ python deploy_agent.py \
     --data_path test_queries_hybrid.jsonl \
     --output_dir ./results \
     --enable_ehr \
-    --ehr_mcp_url http://127.0.0.1:5002/mcp \
+    --ehr_mcp_url http://127.0.0.1:5003/mcp \
     --verbose
 ```
 
@@ -110,7 +110,7 @@ python deploy_agent.py \
 
 **EHR Configuration:**
 - `--enable_ehr`: Enable EHR tools (required for clinical queries)
-- `--ehr_mcp_url`: MCP server URL (default: http://127.0.0.1:5002/mcp)
+- `--ehr_mcp_url`: MCP server URL (default: http://127.0.0.1:5003/mcp)
 
 **Data Configuration:**
 - `--data_path`: Path to JSONL file with questions (required)
@@ -243,7 +243,7 @@ Error: HTTP Error 404: Not Found
 **Solution:** Start the EHR MCP server:
 ```bash
 cd /fsx-shared/juncheng/EHR
-python src/run_mcp_server.py --mode http --host 127.0.0.1 --port 5002 --data_path ./data/EHRAgentBench
+python src/run_mcp_server.py --mode http --host 127.0.0.1 --port 5003 --data_path ./data/EHRAgentBench
 ```
 
 ### AWS Credentials Error
