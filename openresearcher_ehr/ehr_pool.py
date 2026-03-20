@@ -287,6 +287,10 @@ class EHRToolPool:
     async def cleanup(self, qid: Any):
         """Cleanup session (remove from tracking)."""
         if qid in self.sessions:
+            try:
+                await self._call_mcp_tool(qid, "clear_session_ehr", {})
+            except Exception:
+                pass
             del self.sessions[qid]
 
     async def close(self):

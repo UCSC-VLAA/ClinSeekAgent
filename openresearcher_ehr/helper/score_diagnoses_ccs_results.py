@@ -8,12 +8,10 @@ from pathlib import Path
 
 
 DEFAULT_RESULTS = (
-    "/home/efs/zlt/deepresearch/openresearcher_ehr/"
-    "diagnoses_ccs_500_serper_results_fixed_20260316_2125/results.jsonl"
+    "/home/efs/zlt/deepresearch/openresearcher_ehr/diagnoses_ccs_500_results/results.jsonl"
 )
 DEFAULT_BENCHMARK = (
-    "/home/efs/zlt/deepresearch/data/EHRAgentBench/common/"
-    "diagnoses_ccs_500.json"
+    "/home/efs/zlt/deepresearch/data/EHRAgentBench/common/diagnoses_ccs_500.json"
 )
 
 
@@ -155,24 +153,29 @@ def load_results(results_path):
     return grouped_results
 
 
-def summarize_scores(task_scores_by_qid, total_result_runs):
+def summarize_scores(completed_task_scores_by_qid, total_result_runs, total_task_count):
     metric_names = ["f1_score", "precision", "recall", "exact_match"]
     summary = {
         "sample_num": total_result_runs,
-        "task_num": len(task_scores_by_qid),
+        "task_num": total_task_count,
+        "completed_task_num": len(completed_task_scores_by_qid),
+        "score_denominator": "completed_task_num",
         "score": {"avg": {}, "max": {}},
     }
-
-    max_runs = max(len(task_scores) for task_scores in task_scores_by_qid.values())
 
     for metric in metric_names:
         summary["score"]["avg"][metric] = 0.0
         summary["score"]["max"][metric] = 0.0
 
+    if not completed_task_scores_by_qid:
+        return summary
+
+    max_runs = max(len(task_scores) for task_scores in completed_task_scores_by_qid.values())
+
     for k in range(1, max_runs + 1):
         summary["score"][f"best@{k}"] = {metric: 0.0 for metric in metric_names}
 
-    for task_scores in task_scores_by_qid.values():
+    for task_scores in completed_task_scores_by_qid.values():
         for metric in metric_names:
             values = [score[metric] for score in task_scores]
             summary["score"]["avg"][metric] += sum(values) / len(values)
@@ -183,7 +186,7 @@ def summarize_scores(task_scores_by_qid, total_result_runs):
                     task_scores, k, metric
                 )
 
-    task_count = len(task_scores_by_qid)
+    task_count = len(completed_task_scores_by_qid)
     for score_type, metrics in summary["score"].items():
         for metric, value in metrics.items():
             metrics[metric] = value / task_count if task_count else 0.0
@@ -199,7 +202,7 @@ def evaluate(results_path, benchmark_path):
     missing_qids = sorted(set(benchmark_by_qid) - set(results_by_qid))
     extra_qids = sorted(set(results_by_qid) - set(benchmark_by_qid))
 
-    task_scores_by_qid = {}
+    completed_task_scores_by_qid = {}
     task_details = []
 
     for qid, benchmark_item in benchmark_by_qid.items():
@@ -240,8 +243,8 @@ def evaluate(results_path, benchmark_path):
                         "score": score,
                     }
                 )
+            completed_task_scores_by_qid[qid] = task_scores
 
-        task_scores_by_qid[qid] = task_scores
         task_details.append(
             {
                 "qid": qid,
@@ -265,17 +268,32 @@ def evaluate(results_path, benchmark_path):
             }
         )
 
-    summary = summarize_scores(task_scores_by_qid, total_result_runs)
+    summary = summarize_scores(
+        completed_task_scores_by_qid,
+        total_result_runs,
+        len(benchmark_by_qid),
+    )
     summary["info"] = {
         "results_file": str(results_path),
         "benchmark_file": str(benchmark_path),
         "matched_task_count": len(benchmark_by_qid) - len(missing_qids),
+        "completed_task_count": len(completed_task_scores_by_qid),
         "missing_task_count": len(missing_qids),
+        "task_coverage": (
+            len(completed_task_scores_by_qid) / len(benchmark_by_qid)
+            if benchmark_by_qid
+            else 0.0
+        ),
         "extra_result_count": len(extra_qids),
         "missing_qids": missing_qids,
         "extra_qids": extra_qids,
         "avg_runs_per_task": (
             total_result_runs / len(benchmark_by_qid) if benchmark_by_qid else 0.0
+        ),
+        "avg_runs_per_completed_task": (
+            total_result_runs / len(completed_task_scores_by_qid)
+            if completed_task_scores_by_qid
+            else 0.0
         ),
         "max_runs_per_task": max(len(items) for items in results_by_qid.values())
         if results_by_qid
@@ -336,8 +354,11 @@ def main():
     print(f"Summary written to: {output_path}")
     print(f"Per-task details written to: {details_output_path}")
     print(f"Benchmark tasks: {summary['task_num']}")
+    print(f"Completed tasks: {summary['completed_task_num']}")
     print(f"Result runs: {summary['sample_num']}")
     print(f"Missing tasks: {summary['info']['missing_task_count']}")
+    print(f"Task coverage: {summary['info']['task_coverage']:.6f}")
+    print(f"Score denominator: {summary['score_denominator']}")
     print(f"Extra result qids: {summary['info']['extra_result_count']}")
     print(f"avg precision: {avg_score['precision']:.6f}")
     print(f"avg recall: {avg_score['recall']:.6f}")

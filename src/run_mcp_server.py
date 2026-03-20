@@ -11,6 +11,12 @@ from fastmcp import FastMCP, Context
 from fastmcp.resources import TextResource, BinaryResource
 from agentlite.commons import EHRManager
 from agentlite.commons.fastmcp import mcp
+from agentlite.mcp_tools.tool_utils import (
+    SESSION_EHR_DATA_KEY,
+    SESSION_EHR_TABLE_NAMES_KEY,
+    SESSION_EHR_SUBJECT_ID_KEY,
+    SESSION_EHR_TIMESTAMP_KEY,
+)
 
 def get_parser():
     import argparse
@@ -23,6 +29,8 @@ def get_parser():
 
 args = get_parser()
 ehr_manager = EHRManager(args.data_path)
+load_ehr_lock = asyncio.Lock()
+ehr_session_store = {}
 
 @mcp.resource("cache://ehr/ehr_data/{subject_id}/{table_name}.json")
 async def get_ehr_table_resource(subject_id: str, table_name: str):
@@ -68,7 +76,8 @@ async def get_descriptions_resource():
     name="load_ehr",
     description="Load the ehr data for the given subject_id and current_timestamp. This action should be taken once at the beginning of each task.",
 )
-def load_ehr(
+async def load_ehr(
+    ctx: Context,
     subject_id: Annotated[str, Field(description="The unique identifier for the patient whose EHR database needs to be loaded (e.g., '10000032').")],
     timestamp: Annotated[str, Field(description="The current timestamp in 'YYYY-MM-DD HH:MM:SS' format (e.g., '2150-12-01 10:00:00').")]
 ) -> str:
@@ -81,10 +90,35 @@ def load_ehr(
         str: Success or error message.
     """
     try:
-        load_log = ehr_manager.load_ehr_for_sample(subject_id, timestamp)
+        # EHRManager keeps patient tables in a mutable process-global dict, so
+        # concurrent load_ehr calls must snapshot sequentially before handing
+        # the data off to session-local state.
+        async with load_ehr_lock:
+            load_log = ehr_manager.load_ehr_for_sample(subject_id, timestamp)
+            session_ehr_data = ehr_manager.get_ehr_data_json()
+            session_table_names = list(ehr_manager.ehr_data.keys())
+
+        ehr_session_store[ctx.session_id] = {
+            SESSION_EHR_SUBJECT_ID_KEY: subject_id,
+            SESSION_EHR_TIMESTAMP_KEY: timestamp,
+            SESSION_EHR_DATA_KEY: session_ehr_data,
+            SESSION_EHR_TABLE_NAMES_KEY: session_table_names,
+        }
         return load_log
     except Exception as e:
         return f"An error occurred while loading EHR database: {str(e)}"
+
+
+@mcp.tool(
+    name="clear_session_ehr",
+    description="Clear the currently loaded session-scoped EHR snapshot for the active MCP session.",
+)
+async def clear_session_ehr(ctx: Context) -> str:
+    """Clear the session-local EHR snapshot for the current MCP session."""
+    removed = ehr_session_store.pop(ctx.session_id, None)
+    if removed is None:
+        return "No session EHR snapshot found."
+    return "Session EHR snapshot cleared."
         
 # import agentlite.action_tools.mcp_tools
 import agentlite.mcp_tools.table_tools

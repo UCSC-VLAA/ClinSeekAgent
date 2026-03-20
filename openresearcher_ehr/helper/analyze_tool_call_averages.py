@@ -141,7 +141,7 @@ def main():
     parser.add_argument(
         "--results_file",
         help="Path to results.jsonl",
-        default="/home/efs/zlt/deepresearch/openresearcher_ehr/diagnoses_ccs_500_serper_results_fixed_20260316_2125/results.jsonl",
+        default="/home/efs/zlt/deepresearch/openresearcher_ehr/diagnoses_ccs_500_results/results.jsonl",
     )
     parser.add_argument(
         "--output_file",
