@@ -22,6 +22,7 @@ my_results/
 ehr_results/
 hybrid_results/
 diagnoses_ccs_500*/
+experiment_logs/
 
 # IDE
 .vscode/
