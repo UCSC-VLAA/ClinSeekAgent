@@ -4,7 +4,7 @@
 # cd "$(dirname "$0")/../.." || exit 1
 
 GPU_ID=${1:-0}
-PORT=${2:-5003}
+PORT=${2:-5103}
 DATA_PATH="/home/efs/zlt/deepresearch/data/EHRAgentBench"
 HOST=127.0.0.1
 

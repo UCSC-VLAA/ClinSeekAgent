@@ -11,7 +11,7 @@ from pathlib import Path
 
 DEFAULT_RESULTS = Path(
     "/home/efs/zlt/deepresearch/openresearcher_ehr/"
-    "diagnoses_ccs_500_serper_results_fixed_20260316_2125/results.jsonl"
+    "diagnoses_ccs_500_results/results.jsonl"
 )
 DEFAULT_BENCHMARK = Path(
     "/home/efs/zlt/deepresearch/data/EHRAgentBench/common/diagnoses_ccs_500.json"

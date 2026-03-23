@@ -18,12 +18,41 @@ import dotenv
 # Verbose flag
 VERBOSE = False
 DEFAULT_BEDROCK_MODEL_ID = "us.anthropic.claude-sonnet-4-6"
+DEFAULT_BEDROCK_REGION = "us-east-1"
 MAX_PARALLEL_QUERIES = 10
+
+BEDROCK_MODEL_ALIASES = {
+    "anthropic.claude-sonnet-4-6": "us.anthropic.claude-sonnet-4-6",
+}
 
 def vprint(*args, **kwargs):
     """Verbose print: only prints when VERBOSE is True."""
     if VERBOSE:
         print(*args, **kwargs)
+
+
+def mask_secret(secret: str) -> str:
+    if len(secret) <= 8:
+        return "*" * len(secret)
+    return f"{secret[:6]}...{secret[-4:]}"
+
+
+def configure_bedrock_auth(api_key: str | None) -> str | None:
+    token = (
+        api_key
+        or os.getenv("BEDROCK_API_KEY")
+        or os.getenv("AWS_BEARER_TOKEN_BEDROCK")
+    )
+    if not token:
+        return None
+
+    os.environ["BEDROCK_API_KEY"] = token
+    os.environ["AWS_BEARER_TOKEN_BEDROCK"] = token
+    return token
+
+
+def resolve_bedrock_model_id(model_id: str) -> str:
+    return BEDROCK_MODEL_ALIASES.get(model_id, model_id)
 
 
 def normalize_browser_tool_args(tool_name: str, tool_args: Dict[str, Any]) -> Dict[str, Any]:
@@ -371,6 +400,8 @@ async def run_one_query(
     question: str,
     qid: Any,
     session_id: Any,
+    run_index: int,
+    runs_per_question: int,
     generator: Any,
     browser_pool: BrowserPool,
     ehr_pool: EHRToolPool = None,
@@ -389,6 +420,9 @@ async def run_one_query(
 
         return {
             "qid": qid,
+            "run_index": run_index,
+            "runs_per_question": runs_per_question,
+            "session_id": session_id,
             "question": question,
             "messages": messages,
             "status": "success"
@@ -399,6 +433,9 @@ async def run_one_query(
         traceback.print_exc()
         return {
             "qid": qid,
+            "run_index": run_index,
+            "runs_per_question": runs_per_question,
+            "session_id": session_id,
             "question": question,
             "messages": [],
             "status": "error",
@@ -408,8 +445,12 @@ async def run_one_query(
 
 async def process_query_item(
     item: Dict[str, Any],
-    index: int,
-    total: int,
+    task_index: int,
+    total_task_runs: int,
+    question_index: int,
+    total_questions: int,
+    run_index: int,
+    runs_per_question: int,
     generator: Any,
     browser_pool: BrowserPool,
     ehr_pool: EHRToolPool,
@@ -418,24 +459,29 @@ async def process_query_item(
     out_f: Any,
     output_file: str,
     write_lock: asyncio.Lock,
-    pending_results: Dict[int, Dict[str, Any]],
-    write_state: Dict[str, int],
 ) -> Dict[str, Any]:
     qid = resolve_qid(item)
-    session_id = f"{qid}__run_{index}"
+    session_id = f"{qid}__q_{question_index}__run_{run_index}"
 
     try:
         question = resolve_question(item)
 
         async with semaphore:
             print(f"\n{'='*80}")
-            print(f"Processing {index}/{total} qid={qid}: {question[:100]}...")
+            print(
+                f"Processing task {task_index}/{total_task_runs} | "
+                f"question {question_index}/{total_questions} | "
+                f"run {run_index}/{runs_per_question} | "
+                f"qid={qid}: {question[:100]}..."
+            )
             print(f"{'='*80}")
 
             result = await run_one_query(
                 question=question,
                 qid=qid,
                 session_id=session_id,
+                run_index=run_index,
+                runs_per_question=runs_per_question,
                 generator=generator,
                 browser_pool=browser_pool,
                 ehr_pool=ehr_pool,
@@ -446,6 +492,9 @@ async def process_query_item(
         traceback.print_exc()
         result = {
             "qid": qid,
+            "run_index": run_index,
+            "runs_per_question": runs_per_question,
+            "session_id": session_id,
             "question": item.get('question', item.get('query', '')),
             "messages": [],
             "status": "error",
@@ -453,14 +502,14 @@ async def process_query_item(
         }
 
     async with write_lock:
-        pending_results[index] = result
-        while write_state["next_index"] in pending_results:
-            next_index = write_state["next_index"]
-            next_result = pending_results.pop(next_index)
-            out_f.write(json.dumps(next_result, ensure_ascii=False) + '\n')
-            out_f.flush()
-            print(f"[qid={next_result['qid']}] Result written to {output_file}")
-            write_state["next_index"] += 1
+        out_f.write(json.dumps(result, ensure_ascii=False) + '\n')
+        out_f.flush()
+        print(
+            f"[qid={result['qid']}] "
+            f"task {task_index}/{total_task_runs} | "
+            f"run {result.get('run_index', '?')}/{result.get('runs_per_question', '?')} "
+            f"written to {output_file}"
+        )
 
     return result
 
@@ -479,8 +528,10 @@ async def main():
                         help="Use AWS Bedrock (default: True)")
     parser.add_argument("--bedrock_model_id", type=str, default=None,
                         help="Bedrock model ID (overrides model_name_or_path)")
-    parser.add_argument("--bedrock_region", type=str, default="us-west-2",
+    parser.add_argument("--bedrock_region", type=str, default=DEFAULT_BEDROCK_REGION,
                         help="AWS Bedrock region")
+    parser.add_argument("--bedrock_api_key", type=str, default=None,
+                        help="Bedrock bearer token / API key")
 
     # Browser configuration
     parser.add_argument("--search_url", type=str, default="http://localhost:8001",
@@ -503,6 +554,8 @@ async def main():
     # Execution configuration
     parser.add_argument("--max_rounds", type=int, default=200,
                         help="Maximum conversation rounds")
+    parser.add_argument("--runs_per_question", type=int, default=1,
+                        help="Number of independent runs to execute for each question")
     parser.add_argument("--max_concurrency", type=int, default=MAX_PARALLEL_QUERIES,
                         help=f"Maximum parallel queries (capped at {MAX_PARALLEL_QUERIES})")
     parser.add_argument("--verbose", action="store_true",
@@ -528,6 +581,9 @@ async def main():
     if args.max_concurrency < 1:
         raise ValueError("--max_concurrency must be at least 1")
 
+    if args.runs_per_question < 1:
+        raise ValueError("--runs_per_question must be at least 1")
+
     concurrency = min(args.max_concurrency, MAX_PARALLEL_QUERIES)
     if concurrency != args.max_concurrency:
         print(
@@ -543,12 +599,21 @@ async def main():
         # Import Bedrock generator (local copy to avoid vllm dependency)
         from bedrock_generator import BedrockAsyncGenerator
 
+        bedrock_api_key = configure_bedrock_auth(args.bedrock_api_key)
+        resolved_model_id = resolve_bedrock_model_id(
+            args.bedrock_model_id or args.model_name_or_path
+        )
+
         generator = BedrockAsyncGenerator(
-            model_id=args.bedrock_model_id or args.model_name_or_path,
+            model_id=resolved_model_id,
             region_name=args.bedrock_region,
             max_tokens_default=8192
         )
-        print(f"Using AWS Bedrock: {generator.model_id}")
+        if bedrock_api_key:
+            print(f"Using Bedrock bearer token auth: {mask_secret(bedrock_api_key)}")
+        else:
+            print("Using default AWS credential chain for Bedrock auth")
+        print(f"Using AWS Bedrock: {generator.model_id} @ {args.bedrock_region}")
     else:
         raise NotImplementedError("Only Bedrock is supported in this version")
 
@@ -563,8 +628,13 @@ async def main():
 
     # Load data
     data = load_query_data(args.data_path)
+    total_task_runs = len(data) * args.runs_per_question
 
     print(f"Loaded {len(data)} queries from {args.data_path}")
+    print(
+        f"Running {args.runs_per_question} run(s) per query "
+        f"({total_task_runs} total runs)"
+    )
     print(f"Running with max concurrency: {concurrency}")
 
     if hasattr(generator, '_init_tokenizer'):
@@ -575,29 +645,33 @@ async def main():
     with open(output_file, 'w', encoding='utf-8') as out_f:
         semaphore = asyncio.Semaphore(concurrency)
         write_lock = asyncio.Lock()
-        pending_results: Dict[int, Dict[str, Any]] = {}
-        write_state = {"next_index": 1}
+        tasks = []
+        task_index = 1
 
-        tasks = [
-            asyncio.create_task(
-                process_query_item(
-                    item=item,
-                    index=index,
-                    total=len(data),
-                    generator=generator,
-                    browser_pool=browser_pool,
-                    ehr_pool=ehr_pool,
-                    max_rounds=args.max_rounds,
-                    semaphore=semaphore,
-                    out_f=out_f,
-                    output_file=output_file,
-                    write_lock=write_lock,
-                    pending_results=pending_results,
-                    write_state=write_state,
+        for question_index, item in enumerate(data, start=1):
+            for run_index in range(1, args.runs_per_question + 1):
+                tasks.append(
+                    asyncio.create_task(
+                        process_query_item(
+                            item=item,
+                            task_index=task_index,
+                            total_task_runs=total_task_runs,
+                            question_index=question_index,
+                            total_questions=len(data),
+                            run_index=run_index,
+                            runs_per_question=args.runs_per_question,
+                            generator=generator,
+                            browser_pool=browser_pool,
+                            ehr_pool=ehr_pool,
+                            max_rounds=args.max_rounds,
+                            semaphore=semaphore,
+                            out_f=out_f,
+                            output_file=output_file,
+                            write_lock=write_lock,
+                        )
+                    )
                 )
-            )
-            for index, item in enumerate(data, start=1)
-        ]
+                task_index += 1
 
         if tasks:
             await asyncio.gather(*tasks)

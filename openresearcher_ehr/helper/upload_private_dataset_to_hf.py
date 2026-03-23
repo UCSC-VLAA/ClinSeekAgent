@@ -16,8 +16,7 @@ from pathlib import Path
 os.environ['HF_TOKEN']='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'
 
 DEFAULT_FILE = Path(
-    "/home/efs/zlt/deepresearch/openresearcher_ehr/"
-    "diagnoses_ccs_500_serper_results_fixed_20260316_2125/results_with_answers.json"
+    "/home/efs/zlt/deepresearch/openresearcher_ehr/diagnoses_ccs_500_results/results_with_answers.json"
 )
 
 
