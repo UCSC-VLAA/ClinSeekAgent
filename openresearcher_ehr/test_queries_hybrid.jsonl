@@ -1,3 +1,0 @@
-{"qid": "hybrid_001", "question": "What are the typical lab values for diagnosing diabetes mellitus? Search web sources for clinical guidelines, then check if they're consistent with medical knowledge from PubMed."}
-{"qid": "hybrid_002", "question": "Search the web for current treatment guidelines for sepsis. Then search PubMed for recent clinical trials on sepsis management in the last 2 years. Compare and summarize key recommendations."}
-{"qid": "hybrid_003", "question": "For patient 10000032 at timestamp 2150-12-01 10:00:00: load their EHR, identify any cardiac-related diagnoses, then search the web for current treatment guidelines for those specific conditions."}

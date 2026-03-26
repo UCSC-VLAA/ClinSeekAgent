@@ -1,3 +1,0 @@
-{"qid": "ehr_001", "question": "Load patient 10000032's EHR at timestamp 2150-12-01 10:00:00, then list all available tables and describe the structure of the diagnoses_icd table."}
-{"qid": "ehr_002", "question": "For patient 10000032 at 2150-12-01 10:00:00, what medications were prescribed between 2150-01-01 and 2150-12-01? List the top 5 most common drugs."}
-{"qid": "ehr_003", "question": "Load patient 10000032's EHR at 2150-12-01 10:00:00. Find all ICD diagnosis codes related to 'chronic kidney disease' using semantic similarity, then check if this patient has any of those diagnoses."}

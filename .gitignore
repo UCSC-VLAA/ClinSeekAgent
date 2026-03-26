@@ -1,5 +1,51 @@
+# Data directories
 data/
 datasets/
+
+# Model weights
 models/
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.distcp
+
+# Checkpoints
+verl/checkpoints/
+checkpoints/
+
+# Results and outputs
 results/
+outputs/
+verl/outputs/
+openresearcher_ehr/results_benchmark_*/
+
+# Environment files
+.env
+
+# Wandb logs
+wandb/
+
+# Logs
+*.log
+
+# Memory/monitoring CSVs
+*.csv
+
+# Parquet files
+*.parquet
+
+# Python cache
+__pycache__/
 *.pyc
+*.pyo
+
+# Virtual environments
+.venv/
+venv/
+
+# HuggingFace cache
+.cache/
+
+# OS files
+.DS_Store
