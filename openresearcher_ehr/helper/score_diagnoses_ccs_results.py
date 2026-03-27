@@ -3,15 +3,15 @@ import argparse
 import ast
 import json
 import math
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
 
 
 DEFAULT_RESULTS = (
-    "/home/efs/zlt/deepresearch/openresearcher_ehr/diagnoses_ccs_500_results/results.jsonl"
+    "/home/efs/zlt/deepresearch/openresearcher_ehr/diagnoses_ccs_500_results_qwen3_5_35b_a3b_deepmed_sft_epoch2_vllm_fixed_20260326T230132Z/results.jsonl"
 )
 DEFAULT_BENCHMARK = (
-    "/home/efs/zlt/deepresearch/data/EHRAgentBench/common/diagnoses_ccs_500.json"
+    "/home/efs/zlt/deepresearch/data/EHRAgentBench/train/diagnoses_ccs_500.json"
 )
 
 
@@ -199,8 +199,17 @@ def evaluate(results_path, benchmark_path):
     results_by_qid = load_results(results_path)
 
     total_result_runs = sum(len(items) for items in results_by_qid.values())
+    all_runs = [run for runs in results_by_qid.values() for run in runs]
     missing_qids = sorted(set(benchmark_by_qid) - set(results_by_qid))
     extra_qids = sorted(set(results_by_qid) - set(benchmark_by_qid))
+    incomplete_runs = [run for run in all_runs if run.get("completed") is not True]
+    non_success_runs = [run for run in all_runs if run.get("status") != "success"]
+    incomplete_run_stop_reasons = Counter(
+        run.get("stop_reason", "unknown") for run in incomplete_runs
+    )
+    non_success_run_statuses = Counter(
+        run.get("status", "unknown") for run in non_success_runs
+    )
 
     completed_task_scores_by_qid = {}
     task_details = []
@@ -235,7 +244,9 @@ def evaluate(results_path, benchmark_path):
                 run_details.append(
                     {
                         "run_index": run_index,
+                        "completed": run.get("completed", False),
                         "status": run.get("status", "unknown"),
+                        "stop_reason": run.get("stop_reason", "unknown"),
                         "prediction_count": len(
                             {item for item in predictions if isinstance(item, str)}
                         ),
@@ -287,6 +298,16 @@ def evaluate(results_path, benchmark_path):
         "extra_result_count": len(extra_qids),
         "missing_qids": missing_qids,
         "extra_qids": extra_qids,
+        "incomplete_run_count": len(incomplete_runs),
+        "incomplete_run_rate": (
+            len(incomplete_runs) / total_result_runs if total_result_runs else 0.0
+        ),
+        "incomplete_run_stop_reasons": dict(incomplete_run_stop_reasons),
+        "non_success_run_count": len(non_success_runs),
+        "non_success_run_rate": (
+            len(non_success_runs) / total_result_runs if total_result_runs else 0.0
+        ),
+        "non_success_run_statuses": dict(non_success_run_statuses),
         "avg_runs_per_task": (
             total_result_runs / len(benchmark_by_qid) if benchmark_by_qid else 0.0
         ),
@@ -357,6 +378,8 @@ def main():
     print(f"Completed tasks: {summary['completed_task_num']}")
     print(f"Result runs: {summary['sample_num']}")
     print(f"Missing tasks: {summary['info']['missing_task_count']}")
+    print(f"Incomplete runs (completed != True): {summary['info']['incomplete_run_count']}")
+    print(f"Non-success runs (status != success): {summary['info']['non_success_run_count']}")
     print(f"Task coverage: {summary['info']['task_coverage']:.6f}")
     print(f"Score denominator: {summary['score_denominator']}")
     print(f"Extra result qids: {summary['info']['extra_result_count']}")

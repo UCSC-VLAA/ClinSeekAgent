@@ -141,7 +141,7 @@ def main():
     parser.add_argument(
         "--results_file",
         help="Path to results.jsonl",
-        default="/home/efs/zlt/deepresearch/openresearcher_ehr/diagnoses_ccs_500_results/results.jsonl",
+        default="/home/efs/zlt/deepresearch/openresearcher_ehr/diagnoses_ccs_500_results_qwen3_5_35b_a3b_deepmed_sft_epoch2_vllm_fixed_20260326T230132Z/results.jsonl",
     )
     parser.add_argument(
         "--output_file",
@@ -166,6 +166,11 @@ def main():
     queries = load_results(results_path, success_only=not args.all_statuses)
     stats = analyze_queries(queries)
     total_queries = stats["total_queries"]
+    total_tool_calls = stats["total_tool_calls"]
+    browser_tool_calls = stats["category_totals"].get("browser", 0)
+    browser_tool_call_ratio = (
+        browser_tool_calls / total_tool_calls if total_tool_calls else 0.0
+    )
     status_filter = "all_statuses" if args.all_statuses else "success_only"
 
     output_payload = {
@@ -173,10 +178,13 @@ def main():
             "results_file": str(results_path),
             "status_filter": status_filter,
             "total_queries": total_queries,
-            "total_tool_calls": stats["total_tool_calls"],
+            "total_tool_calls": total_tool_calls,
             "avg_total_tool_calls_per_query": (
-                stats["total_tool_calls"] / total_queries if total_queries else 0.0
+                total_tool_calls / total_queries if total_queries else 0.0
             ),
+            "browser_tool_calls": browser_tool_calls,
+            "browser_tool_call_ratio": browser_tool_call_ratio,
+            "browser_tool_call_percentage": browser_tool_call_ratio * 100.0,
         },
         "by_category": make_average_records(
             stats["category_totals"],
@@ -199,7 +207,11 @@ def main():
     )
     print(
         f"Average total tool calls per query: "
-        f"{stats['total_tool_calls'] / total_queries if total_queries else 0.0:.3f}"
+        f"{total_tool_calls / total_queries if total_queries else 0.0:.3f}"
+    )
+    print(
+        f"Browser tool call share: {browser_tool_calls}/{total_tool_calls} "
+        f"({browser_tool_call_ratio * 100.0:.2f}%)"
     )
 
     print_section("Average Calls By Category")
