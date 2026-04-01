@@ -7,12 +7,18 @@ The analysis is printed to stdout and also written to a JSON file.
 
 import argparse
 import json
+import re
 from collections import Counter
 from pathlib import Path
 
 
 def normalize_tool_name(name: str) -> str:
     """Normalize tool names so both `ehr_load_ehr` and `ehr.load_ehr` aggregate together."""
+    name = (name or "unknown").strip()
+    match = re.match(r"^[A-Za-z0-9_.]+", name)
+    if match:
+        name = match.group(0)
+
     if name.startswith("ehr_"):
         return "ehr." + name[len("ehr_") :]
     if name.startswith("browser_"):
@@ -29,6 +35,22 @@ def tool_category(tool_name: str) -> str:
     if "." in tool_name:
         return tool_name.split(".", 1)[0]
     return "other"
+
+
+def resolve_task_name(record: dict) -> str:
+    task_name = record.get("task")
+    if isinstance(task_name, str) and task_name:
+        return task_name
+
+    qid = record.get("qid")
+    if isinstance(qid, str) and qid:
+        parts = qid.split("_")
+        if len(parts) >= 3 and parts[-1].isdigit() and parts[-2].isdigit():
+            return "_".join(parts[:-2]) or "unknown"
+        if len(parts) >= 2 and parts[-1].isdigit():
+            return "_".join(parts[:-1]) or "unknown"
+
+    return "unknown"
 
 
 def load_results(results_path: Path, success_only: bool) -> list[dict]:
@@ -88,6 +110,26 @@ def analyze_queries(queries: list[dict]) -> dict:
     }
 
 
+def summarize_stats(stats: dict) -> dict:
+    total_queries = stats["total_queries"]
+    total_tool_calls = stats["total_tool_calls"]
+    browser_tool_calls = stats["category_totals"].get("browser", 0)
+    browser_tool_call_ratio = (
+        browser_tool_calls / total_tool_calls if total_tool_calls else 0.0
+    )
+
+    return {
+        "total_queries": total_queries,
+        "total_tool_calls": total_tool_calls,
+        "avg_total_tool_calls_per_query": (
+            total_tool_calls / total_queries if total_queries else 0.0
+        ),
+        "browser_tool_calls": browser_tool_calls,
+        "browser_tool_call_ratio": browser_tool_call_ratio,
+        "browser_tool_call_percentage": browser_tool_call_ratio * 100.0,
+    }
+
+
 def print_section(title: str):
     print("\n" + title)
     print("-" * len(title))
@@ -134,6 +176,40 @@ def write_json(output_path: Path, payload: dict) -> None:
         f.write("\n")
 
 
+def print_stats_block(title: str, stats: dict) -> None:
+    total_queries = stats["total_queries"]
+    total_tool_calls = stats["total_tool_calls"]
+    browser_tool_calls = stats["category_totals"].get("browser", 0)
+    browser_tool_call_ratio = (
+        browser_tool_calls / total_tool_calls if total_tool_calls else 0.0
+    )
+
+    print_section(title)
+    print(f"Queries analyzed: {total_queries}")
+    print(
+        f"Average total tool calls per query: "
+        f"{total_tool_calls / total_queries if total_queries else 0.0:.3f}"
+    )
+    print(
+        f"Browser tool call share: {browser_tool_calls}/{total_tool_calls} "
+        f"({browser_tool_call_ratio * 100.0:.2f}%)"
+    )
+
+    # print_section(f"{title} | Average Calls By Category")
+    # print_average_table(
+    #     stats["category_totals"],
+    #     stats["category_query_hits"],
+    #     total_queries,
+    # )
+
+    # print_section(f"{title} | Average Calls By Exact Tool")
+    # print_average_table(
+    #     stats["exact_tool_totals"],
+    #     stats["exact_tool_query_hits"],
+    #     total_queries,
+    # )
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Analyze average tool-call counts from a results.jsonl file."
@@ -141,7 +217,7 @@ def main():
     parser.add_argument(
         "--results_file",
         help="Path to results.jsonl",
-        default="/home/efs/zlt/deepresearch/openresearcher_ehr/diagnoses_ccs_500_results_qwen3_5_35b_a3b_deepmed_sft_epoch2_vllm_fixed_20260326T230132Z/results.jsonl",
+        default="/home/efs/zlt/deepresearch/openresearcher_ehr/subsets_600_tongyi_deepresearch_30b_a3b/results.jsonl",
     )
     parser.add_argument(
         "--output_file",
@@ -165,68 +241,61 @@ def main():
 
     queries = load_results(results_path, success_only=not args.all_statuses)
     stats = analyze_queries(queries)
-    total_queries = stats["total_queries"]
-    total_tool_calls = stats["total_tool_calls"]
-    browser_tool_calls = stats["category_totals"].get("browser", 0)
-    browser_tool_call_ratio = (
-        browser_tool_calls / total_tool_calls if total_tool_calls else 0.0
-    )
     status_filter = "all_statuses" if args.all_statuses else "success_only"
+
+    queries_by_task = {}
+    for record in queries:
+        task_name = resolve_task_name(record)
+        queries_by_task.setdefault(task_name, []).append(record)
+
+    by_task_stats = {}
+    by_task_payload = {}
+    for task_name in sorted(queries_by_task):
+        task_stats = analyze_queries(queries_by_task[task_name])
+        by_task_stats[task_name] = task_stats
+        by_task_payload[task_name] = {
+            "summary": summarize_stats(task_stats),
+            "by_category": make_average_records(
+                task_stats["category_totals"],
+                task_stats["category_query_hits"],
+                task_stats["total_queries"],
+            ),
+            "by_exact_tool": make_average_records(
+                task_stats["exact_tool_totals"],
+                task_stats["exact_tool_query_hits"],
+                task_stats["total_queries"],
+            ),
+        }
 
     output_payload = {
         "summary": {
             "results_file": str(results_path),
             "status_filter": status_filter,
-            "total_queries": total_queries,
-            "total_tool_calls": total_tool_calls,
-            "avg_total_tool_calls_per_query": (
-                total_tool_calls / total_queries if total_queries else 0.0
-            ),
-            "browser_tool_calls": browser_tool_calls,
-            "browser_tool_call_ratio": browser_tool_call_ratio,
-            "browser_tool_call_percentage": browser_tool_call_ratio * 100.0,
+            **summarize_stats(stats),
         },
         "by_category": make_average_records(
             stats["category_totals"],
             stats["category_query_hits"],
-            total_queries,
+            stats["total_queries"],
         ),
         "by_exact_tool": make_average_records(
             stats["exact_tool_totals"],
             stats["exact_tool_query_hits"],
-            total_queries,
+            stats["total_queries"],
         ),
+        "by_task": by_task_payload,
     }
     write_json(output_path, output_payload)
 
     print(f"Results file: {results_path}")
     print(f"Output file: {output_path}")
-    print(f"Queries analyzed: {total_queries}")
     print(
         f"Filter: {'all statuses' if args.all_statuses else 'success only'}"
     )
-    print(
-        f"Average total tool calls per query: "
-        f"{total_tool_calls / total_queries if total_queries else 0.0:.3f}"
-    )
-    print(
-        f"Browser tool call share: {browser_tool_calls}/{total_tool_calls} "
-        f"({browser_tool_call_ratio * 100.0:.2f}%)"
-    )
+    print_stats_block("Overall", stats)
 
-    print_section("Average Calls By Category")
-    print_average_table(
-        stats["category_totals"],
-        stats["category_query_hits"],
-        total_queries,
-    )
-
-    print_section("Average Calls By Exact Tool")
-    print_average_table(
-        stats["exact_tool_totals"],
-        stats["exact_tool_query_hits"],
-        total_queries,
-    )
+    for task_name in sorted(by_task_stats):
+        print_stats_block(f"Task: {task_name}", by_task_stats[task_name])
 
 
 if __name__ == "__main__":

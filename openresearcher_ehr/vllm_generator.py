@@ -26,6 +26,7 @@ XML_PARAMETER_RE = re.compile(
     re.DOTALL,
 )
 BRACKET_TOOL_CALL_PREFIX = "[Tool Call:"
+TOOL_RESPONSE_PREFIX = "[Tool Response]"
 
 
 class VLLMOpenAIAsyncGenerator:
@@ -66,26 +67,102 @@ class VLLMOpenAIAsyncGenerator:
         """Compatibility no-op; deploy_agent checks for this method."""
         return None
 
+    @staticmethod
+    def _normalize_tool_name(function_name: str) -> str:
+        name = (function_name or "").strip()
+        if not name:
+            return name
+
+        if name.startswith("browser."):
+            return name
+        if name.startswith("browser_"):
+            suffix = name[len("browser_"):].strip("_")
+            return f"browser.{suffix}" if suffix else "browser.search"
+        if name in {"search", "open", "find"}:
+            return f"browser.{name}"
+
+        if name.startswith("ehr.") or name.startswith("ehr_"):
+            return name
+        if "." not in name:
+            return f"ehr_{name}"
+        return name
+
+    @classmethod
+    def _serialize_tool_arguments(cls, arguments: Any) -> str:
+        if isinstance(arguments, str):
+            try:
+                parsed = json.loads(arguments)
+            except Exception:
+                return arguments
+            return json.dumps(parsed, ensure_ascii=False)
+
+        return json.dumps(arguments if arguments is not None else {}, ensure_ascii=False)
+
+    @classmethod
+    def _render_assistant_turn(cls, turn: Dict[str, Any]) -> Dict[str, Any]:
+        rendered_parts: List[str] = []
+
+        reasoning_content = turn.get("reasoning_content")
+        if reasoning_content is not None and not isinstance(reasoning_content, str):
+            reasoning_content = json.dumps(reasoning_content, ensure_ascii=False)
+        if reasoning_content:
+            rendered_parts.append(reasoning_content.strip())
+
+        content = turn.get("content")
+        if content is None:
+            content = ""
+        elif not isinstance(content, str):
+            content = json.dumps(content, ensure_ascii=False)
+        if content and content.strip():
+            stripped_content = content.strip()
+            if not rendered_parts or stripped_content != rendered_parts[-1]:
+                rendered_parts.append(stripped_content)
+
+        for tool_call in turn.get("tool_calls") or []:
+            function = tool_call.get("function", {})
+            function_name = cls._normalize_tool_name(function.get("name", ""))
+            arguments = cls._serialize_tool_arguments(function.get("arguments"))
+            rendered_parts.append(
+                f"[Tool Call: {function_name}({arguments})]"
+            )
+
+        return {
+            "role": "assistant",
+            "content": "\n".join(part for part in rendered_parts if part).strip(),
+        }
+
     def _prepare_messages(self, messages: List[dict]) -> List[dict]:
-        prepared = copy.deepcopy(messages)
+        prepared: List[Dict[str, Any]] = []
 
-        for turn in prepared:
-            content = turn.get("content")
-            if content is None:
-                turn["content"] = ""
-            elif not isinstance(content, str):
-                turn["content"] = json.dumps(content, ensure_ascii=False)
+        for original_turn in copy.deepcopy(messages):
+            role = original_turn.get("role")
 
-            tool_calls = turn.get("tool_calls")
-            if tool_calls:
-                for tool_call in tool_calls:
-                    arguments = tool_call.get("function", {}).get("arguments")
-                    if isinstance(arguments, str):
-                        continue
-                    tool_call["function"]["arguments"] = json.dumps(
-                        arguments if arguments is not None else {},
-                        ensure_ascii=False,
+            if role == "assistant":
+                turn = self._render_assistant_turn(original_turn)
+            else:
+                content = original_turn.get("content")
+                if content is None:
+                    content = ""
+                elif not isinstance(content, str):
+                    content = json.dumps(content, ensure_ascii=False)
+
+                if role == "tool":
+                    content = (
+                        f"{TOOL_RESPONSE_PREFIX}\n{content}"
+                        if content
+                        else TOOL_RESPONSE_PREFIX
                     )
+                    turn = {"role": "user", "content": content}
+                else:
+                    turn = {"role": role, "content": content}
+
+            if prepared and prepared[-1]["role"] == turn["role"]:
+                merged_content = "\n".join(
+                    part for part in (prepared[-1]["content"], turn["content"]) if part
+                )
+                prepared[-1]["content"] = merged_content
+            else:
+                prepared.append(turn)
 
         return prepared
 
@@ -257,7 +334,7 @@ class VLLMOpenAIAsyncGenerator:
 
             args_raw = content[open_paren + 1:idx]
             closing_bracket = idx + 1
-            while closing_bracket < len(content) and content[closing_bracket].isspace():
+            while closing_bracket < len(content) and content[closing_bracket] in {" ", "\t"}:
                 closing_bracket += 1
 
             end_idx: Optional[int] = None
@@ -265,6 +342,12 @@ class VLLMOpenAIAsyncGenerator:
                 end_idx = closing_bracket + 1
             elif content.startswith("</tool_call>", closing_bracket):
                 end_idx = closing_bracket + len("</tool_call>")
+            elif closing_bracket >= len(content):
+                end_idx = len(content)
+            elif content[closing_bracket] in {"\r", "\n"}:
+                end_idx = closing_bracket
+            elif content.startswith(BRACKET_TOOL_CALL_PREFIX, closing_bracket):
+                end_idx = closing_bracket
 
             if end_idx is None:
                 text_parts.append(content[start:idx + 1])
@@ -276,7 +359,7 @@ class VLLMOpenAIAsyncGenerator:
                 "id": f"call_bracket_{len(tool_calls) + 1}",
                 "type": "function",
                 "function": {
-                    "name": function_name,
+                    "name": cls._normalize_tool_name(function_name),
                     "arguments": json.dumps(arguments, ensure_ascii=False),
                 },
             })
@@ -347,7 +430,52 @@ class VLLMOpenAIAsyncGenerator:
                 "id": f"call_xml_{len(tool_calls) + 1}",
                 "type": "function",
                 "function": {
-                    "name": function_name,
+                    "name": cls._normalize_tool_name(function_name),
+                    "arguments": json.dumps(arguments, ensure_ascii=False),
+                },
+            })
+            cursor = end
+
+        if not tool_calls:
+            return content, []
+
+        if cursor < len(content):
+            text_parts.append(content[cursor:])
+
+        cleaned_content = "".join(text_parts).strip()
+        return cleaned_content, tool_calls
+
+    @classmethod
+    def _extract_naked_xml_function_calls(
+        cls,
+        content: str,
+    ) -> tuple[str, List[Dict[str, Any]]]:
+        if "<function=" not in content or "</function>" not in content:
+            return content, []
+
+        tool_calls: List[Dict[str, Any]] = []
+        text_parts: List[str] = []
+        cursor = 0
+
+        for match in XML_FUNCTION_CALL_RE.finditer(content):
+            start, end = match.span()
+            function_name = match.group(1).strip()
+            function_body = match.group(2)
+            arguments: Dict[str, Any] = {}
+
+            for param_match in XML_PARAMETER_RE.finditer(function_body):
+                param_name = param_match.group(1).strip()
+                param_value = cls._coerce_xml_argument(param_match.group(2))
+                arguments[param_name] = param_value
+
+            if start > cursor:
+                text_parts.append(content[cursor:start])
+
+            tool_calls.append({
+                "id": f"call_xml_{len(tool_calls) + 1}",
+                "type": "function",
+                "function": {
+                    "name": cls._normalize_tool_name(function_name),
                     "arguments": json.dumps(arguments, ensure_ascii=False),
                 },
             })
@@ -389,7 +517,9 @@ class VLLMOpenAIAsyncGenerator:
                 "id": tool_call.id,
                 "type": "function",
                 "function": {
-                    "name": tool_call.function.name,
+                    "name": VLLMOpenAIAsyncGenerator._normalize_tool_name(
+                        tool_call.function.name
+                    ),
                     "arguments": arguments,
                 },
             })
@@ -403,9 +533,28 @@ class VLLMOpenAIAsyncGenerator:
             if fallback_tool_calls:
                 output_message["content"] = fallback_content
                 output_message["tool_calls"] = fallback_tool_calls
+            if "tool_calls" not in output_message and content:
+                fallback_content, fallback_tool_calls = (
+                    VLLMOpenAIAsyncGenerator._extract_naked_xml_function_calls(
+                        content
+                    )
+                )
+                if fallback_tool_calls:
+                    output_message["content"] = fallback_content
+                    output_message["tool_calls"] = fallback_tool_calls
             if "tool_calls" not in output_message and reasoning_content:
                 cleaned_reasoning, fallback_tool_calls = (
                     VLLMOpenAIAsyncGenerator._extract_xml_tool_calls(
+                        reasoning_content
+                    )
+                )
+                if cleaned_reasoning != reasoning_content:
+                    output_message["reasoning_content"] = cleaned_reasoning
+                if fallback_tool_calls:
+                    output_message["tool_calls"] = fallback_tool_calls
+            if "tool_calls" not in output_message and reasoning_content:
+                cleaned_reasoning, fallback_tool_calls = (
+                    VLLMOpenAIAsyncGenerator._extract_naked_xml_function_calls(
                         reasoning_content
                     )
                 )

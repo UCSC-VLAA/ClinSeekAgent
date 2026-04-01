@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 export SERPER_API_KEY="${SERPER_API_KEY:-61877f4a59d2968ae439a7d13d49dc2990bc0a1b}"
 
-DATA_PATH=${DATA_PATH:-/home/efs/zlt/deepresearch/data/EHRAgentBench/train/diagnoses_ccs_500.json}
+DATA_PATH=${DATA_PATH:-/home/efs/zlt/deepresearch/data/EHRAgentBench/common/subset_100/merged_subsets_600.json}
 EHR_MCP_URL=${EHR_MCP_URL:-http://127.0.0.1:5103/mcp}
 MAX_CONCURRENCY=${MAX_CONCURRENCY:-5}
 RUNS_PER_QUESTION=${RUNS_PER_QUESTION:-1}
@@ -55,7 +55,7 @@ print(slug or "vllm_model")
 PY
 )"
 
-OUTPUT_DIR=${OUTPUT_DIR:-./diagnoses_ccs_500_results_${MODEL_SLUG}}
+OUTPUT_DIR=${OUTPUT_DIR:-./subsets_600_${MODEL_SLUG}}
 
 THINKING_FLAG=()
 if [[ "${ENABLE_THINKING}" == "1" ]]; then

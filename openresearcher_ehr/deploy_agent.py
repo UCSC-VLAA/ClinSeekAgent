@@ -93,6 +93,26 @@ def normalize_browser_tool_args(tool_name: str, tool_args: Dict[str, Any]) -> Di
     return normalized
 
 
+def normalize_tool_call_name(function_name: str) -> str:
+    name = (function_name or "").strip()
+    if not name:
+        return name
+
+    if name.startswith("browser."):
+        return name
+    if name.startswith("browser_"):
+        suffix = name[len("browser_"):].strip("_")
+        return f"browser.{suffix}" if suffix else "browser.search"
+    if name in {"search", "open", "find"}:
+        return f"browser.{name}"
+
+    if name.startswith("ehr.") or name.startswith("ehr_"):
+        return name
+    if "." not in name:
+        return f"ehr_{name}"
+    return name
+
+
 def _validate_records(records: Any, data_path: str, source_format: str) -> List[Dict[str, Any]]:
     if isinstance(records, dict):
         records = [records]
@@ -181,6 +201,14 @@ def resolve_question(item: Dict[str, Any]) -> str:
 
     from data_utils import generate_question_from_task
     return generate_question_from_task(item)
+
+
+def attach_source_fields(result: Dict[str, Any], item: Dict[str, Any]) -> Dict[str, Any]:
+    enriched = dict(result)
+    for key, value in item.items():
+        if key not in enriched:
+            enriched[key] = value
+    return enriched
 
 
 PATIENT_TIME_RE = re.compile(
@@ -722,7 +750,8 @@ async def run_one_native(
                 finish_tool_called = False
                 for tc_idx, tool_call in enumerate(tool_calls):
                     tool_id = tool_call["id"]
-                    function_name = tool_call["function"]["name"]
+                    raw_function_name = tool_call["function"]["name"]
+                    function_name = normalize_tool_call_name(raw_function_name)
                     function_args_raw = tool_call["function"]["arguments"]
 
                     try:
@@ -741,6 +770,12 @@ async def run_one_native(
                             print(
                                 f"[qid={qid}] Round {round_num} TOOL_SANITIZE[{tc_idx}]: "
                                 + "; ".join(sanitize_notes),
+                                flush=True,
+                            )
+                        if function_name != raw_function_name:
+                            print(
+                                f"[qid={qid}] Round {round_num} TOOL_NAME_NORMALIZE[{tc_idx}]: "
+                                f"{raw_function_name!r} -> {function_name!r}",
                                 flush=True,
                             )
 
@@ -940,6 +975,7 @@ async def process_query_item(
                 max_rounds=max_rounds,
                 temperature=temperature,
             )
+            result = attach_source_fields(result, item)
     except Exception as e:
         print(f"[qid={qid}] ERROR before completion: {e}")
         traceback.print_exc()
@@ -955,6 +991,7 @@ async def process_query_item(
             "stop_reason": "exception_before_completion",
             "error": str(e)
         }
+        result = attach_source_fields(result, item)
 
     async with write_lock:
         out_f.write(json.dumps(result, ensure_ascii=False) + '\n')

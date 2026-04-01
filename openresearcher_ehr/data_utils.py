@@ -39,6 +39,78 @@ Present your final answer as a **list format** with `finish` tool calling, which
 Current Time: {current_time}
 Patient Subject ID: {subject_id}
 </patient_info>""",
+
+    "labevents": """<task_instruction>
+Your current task is to act as a laboratory medicine specialist.
+
+Your objective is to determine all necessary laboratory tests for the patient by analyzing their complete medical history, current clinical condition, and established diagnoses.
+
+You should provide as many laboratory tests as possible to cover the patient's current clinical condition.
+
+You must find the most likely official laboratory test candidates using the **`labevents_candidates`** reference table.
+
+When you need medical knowledge or clinical information to support your laboratory planning, use the `browser.search` tool to find authoritative medical information from reliable sources.
+
+Present your final answer as a **list format** with `finish` tool calling, which must contain **multiple plausible laboratory tests**. Each item in the list must be a string representing an official laboratory test name, and **must not contain any codes or other additional information**.
+</task_instruction>
+
+<patient_info>
+Current Time: {current_time}
+Patient Subject ID: {subject_id}
+</patient_info>""",
+
+    "prescriptions": """<task_instruction>
+Your current task is to act as a pharmacist.
+
+Your objective is to determine all necessary ATC therapeutic categories for the patient by analyzing their complete medical history, current clinical condition, and established diagnoses.
+
+You must find the most likely official ATC name candidates using the **`prescriptions_atc_candidates`** reference data or semantic matching tools.
+
+When you need medical knowledge or clinical information to support your medication planning, use the `browser.search` tool to find authoritative medical information from reliable sources.
+
+Present your final answer as a **list format** with `finish` tool calling, which must contain **multiple plausible ATC names**. Each item in the list must be a string representing an official ATC name, and **must not contain any codes or other additional information**.
+</task_instruction>
+
+<patient_info>
+Current Time: {current_time}
+Patient Subject ID: {subject_id}
+</patient_info>""",
+
+    "microbiologyevents": """<task_instruction>
+Your current task is to act as a clinical microbiologist.
+
+Your objective is to determine all necessary microbiological tests for the patient by analyzing their complete medical history, current clinical condition, established diagnoses, and clinical signs of infection.
+
+You must find the most likely official microbiological test candidates using the **`microbiologyevents_candidates`** reference data or semantic matching tools.
+
+When you need medical knowledge or clinical information to support your microbiological assessment, use the `browser.search` tool to find authoritative medical information from reliable sources.
+
+Present your final answer as a **list format** with `finish` tool calling, which must contain **multiple plausible microbiological tests**. Each item in the list must be a string representing an official microbiological test name, and **must not contain any codes or other additional information**.
+</task_instruction>
+
+<patient_info>
+Current Time: {current_time}
+Patient Subject ID: {subject_id}
+</patient_info>""",
+
+    "transfers": """<task_instruction>
+Your current task is to act as a hospital care coordinator and clinical decision-maker.
+
+Your objective is to determine the most appropriate care unit for patient transfer by analyzing their current clinical condition, medical history, severity of illness, and care requirements.
+
+You must consider the patient's current location, clinical stability, required level of monitoring, and specialized care needs to recommend the optimal transfer destination.
+
+You must find the most likely official care unit candidates using the **`transfers_candidates`** reference data or semantic matching tools.
+
+When you need medical knowledge or clinical information to support your transfer planning, use the `browser.search` tool to find authoritative medical information from reliable sources.
+
+Present your final answer as a **list format** with `finish` tool calling, which must contain **multiple plausible care units**. Each item in the list must be a string representing an official care unit name, and **must not contain any codes or other additional information**.
+</task_instruction>
+
+<patient_info>
+Current Time: {current_time}
+Patient Subject ID: {subject_id}
+</patient_info>""",
 }
 
 def generate_question_from_task(task_data):

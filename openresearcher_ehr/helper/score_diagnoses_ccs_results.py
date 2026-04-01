@@ -8,18 +8,24 @@ from pathlib import Path
 
 
 DEFAULT_RESULTS = (
-    "/home/efs/zlt/deepresearch/openresearcher_ehr/diagnoses_ccs_500_results_qwen3_5_35b_a3b_deepmed_sft_epoch2_vllm_fixed_20260326T230132Z/results.jsonl"
+    "/home/efs/zlt/deepresearch/openresearcher_ehr/subsets_600_tongyi_deepresearch_30b_a3b/results.jsonl"
 )
 DEFAULT_BENCHMARK = (
-    "/home/efs/zlt/deepresearch/data/EHRAgentBench/train/diagnoses_ccs_500.json"
+    "/home/efs/zlt/deepresearch/data/EHRAgentBench/common/subset_100/merged_subsets_600.json"
 )
 
 
 def build_qid(record):
-    task = record["task"]
-    subject_id = record["subject_id"]
-    hadm_id = record["hadm_id"]
-    return f"{task}_{subject_id}_{hadm_id}"
+    task = record.get("task")
+    subject_id = record.get("subject_id")
+    hadm_id = record.get("hadm_id")
+
+    if task is None or subject_id is None:
+        raise ValueError(f"Unable to build qid from record: {record}")
+
+    if hadm_id is not None:
+        return f"{task}_{subject_id}_{hadm_id}"
+    return f"{task}_{subject_id}"
 
 
 def calculate_true_best_at_k(scores_list, k, metric="f1_score"):
@@ -153,6 +159,17 @@ def load_results(results_path):
     return grouped_results
 
 
+def resolve_task_name(runs, fallback_task="unknown"):
+    for run in runs:
+        task_name = run.get("task")
+        if isinstance(task_name, str) and task_name:
+            return task_name
+
+    if isinstance(fallback_task, str) and fallback_task:
+        return fallback_task
+    return "unknown"
+
+
 def summarize_scores(completed_task_scores_by_qid, total_result_runs, total_task_count):
     metric_names = ["f1_score", "precision", "recall", "exact_match"]
     summary = {
@@ -200,6 +217,10 @@ def evaluate(results_path, benchmark_path):
 
     total_result_runs = sum(len(items) for items in results_by_qid.values())
     all_runs = [run for runs in results_by_qid.values() for run in runs]
+    result_runs_by_task = defaultdict(list)
+    for run in all_runs:
+        result_runs_by_task[resolve_task_name([run])].append(run)
+
     missing_qids = sorted(set(benchmark_by_qid) - set(results_by_qid))
     extra_qids = sorted(set(results_by_qid) - set(benchmark_by_qid))
     incomplete_runs = [run for run in all_runs if run.get("completed") is not True]
@@ -212,10 +233,14 @@ def evaluate(results_path, benchmark_path):
     )
 
     completed_task_scores_by_qid = {}
+    completed_task_scores_by_task = defaultdict(dict)
+    benchmark_qids_by_task = defaultdict(list)
     task_details = []
 
     for qid, benchmark_item in benchmark_by_qid.items():
         runs = results_by_qid.get(qid, [])
+        task_name = resolve_task_name(runs, benchmark_item.get("task"))
+        benchmark_qids_by_task[task_name].append(qid)
         ground_truth = benchmark_item["label"]
         ground_truth_names = sorted(
             {
@@ -255,13 +280,15 @@ def evaluate(results_path, benchmark_path):
                     }
                 )
             completed_task_scores_by_qid[qid] = task_scores
+            completed_task_scores_by_task[task_name][qid] = task_scores
 
         task_details.append(
             {
                 "qid": qid,
-                "subject_id": benchmark_item["subject_id"],
-                "hadm_id": benchmark_item["hadm_id"],
-                "prediction_time": benchmark_item["prediction_time"],
+                "task": task_name,
+                "subject_id": benchmark_item.get("subject_id"),
+                "hadm_id": benchmark_item.get("hadm_id"),
+                "prediction_time": benchmark_item.get("prediction_time"),
                 "ground_truth": ground_truth_names,
                 "missing_result": not runs,
                 "num_runs": len(runs),
@@ -278,6 +305,10 @@ def evaluate(results_path, benchmark_path):
                 },
             }
         )
+
+    extra_qids_by_task = defaultdict(list)
+    for qid in extra_qids:
+        extra_qids_by_task[resolve_task_name(results_by_qid.get(qid, []))].append(qid)
 
     summary = summarize_scores(
         completed_task_scores_by_qid,
@@ -320,6 +351,78 @@ def evaluate(results_path, benchmark_path):
         if results_by_qid
         else 0,
     }
+    summary["by_task"] = {}
+
+    task_names = sorted(
+        set(benchmark_qids_by_task)
+        | set(result_runs_by_task)
+        | set(extra_qids_by_task)
+    )
+
+    for task_name in task_names:
+        task_result_runs = result_runs_by_task.get(task_name, [])
+        task_completed_scores_by_qid = completed_task_scores_by_task.get(task_name, {})
+        task_benchmark_qids = benchmark_qids_by_task.get(task_name, [])
+        task_missing_qids = [
+            qid for qid in task_benchmark_qids if qid not in task_completed_scores_by_qid
+        ]
+        task_incomplete_runs = [
+            run for run in task_result_runs if run.get("completed") is not True
+        ]
+        task_non_success_runs = [
+            run for run in task_result_runs if run.get("status") != "success"
+        ]
+
+        task_summary = summarize_scores(
+            task_completed_scores_by_qid,
+            len(task_result_runs),
+            len(task_benchmark_qids),
+        )
+        task_summary["info"] = {
+            "matched_task_count": len(task_benchmark_qids) - len(task_missing_qids),
+            "completed_task_count": len(task_completed_scores_by_qid),
+            "missing_task_count": len(task_missing_qids),
+            "task_coverage": (
+                len(task_completed_scores_by_qid) / len(task_benchmark_qids)
+                if task_benchmark_qids
+                else 0.0
+            ),
+            "extra_result_count": len(extra_qids_by_task.get(task_name, [])),
+            "missing_qids": task_missing_qids,
+            "extra_qids": extra_qids_by_task.get(task_name, []),
+            "incomplete_run_count": len(task_incomplete_runs),
+            "incomplete_run_rate": (
+                len(task_incomplete_runs) / len(task_result_runs)
+                if task_result_runs
+                else 0.0
+            ),
+            "incomplete_run_stop_reasons": dict(
+                Counter(run.get("stop_reason", "unknown") for run in task_incomplete_runs)
+            ),
+            "non_success_run_count": len(task_non_success_runs),
+            "non_success_run_rate": (
+                len(task_non_success_runs) / len(task_result_runs)
+                if task_result_runs
+                else 0.0
+            ),
+            "non_success_run_statuses": dict(
+                Counter(run.get("status", "unknown") for run in task_non_success_runs)
+            ),
+            "avg_runs_per_task": (
+                len(task_result_runs) / len(task_benchmark_qids)
+                if task_benchmark_qids
+                else 0.0
+            ),
+            "avg_runs_per_completed_task": (
+                len(task_result_runs) / len(task_completed_scores_by_qid)
+                if task_completed_scores_by_qid
+                else 0.0
+            ),
+            "max_runs_per_task": max(len(items) for qid, items in results_by_qid.items() if qid in task_completed_scores_by_qid)
+            if task_completed_scores_by_qid
+            else 0,
+        }
+        summary["by_task"][task_name] = task_summary
 
     return summary, task_details
 
@@ -337,7 +440,7 @@ def write_jsonl(path, rows):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Score diagnoses_ccs results against EHRAgentBench."
+        description="Score EHRAgentBench results and emit per-task summaries."
     )
     parser.add_argument("--results", default=DEFAULT_RESULTS, help="Path to results.jsonl")
     parser.add_argument(
@@ -370,23 +473,28 @@ def main():
     write_jsonl(details_output_path, task_details)
 
     avg_score = summary["score"]["avg"]
-    print(f"Results file: {results_path}")
-    print(f"Benchmark file: {benchmark_path}")
-    print(f"Summary written to: {output_path}")
-    print(f"Per-task details written to: {details_output_path}")
-    print(f"Benchmark tasks: {summary['task_num']}")
-    print(f"Completed tasks: {summary['completed_task_num']}")
-    print(f"Result runs: {summary['sample_num']}")
-    print(f"Missing tasks: {summary['info']['missing_task_count']}")
-    print(f"Incomplete runs (completed != True): {summary['info']['incomplete_run_count']}")
-    print(f"Non-success runs (status != success): {summary['info']['non_success_run_count']}")
-    print(f"Task coverage: {summary['info']['task_coverage']:.6f}")
-    print(f"Score denominator: {summary['score_denominator']}")
-    print(f"Extra result qids: {summary['info']['extra_result_count']}")
-    print(f"avg precision: {avg_score['precision']:.6f}")
-    print(f"avg recall: {avg_score['recall']:.6f}")
-    print(f"avg f1_score: {avg_score['f1_score']:.6f}")
-    print(f"avg exact_match: {avg_score['exact_match']:.6f}")
+    # print(f"Results file: {results_path}")
+    # print(f"Benchmark file: {benchmark_path}")
+    # print(f"Summary written to: {output_path}")
+    # print(f"Per-task details written to: {details_output_path}")
+    # print(f"Benchmark tasks: {summary['task_num']}")
+    # print(f"Completed tasks: {summary['completed_task_num']}")
+    # print(f"Result runs: {summary['sample_num']}")
+    # print(f"Missing tasks: {summary['info']['missing_task_count']}")
+    # print(f"Incomplete runs (completed != True): {summary['info']['incomplete_run_count']}")
+    # print(f"Non-success runs (status != success): {summary['info']['non_success_run_count']}")
+    # print(f"Task coverage: {summary['info']['task_coverage']:.6f}")
+    # print(f"Score denominator: {summary['score_denominator']}")
+    # print(f"Extra result qids: {summary['info']['extra_result_count']}")
+    # print(f"avg precision: {avg_score['precision']:.6f}")
+    # print(f"avg recall: {avg_score['recall']:.6f}")
+    # print(f"avg f1_score: {avg_score['f1_score']:.6f}")
+    # print(f"avg exact_match: {avg_score['exact_match']:.6f}")
+
+    for task_name, task_summary in summary.get("by_task", {}).items():
+        task_avg_score = task_summary["score"]["avg"]
+        print(f"[{task_name}] # Total / # Completed: {task_summary['task_num']} /  {task_summary['completed_task_num']}")
+        print(f"[{task_name}] precision / recall / f1: {task_avg_score['precision']:.4f} / {task_avg_score['recall']:.4f} / {task_avg_score['f1_score']:.4f}")
 
 
 if __name__ == "__main__":

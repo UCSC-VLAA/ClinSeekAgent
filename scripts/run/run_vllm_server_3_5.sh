@@ -2,12 +2,12 @@
 
 # set -euo pipefail
 
-export MODEL=${MODEL:-"/home/efs/zlt/deepresearch/models/Tongyi-DeepResearch-30B-A3B"}
-export MODEL_ARCH=${MODEL_ARCH:-"Qwen3MoeForCausalLM"}
-export MODEL_TYPE=${MODEL_TYPE:-"qwen3_moe"}
+export MODEL=${MODEL:-"/home/efs/zlt/deepresearch/models/Qwen3.5-35B-A3B-DeepMed-SFT-epoch2"}
+export MODEL_ARCH=${MODEL_ARCH:-"Qwen3_5MoeForConditionalGeneration"}
+export MODEL_TYPE=${MODEL_TYPE:-"qwen3_5_moe"}
 export CUDA_DEVICES=${1:-0,1,2,3,4,5,6,7}
 export PORT=${2:-4000}
-export MAX_MODEL_LEN=${MAX_MODEL_LEN:-131072}
+export MAX_MODEL_LEN=${MAX_MODEL_LEN:-1000000}
 export GPU_MEMORY_UTILIZATION=${GPU_MEMORY_UTILIZATION:-0.8}
 export TRUST_REMOTE_CODE=${TRUST_REMOTE_CODE:-1}
 export DTYPE=${DTYPE:-bfloat16}

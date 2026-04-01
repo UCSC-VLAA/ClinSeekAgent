@@ -47,3 +47,6 @@ hybrid_query.jsonl
 
 # Environment
 .env
+
+diagnoses_ccs_500_*/
+subsets_600_*/
