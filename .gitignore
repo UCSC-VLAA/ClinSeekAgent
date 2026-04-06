@@ -19,6 +19,9 @@ results/
 outputs/
 verl/outputs/
 openresearcher_ehr/results_benchmark_*/
+openresearcher_ehr/subsets_*/
+openresearcher_ehr/diagnoses_*/
+node-v25.8.1-linux-x64/
 
 # Environment files
 .env

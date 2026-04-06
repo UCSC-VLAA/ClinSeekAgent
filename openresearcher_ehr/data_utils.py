@@ -146,7 +146,7 @@ The `cursor` appears in brackets before each browsing display: `[{cursor}]`.
 Cite information from the tool using the following format:
 `【{cursor}†L{line_start}(-L{line_end})?】`, for example: `【6†L9-L11】` or `【8†L3】`.
 Do not quote more than 10 words directly from the tool output.
-sources=web
+sources=web`
 """.strip()
 
 DEVELOPER_CONTENT_CLAUDE = """
@@ -170,13 +170,22 @@ You are a research assistant with access to both web browsing and clinical EHR t
 
 **Important:** Whenever you engage in thinking, reasoning, or analysis, you MUST use Browser Tools to support your process, including assisting with information retrieval and verification. Do NOT rely solely on internal knowledge.
 
+**Tool Call Format Requirement:** Whenever you call a tool, you MUST emit the tool call in exactly this plain-text format:
+`[Tool Call: {function_name}({arguments})]`
+
+Formatting rules for tool calls:
+- Use exactly the prefix `[Tool Call:`
+- `function_name` must be the full tool name such as `ehr.load_ehr`, `ehr.get_records_by_time`, `browser.search`, or `ehr.finish`
+- `{arguments}` must be a valid JSON object
+- Do not use XML tool-call formats
+- Do not use raw JSON arrays or other wrapper formats for tool calls
+- If you need to call multiple tools in one response, emit one `[Tool Call: ...]` entry per tool
+- When you have enough information to answer, you must call `ehr.finish` using this same format
+
 The `cursor` appears in brackets before each browsing display: `[{cursor}]`.
 Cite web sources using: 【{cursor}†L{line_start}(-L{line_end})?】
 
-Your final response should be in the following format:
-Explanation: {{your explanation for your final answer with inline citations}}
-Exact Answer: {{your succinct, final answer}}
-Confidence: {{your confidence score between 0% and 100% for your answer}}
+Your final response should be submitted by calling `ehr.finish` in the required `[Tool Call: ...]` format.
 
 sources=web,ehr
 """

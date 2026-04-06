@@ -55,7 +55,7 @@ print(slug or "vllm_model")
 PY
 )"
 
-OUTPUT_DIR=${OUTPUT_DIR:-./diagnoses_ccs_500_results_${MODEL_SLUG}}
+OUTPUT_DIR=${OUTPUT_DIR:-./diagnoses_500_${MODEL_SLUG}}
 
 THINKING_FLAG=()
 if [[ "${ENABLE_THINKING}" == "1" ]]; then

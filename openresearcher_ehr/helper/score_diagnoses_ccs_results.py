@@ -8,7 +8,7 @@ from pathlib import Path
 
 
 DEFAULT_RESULTS = (
-    "/home/efs/zlt/deepresearch/openresearcher_ehr/subsets_600_tongyi_deepresearch_30b_a3b/results.jsonl"
+    "/home/efs/zlt/deepresearch/openresearcher_ehr/subsets_600_openseeker_v1_30b_sft/results.jsonl"
 )
 DEFAULT_BENCHMARK = (
     "/home/efs/zlt/deepresearch/data/EHRAgentBench/common/subset_100/merged_subsets_600.json"

@@ -23,6 +23,7 @@ DEFAULT_BEDROCK_REGION = "us-east-1"
 DEFAULT_VLLM_BASE_URL = "http://127.0.0.1:4000"
 DEFAULT_VLLM_API_KEY = "EMPTY"
 MAX_PARALLEL_QUERIES = 10
+MAX_TOOLLESS_REMINDERS = 3
 
 BEDROCK_MODEL_ALIASES = {
     "anthropic.claude-sonnet-4-6": "us.anthropic.claude-sonnet-4-6",
@@ -215,10 +216,6 @@ PATIENT_TIME_RE = re.compile(
     r"Current Time:\s*([0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2})"
 )
 PATIENT_SUBJECT_RE = re.compile(r"Patient Subject ID:\s*([0-9]+)")
-EXACT_ANSWER_RE = re.compile(
-    r"Exact Answer:\s*(.+?)(?:\n\s*Confidence:|\Z)",
-    re.IGNORECASE | re.DOTALL,
-)
 
 
 def extract_patient_context(question: str) -> Dict[str, str]:
@@ -304,195 +301,6 @@ def sanitize_ehr_tool_args(
     return sanitized, notes
 
 
-def extract_prediction_list_from_text(content: str) -> List[str]:
-    if not content:
-        return []
-
-    def _dedupe_predictions(items: List[str]) -> List[str]:
-        seen = set()
-        deduped: List[str] = []
-        for item in items:
-            key = item.lower()
-            if key in seen:
-                continue
-            seen.add(key)
-            deduped.append(item)
-        return deduped
-
-    def _clean_prediction_candidate(candidate: str) -> str:
-        cleaned = candidate.strip()
-        cleaned = cleaned.replace('\\"', '"')
-        cleaned = cleaned.replace("\\n", " ")
-        cleaned = cleaned.replace("\\", "")
-        cleaned = cleaned.strip(" \"'`*")
-        cleaned = re.sub(r"\s+", " ", cleaned).strip()
-        return cleaned
-
-    def _extract_prediction_lines(text: str) -> List[str]:
-        normalized = text.replace('\\"', '"')
-        normalized = normalized.replace("\\n", "\n")
-        normalized = re.sub(
-            r"</?(?:tool_call|function|parameter)(?:=[^>\n]+)?>",
-            "",
-            normalized,
-            flags=re.IGNORECASE,
-        )
-
-        lines = normalized.splitlines()
-        predictions: List[str] = []
-        ccs_context = False
-        ignored_candidates = {
-            "primary diagnosis",
-            "procedure",
-            "past medical history",
-            "ed visit diagnoses",
-            "patient summary",
-            "clinical reasoning",
-            "key diagnoses to consider",
-            "ccs diagnoses",
-            "ccs candidates",
-        }
-        ignored_prefixes = (
-            "need to ",
-            "let me ",
-            "now let me ",
-            "the ccs ",
-        )
-
-        for line in lines:
-            stripped = line.strip()
-            if not stripped:
-                continue
-
-            lowered = stripped.lower()
-            is_ccs_heading = (
-                stripped.rstrip("*").endswith(":")
-                and (
-                    "ccs candidate" in lowered
-                    or "ccs candidates" in lowered
-                    or "ccs diagnoses" in lowered
-                    or "ccs categories" in lowered
-                )
-            )
-            if is_ccs_heading:
-                ccs_context = True
-                continue
-
-            if "ccs" in lowered and '"' in stripped:
-                for match in re.findall(
-                    r'(?:ccs(?:\s+category|\s+categories|\s+candidate|\s+candidates|\s+diagnoses?)?[^"\n]{0,120}?(?:is|:)?\s*)"([^"\n]{3,200})"',
-                    stripped,
-                    flags=re.IGNORECASE,
-                ):
-                    cleaned = _clean_prediction_candidate(match)
-                    if (
-                        cleaned
-                        and cleaned.lower() not in ignored_candidates
-                        and not cleaned.lower().startswith(ignored_prefixes)
-                    ):
-                        predictions.append(cleaned)
-                continue
-
-            if ccs_context:
-                match = re.match(
-                    r'^\s*(?:[-*]|\d+\.)\s+"([^"\n]{3,200})"\s*(?:-|$)',
-                    stripped,
-                )
-                if match:
-                    cleaned = _clean_prediction_candidate(match.group(1))
-                    if (
-                        cleaned
-                        and cleaned.lower() not in ignored_candidates
-                        and not cleaned.lower().startswith(ignored_prefixes)
-                    ):
-                        predictions.append(cleaned)
-                    continue
-
-                match = re.match(
-                    r'^\s*(?:[-*]|\d+\.)\s+\*\*([^*\n]{3,200})\*\*(?!:)',
-                    stripped,
-                )
-                if match:
-                    cleaned = _clean_prediction_candidate(match.group(1))
-                    if (
-                        cleaned
-                        and ":" not in cleaned
-                        and cleaned.lower() not in ignored_candidates
-                        and not cleaned.lower().startswith(ignored_prefixes)
-                    ):
-                        predictions.append(cleaned)
-                    continue
-
-                match = re.match(
-                    r'^\s*(?:[-*]|\d+\.)\s*([A-Z][^:\n]{2,180})\s*$',
-                    stripped,
-                )
-                if match:
-                    cleaned = _clean_prediction_candidate(match.group(1))
-                    if (
-                        cleaned
-                        and ":" not in cleaned
-                        and cleaned.lower() not in ignored_candidates
-                        and not cleaned.lower().startswith(ignored_prefixes)
-                    ):
-                        predictions.append(cleaned)
-                    continue
-
-                match = re.match(
-                    r'^\s*[-*]\s+"([^"\n]{3,200})"\s*(?:\(|-|$)',
-                    stripped,
-                )
-                if match:
-                    cleaned = _clean_prediction_candidate(match.group(1))
-                    if (
-                        cleaned
-                        and cleaned.lower() not in ignored_candidates
-                        and not cleaned.lower().startswith(ignored_prefixes)
-                    ):
-                        predictions.append(cleaned)
-                    continue
-
-                if predictions:
-                    ccs_context = False
-
-        return _dedupe_predictions(predictions)
-
-    match = EXACT_ANSWER_RE.search(content)
-    if not match:
-        return _extract_prediction_lines(content)
-
-    answer_block = match.group(1).strip()
-    if not answer_block:
-        return []
-
-    try:
-        parsed = json.loads(answer_block)
-    except Exception:
-        try:
-            import ast
-            parsed = ast.literal_eval(answer_block)
-        except Exception:
-            parsed = None
-
-    if isinstance(parsed, list):
-        return _dedupe_predictions(
-            [_clean_prediction_candidate(item) for item in parsed if isinstance(item, str)]
-        )
-
-    predictions: List[str] = []
-    for line in answer_block.splitlines():
-        stripped = line.strip()
-        if stripped.startswith(("- ", "* ")):
-            candidate = _clean_prediction_candidate(stripped[2:].strip())
-            if candidate:
-                predictions.append(candidate)
-
-    if predictions:
-        return _dedupe_predictions(predictions)
-
-    return _extract_prediction_lines(answer_block)
-
-
 class BrowserPool:
     """Browser tool pool manager."""
     def __init__(self, search_url, browser_backend='local'):
@@ -573,30 +381,47 @@ def _iter_assistant_completion_texts(message: Dict[str, Any]):
         yield "reasoning_content", reasoning_content
 
 
+def build_tool_call_retry_message(
+    reminder_index: int,
+    max_reminders: int,
+) -> str:
+    lines = [
+        "Your previous response did not include an actual tool call.",
+        "In your next response, you MUST emit at least one tool call in exactly this format: `[Tool Call: {function_name}({arguments})]`.",
+        "Use the full tool name such as `ehr.load_ehr`, `ehr.get_records_by_time`, `browser.search`, or `ehr.finish`, and make `{arguments}` a valid JSON object.",
+    ]
+
+    # if reminder_index >= max_reminders:
+    #     lines.append(
+    #         "This is the final reminder before the run may terminate as incomplete."
+    #     )
+    # else:
+    #     lines.append(
+    #         f"Reminder {reminder_index}/{max_reminders}: the next response must contain a real tool call."
+    #     )
+
+    return "\n".join(lines)
+
+
 def summarize_conversation_completion(
     messages: List[Dict[str, Any]],
 ) -> tuple[bool, str]:
+    last_assistant_message = None
     for message in reversed(messages):
-        if message.get("role") != "assistant":
-            continue
+        if message.get("role") == "assistant":
+            last_assistant_message = message
+            break
 
-        if _message_has_finish_tool_call(message):
-            return True, "finish_tool_call"
+    if last_assistant_message is None:
+        return False, "no_final_answer"
 
-        content = (message.get("content") or "").strip()
-        for text_source, text in _iter_assistant_completion_texts(message):
-            content_lower = text.lower()
-            if "<answer>" in content_lower and "</answer>" in content_lower:
-                return True, f"answer_tag_{text_source}"
-            if "exact answer:" in content_lower and "confidence:" in content_lower:
-                return True, f"exact_answer_text_{text_source}"
-            if "final answer:" in content_lower:
-                return True, f"final_answer_text_{text_source}"
-            if extract_prediction_list_from_text(text):
-                return True, f"exact_answer_list_{text_source}"
+    if _message_has_finish_tool_call(last_assistant_message):
+        return True, "finish_tool_call"
 
-        if content and not (message.get("tool_calls") or []):
-            return True, "plain_text_reply"
+    for text_source, text in _iter_assistant_completion_texts(last_assistant_message):
+        content_lower = text.lower()
+        if "exact answer:" in content_lower and "confidence:" in content_lower:
+            return True, f"exact_answer_text_{text_source}"
 
     return False, "no_final_answer"
 
@@ -654,29 +479,6 @@ async def run_one_native(
             print(f"[qid={qid}] Round {round_num}/{max_rounds} | msgs_so_far={len(messages)}")
             print(f"[qid={qid}] {'='*50}", flush=True)
 
-            should_send_finish_reminder = False
-            if candidate_table_tool_calls >= 3 and round_num >= 15 and finish_reminders_sent == 0:
-                should_send_finish_reminder = True
-            elif candidate_table_tool_calls >= 6 and round_num >= 25 and finish_reminders_sent == 1:
-                should_send_finish_reminder = True
-
-            if should_send_finish_reminder:
-                reminder = (
-                    "You already have enough evidence to answer. "
-                    "In your next response, call `ehr.finish` with a concise list of the most plausible "
-                    "official CCS diagnosis names. Do not continue exploring unless one missing fact is "
-                    "absolutely required."
-                )
-                messages.append({
-                    "role": "user",
-                    "content": reminder,
-                })
-                finish_reminders_sent += 1
-                print(
-                    f"[qid={qid}] Round {round_num} FINISH_REMINDER[{finish_reminders_sent}]: {reminder}",
-                    flush=True,
-                )
-
             # Call chat completion with tools
             response = await generator.chat_completion(
                 messages=messages,
@@ -706,7 +508,6 @@ async def run_one_native(
             )
 
             # Add assistant message
-            synthetic_finish_triggered = False
             assistant_message = {
                 "role": "assistant",
                 "content": content,
@@ -717,153 +518,113 @@ async def run_one_native(
             messages.append(assistant_message)
 
             if not tool_calls:
-                parsed_predictions = extract_prediction_list_from_text(content)
-                prediction_source = "content"
-                if not parsed_predictions and reasoning_content:
-                    parsed_predictions = extract_prediction_list_from_text(
-                        reasoning_content
-                    )
-                    prediction_source = "reasoning_content"
-                if parsed_predictions:
-                    synthetic_finish = {
-                        "id": "synthetic_finish_call",
-                        "type": "function",
-                        "function": {
-                            "name": "ehr.finish",
-                            "arguments": json.dumps(
-                                {"response": parsed_predictions},
-                                ensure_ascii=False,
-                            ),
-                        },
-                    }
-                    messages[-1]["tool_calls"] = [synthetic_finish]
+                finish_reminders_sent += 1
+                if finish_reminders_sent > MAX_TOOLLESS_REMINDERS:
                     print(
-                        f"[qid={qid}] Round {round_num} SYNTHETIC_FINISH[{prediction_source}]: "
-                        f"{json.dumps(parsed_predictions, ensure_ascii=False)}",
+                        f"[qid={qid}] Round {round_num}: Reached reminder limit without a tool call",
                         flush=True,
                     )
-                    tool_calls = [synthetic_finish]
-                    synthetic_finish_triggered = True
-
-            # Execute tool calls if present
-            if tool_calls:
-                finish_tool_called = False
-                for tc_idx, tool_call in enumerate(tool_calls):
-                    tool_id = tool_call["id"]
-                    raw_function_name = tool_call["function"]["name"]
-                    function_name = normalize_tool_call_name(raw_function_name)
-                    function_args_raw = tool_call["function"]["arguments"]
-
-                    try:
-                        # Parse arguments
-                        if isinstance(function_args_raw, dict):
-                            function_args = function_args_raw
-                        else:
-                            function_args = json.loads(function_args_raw)
-
-                        function_args, sanitize_notes = sanitize_ehr_tool_args(
-                            function_name,
-                            function_args,
-                            patient_context,
-                        )
-                        if sanitize_notes:
-                            print(
-                                f"[qid={qid}] Round {round_num} TOOL_SANITIZE[{tc_idx}]: "
-                                + "; ".join(sanitize_notes),
-                                flush=True,
-                            )
-                        if function_name != raw_function_name:
-                            print(
-                                f"[qid={qid}] Round {round_num} TOOL_NAME_NORMALIZE[{tc_idx}]: "
-                                f"{raw_function_name!r} -> {function_name!r}",
-                                flush=True,
-                            )
-
-                        print(f"[qid={qid}] Round {round_num} TOOL_CALL[{tc_idx}]: {function_name}({json.dumps(function_args, ensure_ascii=False)[:200]})", flush=True)
-
-                        # Route to appropriate tool pool
-                        if function_name.startswith("ehr.") or function_name.startswith("ehr_"):
-                            # EHR tool execution (handle both ehr. and ehr_ formats)
-                            if ehr_pool:
-                                # Normalize: remove both ehr. and ehr_ prefixes
-                                actual_function_name = function_name.replace("ehr_", "").replace("ehr.", "")
-                                if function_args.get("table_name") == "diagnoses_ccs_candidates":
-                                    candidate_table_tool_calls += 1
-                                result = await ehr_pool.call_tool(qid, actual_function_name, function_args)
-                            else:
-                                result = "Error: EHR tools not available. Start with --enable_ehr flag."
-
-                        elif function_name.startswith("browser."):
-                            # Browser tool execution
-                            actual_function_name = function_name.split(".", 1)[1]
-                            result = await browser_pool.call_tool(qid, actual_function_name, function_args)
-                            if not result:
-                                result = f"{function_name} completed"
-                        else:
-                            result = f"Unknown tool namespace: {function_name}"
-
-                        # Add tool response
-                        messages.append({
-                            "role": "tool",
-                            "tool_call_id": tool_id,
-                            "content": result
-                        })
-
-                        result_preview = result[:200] if len(result) > 200 else result
-                        print(f"[qid={qid}] Round {round_num} TOOL_RESULT[{tc_idx}]: len={len(result)}, preview={result_preview!r}", flush=True)
-
-                        actual_finish_name = function_name.replace("ehr_", "").replace("ehr.", "")
-                        if actual_finish_name == "finish":
-                            finish_tool_called = True
-
-                    except Exception as e:
-                        error_msg = f"Error executing {function_name}: {str(e)}"
-                        print(f"[qid={qid}] Round {round_num} TOOL_ERROR[{tc_idx}]: {error_msg}", flush=True)
-                        messages.append({
-                            "role": "tool",
-                            "tool_call_id": tool_id,
-                            "content": error_msg
-                        })
-
-                if finish_tool_called:
-                    print(f"[qid={qid}] ✅ Round {round_num}: ehr.finish called - DONE", flush=True)
                     break
-
-                if synthetic_finish_triggered:
-                    print(f"[qid={qid}] ✅ Round {round_num}: Synthesized ehr.finish from text answer - DONE", flush=True)
-                    break
-
-                # Continue to next round
-                continue
-
-            # Check for answer termination
-            completion_text = content or reasoning_content
-            content_lower = completion_text.lower()
-            if '<answer>' in content_lower and '</answer>' in content_lower:
-                print(f"[qid={qid}] ✅ Round {round_num}: Found <answer> tag - DONE", flush=True)
-                break
-
-            if "exact answer:" in content_lower and "confidence:" in content_lower:
-                print(f"[qid={qid}] ✅ Round {round_num}: Found 'Exact Answer:' + 'Confidence:' - DONE", flush=True)
-                break
-
-            if "final answer:" in content_lower or "answer:" in content_lower:
-                print(f"[qid={qid}] ✅ Round {round_num}: Found 'Final Answer:' or 'Answer:' - DONE", flush=True)
-                break
-
-            if content.strip():
-                print(f"[qid={qid}] ✅ Round {round_num}: Assistant returned final text without more tool calls", flush=True)
-                break
-
-            # No tool calls and no answer detected
-            if reasoning_content:
+                reminder_content = build_tool_call_retry_message(
+                    reminder_index=finish_reminders_sent,
+                    max_reminders=MAX_TOOLLESS_REMINDERS,
+                )
+                messages.append({
+                    "role": "user",
+                    "content": reminder_content,
+                })
                 print(
-                    f"[qid={qid}] Round {round_num}: Reasoning present but no parseable "
-                    "answer/tool call found",
+                    f"[qid={qid}] Round {round_num}: No tool calls detected; "
+                    f"queued tool-call reminder {finish_reminders_sent}/{MAX_TOOLLESS_REMINDERS}",
                     flush=True,
                 )
-            print(f"[qid={qid}] Round {round_num}: No tool calls, no answer detected — ending conversation", flush=True)
-            break
+                continue
+
+            finish_reminders_sent = 0
+            finish_tool_called = False
+            for tc_idx, tool_call in enumerate(tool_calls):
+                tool_id = tool_call["id"]
+                raw_function_name = tool_call["function"]["name"]
+                function_name = normalize_tool_call_name(raw_function_name)
+                function_args_raw = tool_call["function"]["arguments"]
+
+                try:
+                    # Parse arguments
+                    if isinstance(function_args_raw, dict):
+                        function_args = function_args_raw
+                    else:
+                        function_args = json.loads(function_args_raw)
+
+                    function_args, sanitize_notes = sanitize_ehr_tool_args(
+                        function_name,
+                        function_args,
+                        patient_context,
+                    )
+                    if sanitize_notes:
+                        print(
+                            f"[qid={qid}] Round {round_num} TOOL_SANITIZE[{tc_idx}]: "
+                            + "; ".join(sanitize_notes),
+                            flush=True,
+                        )
+                    if function_name != raw_function_name:
+                        print(
+                            f"[qid={qid}] Round {round_num} TOOL_NAME_NORMALIZE[{tc_idx}]: "
+                            f"{raw_function_name!r} -> {function_name!r}",
+                            flush=True,
+                        )
+
+                    print(f"[qid={qid}] Round {round_num} TOOL_CALL[{tc_idx}]: {function_name}({json.dumps(function_args, ensure_ascii=False)[:200]})", flush=True)
+
+                    # Route to appropriate tool pool
+                    if function_name.startswith("ehr.") or function_name.startswith("ehr_"):
+                        # EHR tool execution (handle both ehr. and ehr_ formats)
+                        if ehr_pool:
+                            # Normalize: remove both ehr. and ehr_ prefixes
+                            actual_function_name = function_name.replace("ehr_", "").replace("ehr.", "")
+                            if function_args.get("table_name") == "diagnoses_ccs_candidates":
+                                candidate_table_tool_calls += 1
+                            result = await ehr_pool.call_tool(qid, actual_function_name, function_args)
+                        else:
+                            result = "Error: EHR tools not available. Start with --enable_ehr flag."
+
+                    elif function_name.startswith("browser."):
+                        # Browser tool execution
+                        actual_function_name = function_name.split(".", 1)[1]
+                        result = await browser_pool.call_tool(qid, actual_function_name, function_args)
+                        if not result:
+                            result = f"{function_name} completed"
+                    else:
+                        result = f"Unknown tool namespace: {function_name}"
+
+                    # Add tool response
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tool_id,
+                        "content": result
+                    })
+
+                    result_preview = result[:200] if len(result) > 200 else result
+                    print(f"[qid={qid}] Round {round_num} TOOL_RESULT[{tc_idx}]: len={len(result)}, preview={result_preview!r}", flush=True)
+
+                    actual_finish_name = function_name.replace("ehr_", "").replace("ehr.", "")
+                    if actual_finish_name == "finish":
+                        finish_tool_called = True
+
+                except Exception as e:
+                    error_msg = f"Error executing {function_name}: {str(e)}"
+                    print(f"[qid={qid}] Round {round_num} TOOL_ERROR[{tc_idx}]: {error_msg}", flush=True)
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tool_id,
+                        "content": error_msg
+                    })
+
+            if finish_tool_called:
+                print(f"[qid={qid}] ✅ Round {round_num}: ehr.finish called - DONE", flush=True)
+                break
+
+            # Continue to next round
+            continue
 
         print(f"[qid={qid}] Finished after {round_num} rounds, total messages={len(messages)}", flush=True)
         return messages

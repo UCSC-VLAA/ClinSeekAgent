@@ -267,6 +267,149 @@ class VLLMOpenAIAsyncGenerator:
             return {"_raw": value}
 
     @classmethod
+    def _parse_inline_function_call(
+        cls,
+        content: str,
+        function_start: int,
+    ) -> Optional[tuple[int, int, str, Any]]:
+        if not content.startswith("<function=", function_start):
+            return None
+
+        segment_start = function_start
+        prefix_start = function_start
+        while prefix_start > 0 and content[prefix_start - 1].isspace():
+            prefix_start -= 1
+
+        tool_call_start = prefix_start - len("<tool_call>")
+        if (
+            tool_call_start >= 0
+            and content[tool_call_start:prefix_start] == "<tool_call>"
+        ):
+            segment_start = tool_call_start
+
+        name_start = function_start + len("<function=")
+        open_paren: Optional[int] = None
+        idx = name_start
+        while idx < len(content):
+            char = content[idx]
+            if char == ">":
+                # Proper XML function tags are handled by the existing XML parsers.
+                return None
+            if char == "(":
+                open_paren = idx
+                break
+            if char in {"\r", "\n"}:
+                return None
+            idx += 1
+
+        if open_paren is None:
+            return None
+
+        function_name = content[name_start:open_paren].strip()
+        if not function_name:
+            return None
+
+        idx = open_paren + 1
+        depth = 1
+        in_string: Optional[str] = None
+        escaped = False
+
+        while idx < len(content):
+            char = content[idx]
+            if in_string is not None:
+                if escaped:
+                    escaped = False
+                elif char == "\\":
+                    escaped = True
+                elif char == in_string:
+                    in_string = None
+            else:
+                if char in {'"', "'"}:
+                    in_string = char
+                elif char == "(":
+                    depth += 1
+                elif char == ")":
+                    depth -= 1
+                    if depth == 0:
+                        break
+            idx += 1
+
+        if depth != 0 or idx >= len(content):
+            return None
+
+        args_raw = content[open_paren + 1:idx]
+        arguments = cls._coerce_tool_call_arguments(args_raw)
+
+        end_idx = idx + 1
+        while end_idx < len(content) and content[end_idx] in {" ", "\t", "]", "}"}:
+            end_idx += 1
+
+        while True:
+            next_idx = end_idx
+            while next_idx < len(content) and content[next_idx].isspace():
+                next_idx += 1
+
+            matched = False
+            for closing_tag in ("</parameter>", "</function>", "</tool_call>"):
+                if content.startswith(closing_tag, next_idx):
+                    end_idx = next_idx + len(closing_tag)
+                    matched = True
+                    break
+
+            if not matched:
+                break
+
+        return segment_start, end_idx, function_name, arguments
+
+    @classmethod
+    def _extract_inline_function_calls(
+        cls,
+        content: str,
+    ) -> tuple[str, List[Dict[str, Any]]]:
+        if "<function=" not in content:
+            return content, []
+
+        tool_calls: List[Dict[str, Any]] = []
+        text_parts: List[str] = []
+        cursor = 0
+        search_start = 0
+
+        while True:
+            function_start = content.find("<function=", search_start)
+            if function_start == -1:
+                break
+
+            parsed = cls._parse_inline_function_call(content, function_start)
+            if parsed is None:
+                search_start = function_start + len("<function=")
+                continue
+
+            segment_start, end_idx, function_name, arguments = parsed
+
+            if segment_start > cursor:
+                text_parts.append(content[cursor:segment_start])
+
+            tool_calls.append({
+                "id": f"call_inline_{len(tool_calls) + 1}",
+                "type": "function",
+                "function": {
+                    "name": cls._normalize_tool_name(function_name),
+                    "arguments": json.dumps(arguments, ensure_ascii=False),
+                },
+            })
+            cursor = end_idx
+            search_start = end_idx
+
+        if not tool_calls:
+            return content, []
+
+        if cursor < len(content):
+            text_parts.append(content[cursor:])
+
+        cleaned_content = "".join(text_parts).strip()
+        return cleaned_content, tool_calls
+
+    @classmethod
     def _extract_bracket_tool_calls(
         cls,
         content: str,
@@ -542,6 +685,15 @@ class VLLMOpenAIAsyncGenerator:
                 if fallback_tool_calls:
                     output_message["content"] = fallback_content
                     output_message["tool_calls"] = fallback_tool_calls
+            if "tool_calls" not in output_message and content:
+                fallback_content, fallback_tool_calls = (
+                    VLLMOpenAIAsyncGenerator._extract_inline_function_calls(
+                        content
+                    )
+                )
+                if fallback_tool_calls:
+                    output_message["content"] = fallback_content
+                    output_message["tool_calls"] = fallback_tool_calls
             if "tool_calls" not in output_message and reasoning_content:
                 cleaned_reasoning, fallback_tool_calls = (
                     VLLMOpenAIAsyncGenerator._extract_xml_tool_calls(
@@ -555,6 +707,16 @@ class VLLMOpenAIAsyncGenerator:
             if "tool_calls" not in output_message and reasoning_content:
                 cleaned_reasoning, fallback_tool_calls = (
                     VLLMOpenAIAsyncGenerator._extract_naked_xml_function_calls(
+                        reasoning_content
+                    )
+                )
+                if cleaned_reasoning != reasoning_content:
+                    output_message["reasoning_content"] = cleaned_reasoning
+                if fallback_tool_calls:
+                    output_message["tool_calls"] = fallback_tool_calls
+            if "tool_calls" not in output_message and reasoning_content:
+                cleaned_reasoning, fallback_tool_calls = (
+                    VLLMOpenAIAsyncGenerator._extract_inline_function_calls(
                         reasoning_content
                     )
                 )
