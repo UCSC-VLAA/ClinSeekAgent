@@ -138,6 +138,10 @@ class VLLMOpenAIAsyncGenerator:
                 assistant_content = self._stringify_message_field(
                     original_turn.get("content")
                 )
+                assistant_reasoning = (
+                    original_turn.get("reasoning")
+                    or original_turn.get("reasoning_content")
+                )
                 if assistant_content:
                     turn["content"] = assistant_content
                 elif normalized_tool_calls:
@@ -147,6 +151,12 @@ class VLLMOpenAIAsyncGenerator:
 
                 if normalized_tool_calls:
                     turn["tool_calls"] = normalized_tool_calls
+                if assistant_reasoning:
+                    # vLLM's current chat schema uses `reasoning`; internally we
+                    # still keep `reasoning_content` for backward compatibility.
+                    turn["reasoning"] = self._stringify_message_field(
+                        assistant_reasoning
+                    )
             else:
                 turn["content"] = self._stringify_message_field(
                     original_turn.get("content")
@@ -204,6 +214,10 @@ class VLLMOpenAIAsyncGenerator:
 
     @staticmethod
     def _extract_reasoning_content(message: Any) -> Optional[str]:
+        reasoning = getattr(message, "reasoning", None)
+        if reasoning:
+            return reasoning
+
         reasoning_content = getattr(message, "reasoning_content", None)
         if reasoning_content:
             return reasoning_content
@@ -626,6 +640,109 @@ class VLLMOpenAIAsyncGenerator:
         return cleaned_content, tool_calls
 
     @staticmethod
+    def _looks_like_tool_name(function_name: str) -> bool:
+        name = (function_name or "").strip()
+        if not name:
+            return False
+        if "." in name:
+            return True
+        if name in {"search", "open", "find"}:
+            return True
+        if name.startswith("browser_") or name.startswith("ehr_"):
+            return True
+        return False
+
+    @classmethod
+    def _extract_json_tool_calls(
+        cls,
+        content: str,
+    ) -> tuple[str, List[Dict[str, Any]]]:
+        if '"name"' not in content or '"arguments"' not in content or "{" not in content:
+            return content, []
+
+        decoder = json.JSONDecoder()
+        tool_calls: List[Dict[str, Any]] = []
+        text_parts: List[str] = []
+        cursor = 0
+        search_start = 0
+
+        while True:
+            object_start = content.find("{", search_start)
+            if object_start == -1:
+                break
+
+            try:
+                payload, object_end = decoder.raw_decode(content, object_start)
+            except json.JSONDecodeError:
+                search_start = object_start + 1
+                continue
+
+            if not isinstance(payload, dict):
+                search_start = object_start + 1
+                continue
+
+            function_name = payload.get("name")
+            if not isinstance(function_name, str) or not cls._looks_like_tool_name(function_name):
+                search_start = object_start + 1
+                continue
+
+            raw_arguments = payload.get("arguments")
+            if isinstance(raw_arguments, dict):
+                arguments = raw_arguments
+            elif raw_arguments is None:
+                arguments = {}
+            else:
+                arguments = {"_raw": raw_arguments}
+
+            next_idx = object_end
+            while next_idx < len(content) and content[next_idx].isspace():
+                next_idx += 1
+
+            if not content.startswith("</tool_call>", next_idx):
+                search_start = object_start + 1
+                continue
+
+            segment_end = next_idx + len("</tool_call>")
+            while True:
+                trailing_idx = segment_end
+                while trailing_idx < len(content) and content[trailing_idx].isspace():
+                    trailing_idx += 1
+
+                matched = False
+                for tag in ("</think>", "<think>", "<tool_call>"):
+                    if content.startswith(tag, trailing_idx):
+                        segment_end = trailing_idx + len(tag)
+                        matched = True
+                        break
+
+                if not matched:
+                    break
+
+            if object_start > cursor:
+                text_parts.append(content[cursor:object_start])
+
+            tool_calls.append({
+                "id": f"call_json_{len(tool_calls) + 1}",
+                "type": "function",
+                "function": {
+                    "name": cls._normalize_tool_name(function_name),
+                    "arguments": json.dumps(arguments, ensure_ascii=False),
+                },
+            })
+
+            cursor = segment_end
+            search_start = segment_end
+
+        if not tool_calls:
+            return content, []
+
+        if cursor < len(content):
+            text_parts.append(content[cursor:])
+
+        cleaned_content = "".join(text_parts).strip()
+        return cleaned_content, tool_calls
+
+    @staticmethod
     def _convert_response_to_openai(response: Any) -> Dict[str, Any]:
         choice = response.choices[0]
         message = choice.message
@@ -686,6 +803,13 @@ class VLLMOpenAIAsyncGenerator:
                 if fallback_tool_calls:
                     output_message["content"] = fallback_content
                     output_message["tool_calls"] = fallback_tool_calls
+            if "tool_calls" not in output_message and content:
+                fallback_content, fallback_tool_calls = (
+                    VLLMOpenAIAsyncGenerator._extract_json_tool_calls(content)
+                )
+                if fallback_tool_calls:
+                    output_message["content"] = fallback_content
+                    output_message["tool_calls"] = fallback_tool_calls
             if "tool_calls" not in output_message and reasoning_content:
                 cleaned_reasoning, fallback_tool_calls = (
                     VLLMOpenAIAsyncGenerator._extract_xml_tool_calls(
@@ -709,6 +833,16 @@ class VLLMOpenAIAsyncGenerator:
             if "tool_calls" not in output_message and reasoning_content:
                 cleaned_reasoning, fallback_tool_calls = (
                     VLLMOpenAIAsyncGenerator._extract_inline_function_calls(
+                        reasoning_content
+                    )
+                )
+                if cleaned_reasoning != reasoning_content:
+                    output_message["reasoning_content"] = cleaned_reasoning
+                if fallback_tool_calls:
+                    output_message["tool_calls"] = fallback_tool_calls
+            if "tool_calls" not in output_message and reasoning_content:
+                cleaned_reasoning, fallback_tool_calls = (
+                    VLLMOpenAIAsyncGenerator._extract_json_tool_calls(
                         reasoning_content
                     )
                 )

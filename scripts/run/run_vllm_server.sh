@@ -2,18 +2,18 @@
 
 # set -euo pipefail
 
-export MODEL=${MODEL:-"/home/efs/zlt/deepresearch/models/OpenSeeker-v1-30B-SFT"}
-export MODEL_ARCH=${MODEL_ARCH:-"Qwen3MoeForCausalLM"}
-export MODEL_TYPE=${MODEL_TYPE:-"qwen3_moe"}
+export MODEL="/home/efs/zlt/deepresearch/models/OpenSeeker-v1-30B-SFT"
+export MODEL_ARCH="Qwen3MoeForCausalLM"
+export MODEL_TYPE="qwen3_moe"
 export CUDA_DEVICES=${1:-0,1,2,3,4,5,6,7}
 export PORT=${2:-4000}
-export MAX_MODEL_LEN=${MAX_MODEL_LEN:-262144}
+export MAX_MODEL_LEN=262144
 export GPU_MEMORY_UTILIZATION=${GPU_MEMORY_UTILIZATION:-0.8}
 export TRUST_REMOTE_CODE=${TRUST_REMOTE_CODE:-1}
 export DTYPE=${DTYPE:-bfloat16}
-export TOOL_CALL_PARSER=${TOOL_CALL_PARSER:-qwen3_xml}
-export REASONING_PARSER=${REASONING_PARSER:-qwen3}
-export LANGUAGE_MODEL_ONLY=${LANGUAGE_MODEL_ONLY:-1}
+export TOOL_CALL_PARSER=qwen3_xml
+export REASONING_PARSER=qwen3
+export LANGUAGE_MODEL_ONLY=1
 
 IFS=',' read -r -a DEVICE_ARRAY <<< "${CUDA_DEVICES}"
 TP_SIZE=${#DEVICE_ARRAY[@]}

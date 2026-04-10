@@ -126,7 +126,7 @@ def truncate_tool_result(result: Any, max_chars: int) -> str:
     if max_chars <= 0 or len(text) <= max_chars:
         return text
 
-    notice = f"\n\n[TRUNCATED to {max_chars} chars from {len(text)} chars]"
+    notice = f""
     keep_chars = max_chars - len(notice)
     if keep_chars <= 0:
         return text[:max_chars]
@@ -360,7 +360,7 @@ async def run_one_native(
         await generator._init_tokenizer()
 
     # System prompt
-    system_prompt = DEVELOPER_CONTENT_CLAUDE + f"\n\nToday's date: {datetime.datetime.now().strftime('%Y-%m-%d')}"
+    system_prompt = DEVELOPER_CONTENT_CLAUDE # + f"\n\nToday's date: {datetime.datetime.now().strftime('%Y-%m-%d')}"
     messages = [
         {
             "role": "system",
@@ -460,8 +460,6 @@ async def run_one_native(
                         if ehr_pool:
                             # Normalize: remove both ehr. and ehr_ prefixes
                             actual_function_name = function_name.replace("ehr_", "").replace("ehr.", "")
-                            if function_args.get("table_name") == "diagnoses_ccs_candidates":
-                                candidate_table_tool_calls += 1
                             result = await ehr_pool.call_tool(qid, actual_function_name, function_args)
                         else:
                             result = "Error: EHR tools not available. Start with --enable_ehr flag."

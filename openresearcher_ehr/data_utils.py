@@ -135,20 +135,6 @@ def generate_question_from_task(task_data):
 
     return question
 
-# System prompts for different model types
-DEVELOPER_CONTENT = """
-You are a helpful assistant and harmless assistant.
-
-You will be able to use a set of browsering tools to answer user queries.
-
-Tool for browsing.
-The `cursor` appears in brackets before each browsing display: `[{cursor}]`.
-Cite information from the tool using the following format:
-`【{cursor}†L{line_start}(-L{line_end})?】`, for example: `【6†L9-L11】` or `【8†L3】`.
-Do not quote more than 10 words directly from the tool output.
-sources=web`
-""".strip()
-
 DEVELOPER_CONTENT_CLAUDE = """
 You are a research assistant with access to both web browsing and clinical EHR tools.
 

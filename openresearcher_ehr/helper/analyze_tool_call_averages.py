@@ -217,7 +217,7 @@ def main():
     parser.add_argument(
         "--results_file",
         help="Path to results.jsonl",
-        default="/home/efs/zlt/deepresearch/openresearcher_ehr/subsets_500_tongyi_deepresearch_30b_a3b_20260410T012610Z/results.jsonl",
+        default="/home/efs/zlt/deepresearch/openresearcher_ehr/subsets_600_tongyi_deepresearch_30b_a3b/results.jsonl",
     )
     parser.add_argument(
         "--output_file",
@@ -292,11 +292,11 @@ def main():
     print(
         f"Filter: {'all statuses' if args.all_statuses else 'success only'}"
     )
-    print_stats_block("Overall", stats)
 
     for task_name in sorted(by_task_stats):
         print_stats_block(f"Task: {task_name}", by_task_stats[task_name])
 
+    print_stats_block("Overall", stats)
 
 if __name__ == "__main__":
     main()
