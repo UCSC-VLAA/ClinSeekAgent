@@ -88,6 +88,8 @@ bash run_test_subset.sh
 ./subsets_600_qwen3_5_35b_a3b_deepmed_sft_epoch2/results.jsonl
 ```
 
+当前 evaluation 侧已不再额外注入 `[Tool Call: ...]` 这类 tool call 文本格式提示；工具调用依赖模型原生的 tool-calling 能力。如果某一轮模型没有产生 tool call，流程也不会再追加 reminder 提示，而是直接结束该条运行。
+
 ## 推荐执行版本
 
 如果只是按当前默认流程跑一遍，直接复制下面三段即可：

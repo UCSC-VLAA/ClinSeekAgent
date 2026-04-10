@@ -217,7 +217,7 @@ def main():
     parser.add_argument(
         "--results_file",
         help="Path to results.jsonl",
-        default="/home/efs/zlt/deepresearch/openresearcher_ehr/subsets_600_openresearcher_30b_a3b/results.jsonl",
+        default="/home/efs/zlt/deepresearch/openresearcher_ehr/subsets_500_tongyi_deepresearch_30b_a3b_20260410T012610Z/results.jsonl",
     )
     parser.add_argument(
         "--output_file",

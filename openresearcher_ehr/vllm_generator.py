@@ -26,7 +26,6 @@ XML_PARAMETER_RE = re.compile(
     re.DOTALL,
 )
 BRACKET_TOOL_CALL_PREFIX = "[Tool Call:"
-TOOL_RESPONSE_PREFIX = "[Tool Response]"
 
 
 class VLLMOpenAIAsyncGenerator:
@@ -87,82 +86,75 @@ class VLLMOpenAIAsyncGenerator:
             return f"ehr_{name}"
         return name
 
-    @classmethod
-    def _serialize_tool_arguments(cls, arguments: Any) -> str:
-        if isinstance(arguments, str):
-            try:
-                parsed = json.loads(arguments)
-            except Exception:
-                return arguments
-            return json.dumps(parsed, ensure_ascii=False)
-
-        return json.dumps(arguments if arguments is not None else {}, ensure_ascii=False)
+    @staticmethod
+    def _stringify_message_field(value: Any) -> str:
+        if value is None:
+            return ""
+        if isinstance(value, str):
+            return value
+        return json.dumps(value, ensure_ascii=False)
 
     @classmethod
-    def _render_assistant_turn(cls, turn: Dict[str, Any]) -> Dict[str, Any]:
-        rendered_parts: List[str] = []
+    def _normalize_assistant_tool_calls(
+        cls,
+        tool_calls: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        normalized_tool_calls: List[Dict[str, Any]] = []
 
-        reasoning_content = turn.get("reasoning_content")
-        if reasoning_content is not None and not isinstance(reasoning_content, str):
-            reasoning_content = json.dumps(reasoning_content, ensure_ascii=False)
-        if reasoning_content:
-            rendered_parts.append(reasoning_content.strip())
-
-        content = turn.get("content")
-        if content is None:
-            content = ""
-        elif not isinstance(content, str):
-            content = json.dumps(content, ensure_ascii=False)
-        if content and content.strip():
-            stripped_content = content.strip()
-            if not rendered_parts or stripped_content != rendered_parts[-1]:
-                rendered_parts.append(stripped_content)
-
-        for tool_call in turn.get("tool_calls") or []:
+        for index, tool_call in enumerate(tool_calls, start=1):
             function = tool_call.get("function", {})
             function_name = cls._normalize_tool_name(function.get("name", ""))
-            arguments = cls._serialize_tool_arguments(function.get("arguments"))
-            rendered_parts.append(
-                f"[Tool Call: {function_name}({arguments})]"
-            )
+            if not function_name:
+                continue
 
-        return {
-            "role": "assistant",
-            "content": "\n".join(part for part in rendered_parts if part).strip(),
-        }
+            arguments = function.get("arguments")
+            if arguments is None:
+                arguments = "{}"
+            elif not isinstance(arguments, str):
+                arguments = json.dumps(arguments, ensure_ascii=False)
+
+            normalized_tool_calls.append({
+                "id": tool_call.get("id") or f"call_{index}",
+                "type": tool_call.get("type") or "function",
+                "function": {
+                    "name": function_name,
+                    "arguments": arguments,
+                },
+            })
+
+        return normalized_tool_calls
 
     def _prepare_messages(self, messages: List[dict]) -> List[dict]:
         prepared: List[Dict[str, Any]] = []
 
         for original_turn in copy.deepcopy(messages):
             role = original_turn.get("role")
+            turn: Dict[str, Any] = {"role": role}
 
             if role == "assistant":
-                turn = self._render_assistant_turn(original_turn)
-            else:
-                content = original_turn.get("content")
-                if content is None:
-                    content = ""
-                elif not isinstance(content, str):
-                    content = json.dumps(content, ensure_ascii=False)
-
-                if role == "tool":
-                    content = (
-                        f"{TOOL_RESPONSE_PREFIX}\n{content}"
-                        if content
-                        else TOOL_RESPONSE_PREFIX
-                    )
-                    turn = {"role": "user", "content": content}
-                else:
-                    turn = {"role": role, "content": content}
-
-            if prepared and prepared[-1]["role"] == turn["role"]:
-                merged_content = "\n".join(
-                    part for part in (prepared[-1]["content"], turn["content"]) if part
+                normalized_tool_calls = self._normalize_assistant_tool_calls(
+                    original_turn.get("tool_calls") or []
                 )
-                prepared[-1]["content"] = merged_content
+                assistant_content = self._stringify_message_field(
+                    original_turn.get("content")
+                )
+                if assistant_content:
+                    turn["content"] = assistant_content
+                elif normalized_tool_calls:
+                    turn["content"] = None
+                else:
+                    turn["content"] = ""
+
+                if normalized_tool_calls:
+                    turn["tool_calls"] = normalized_tool_calls
             else:
-                prepared.append(turn)
+                turn["content"] = self._stringify_message_field(
+                    original_turn.get("content")
+                )
+                if role == "tool":
+                    turn["tool_call_id"] = original_turn.get("tool_call_id")
+
+            prepared.append(turn)
 
         return prepared
 

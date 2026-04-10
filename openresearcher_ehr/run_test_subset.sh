@@ -5,11 +5,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 export SERPER_API_KEY="${SERPER_API_KEY:-61877f4a59d2968ae439a7d13d49dc2990bc0a1b}"
 
-DATA_PATH=${DATA_PATH:-/home/efs/zlt/deepresearch/data/EHRAgentBench/common/subset_100/merged_subsets_600.json}
+DATA_PATH='/home/efs/zlt/deepresearch/data/EHRAgentBench/common/subset_500/merged_subsets_500.json'
 EHR_MCP_URL=${EHR_MCP_URL:-http://127.0.0.1:5103/mcp}
 MAX_CONCURRENCY=${MAX_CONCURRENCY:-5}
 RUNS_PER_QUESTION=${RUNS_PER_QUESTION:-1}
 MAX_ROUNDS=${MAX_ROUNDS:-200}
+MAX_TOOL_RESULT_CHARS=${MAX_TOOL_RESULT_CHARS:-50000}
 
 VLLM_BASE_URL=${VLLM_BASE_URL:-http://127.0.0.1:4000}
 VLLM_MODEL_NAME=${VLLM_MODEL_NAME:-auto}
@@ -68,6 +69,7 @@ echo "Using vLLM base URL: ${VLLM_BASE_URL}"
 echo "Resolved served model: ${VLLM_MODEL_NAME}"
 echo "Output directory: ${OUTPUT_DIR}"
 echo "EHR MCP URL: ${EHR_MCP_URL}"
+echo "Tool result char limit: ${MAX_TOOL_RESULT_CHARS}"
 
 python "$SCRIPT_DIR/deploy_agent.py" \
     --backend vllm \
@@ -82,5 +84,6 @@ python "$SCRIPT_DIR/deploy_agent.py" \
     --runs_per_question "$RUNS_PER_QUESTION" \
     --max_concurrency "$MAX_CONCURRENCY" \
     --max_rounds "$MAX_ROUNDS" \
+    --max_tool_result_chars "$MAX_TOOL_RESULT_CHARS" \
     "${THINKING_FLAG[@]}" \
     --verbose

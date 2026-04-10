@@ -23,7 +23,7 @@ DEFAULT_BEDROCK_REGION = "us-east-1"
 DEFAULT_VLLM_BASE_URL = "http://127.0.0.1:4000"
 DEFAULT_VLLM_API_KEY = "EMPTY"
 MAX_PARALLEL_QUERIES = 10
-MAX_TOOLLESS_REMINDERS = 3
+DEFAULT_MAX_TOOL_RESULT_CHARS = 50000
 
 BEDROCK_MODEL_ALIASES = {
     "anthropic.claude-sonnet-4-6": "us.anthropic.claude-sonnet-4-6",
@@ -112,6 +112,25 @@ def normalize_tool_call_name(function_name: str) -> str:
     if "." not in name:
         return f"ehr_{name}"
     return name
+
+
+def truncate_tool_result(result: Any, max_chars: int) -> str:
+    """Cap tool results before sending them back to the model."""
+    if isinstance(result, str):
+        text = result
+    elif isinstance(result, (dict, list)):
+        text = json.dumps(result, ensure_ascii=False)
+    else:
+        text = str(result)
+
+    if max_chars <= 0 or len(text) <= max_chars:
+        return text
+
+    notice = f"\n\n[TRUNCATED to {max_chars} chars from {len(text)} chars]"
+    keep_chars = max_chars - len(notice)
+    if keep_chars <= 0:
+        return text[:max_chars]
+    return text[:keep_chars] + notice
 
 
 def _validate_records(records: Any, data_path: str, source_format: str) -> List[Dict[str, Any]]:
@@ -212,95 +231,6 @@ def attach_source_fields(result: Dict[str, Any], item: Dict[str, Any]) -> Dict[s
     return enriched
 
 
-PATIENT_TIME_RE = re.compile(
-    r"Current Time:\s*([0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2})"
-)
-PATIENT_SUBJECT_RE = re.compile(r"Patient Subject ID:\s*([0-9]+)")
-
-
-def extract_patient_context(question: str) -> Dict[str, str]:
-    context: Dict[str, str] = {}
-
-    if not question:
-        return context
-
-    time_match = PATIENT_TIME_RE.search(question)
-    if time_match:
-        context["timestamp"] = time_match.group(1)
-
-    subject_match = PATIENT_SUBJECT_RE.search(question)
-    if subject_match:
-        context["subject_id"] = subject_match.group(1)
-
-    return context
-
-
-def sanitize_load_ehr_args(
-    tool_args: Dict[str, Any],
-    patient_context: Dict[str, str],
-) -> tuple[Dict[str, Any], List[str]]:
-    if not patient_context:
-        return tool_args, []
-
-    sanitized = dict(tool_args)
-    notes: List[str] = []
-
-    expected_subject_id = patient_context.get("subject_id")
-    if expected_subject_id and sanitized.get("subject_id") != expected_subject_id:
-        notes.append(
-            f"subject_id {sanitized.get('subject_id')!r} -> {expected_subject_id!r}"
-        )
-        sanitized["subject_id"] = expected_subject_id
-
-    expected_timestamp = patient_context.get("timestamp")
-    if expected_timestamp and sanitized.get("timestamp") != expected_timestamp:
-        notes.append(
-            f"timestamp {sanitized.get('timestamp')!r} -> {expected_timestamp!r}"
-        )
-        sanitized["timestamp"] = expected_timestamp
-
-    return sanitized, notes
-
-
-def _replace_year(timestamp_text: str, target_year: int) -> str:
-    return f"{target_year:04d}{timestamp_text[4:]}"
-
-
-def sanitize_ehr_tool_args(
-    function_name: str,
-    tool_args: Dict[str, Any],
-    patient_context: Dict[str, str],
-) -> tuple[Dict[str, Any], List[str]]:
-    if function_name in {"ehr.load_ehr", "ehr_load_ehr"}:
-        return sanitize_load_ehr_args(tool_args, patient_context)
-
-    if not patient_context:
-        return tool_args, []
-
-    patient_timestamp = patient_context.get("timestamp")
-    if not patient_timestamp:
-        return tool_args, []
-
-    patient_year = int(patient_timestamp[:4])
-    sanitized = dict(tool_args)
-    notes: List[str] = []
-
-    if function_name in {"ehr.get_records_by_time", "ehr_get_records_by_time"}:
-        end_time = sanitized.get("end_time")
-        if (
-            isinstance(end_time, str)
-            and len(end_time) >= 19
-            and end_time[:4].isdigit()
-        ):
-            end_year = int(end_time[:4])
-            if patient_year >= 2100 and end_year < patient_year:
-                fixed_end_time = _replace_year(end_time, patient_year)
-                notes.append(f"end_time {end_time!r} -> {fixed_end_time!r}")
-                sanitized["end_time"] = fixed_end_time
-
-    return sanitized, notes
-
-
 class BrowserPool:
     """Browser tool pool manager."""
     def __init__(self, search_url, browser_backend='local'):
@@ -381,28 +311,6 @@ def _iter_assistant_completion_texts(message: Dict[str, Any]):
         yield "reasoning_content", reasoning_content
 
 
-def build_tool_call_retry_message(
-    reminder_index: int,
-    max_reminders: int,
-) -> str:
-    lines = [
-        "Your previous response did not include an actual tool call.",
-        "In your next response, you MUST emit at least one tool call in exactly this format: `[Tool Call: {function_name}({arguments})]`.",
-        "Use the full tool name such as `ehr.load_ehr`, `ehr.get_records_by_time`, `browser.search`, or `ehr.finish`, and make `{arguments}` a valid JSON object.",
-    ]
-
-    # if reminder_index >= max_reminders:
-    #     lines.append(
-    #         "This is the final reminder before the run may terminate as incomplete."
-    #     )
-    # else:
-    #     lines.append(
-    #         f"Reminder {reminder_index}/{max_reminders}: the next response must contain a real tool call."
-    #     )
-
-    return "\n".join(lines)
-
-
 def summarize_conversation_completion(
     messages: List[Dict[str, Any]],
 ) -> tuple[bool, str]:
@@ -434,6 +342,7 @@ async def run_one_native(
     ehr_pool: EHRToolPool = None,
     max_rounds: int = 200,
     temperature: float = 1.0,
+    max_tool_result_chars: int = DEFAULT_MAX_TOOL_RESULT_CHARS,
 ) -> List[dict]:
     """
     Native API tool calling for Bedrock Claude with dual tool support.
@@ -465,9 +374,7 @@ async def run_one_native(
 
     # Parse tools (ALL 23 tools: 3 browser + 20 EHR)
     tools = json.loads(COMBINED_TOOL_CONTENT_FULL)
-    patient_context = extract_patient_context(question)
     candidate_table_tool_calls = 0
-    finish_reminders_sent = 0
 
     round_num = 0
 
@@ -518,29 +425,13 @@ async def run_one_native(
             messages.append(assistant_message)
 
             if not tool_calls:
-                finish_reminders_sent += 1
-                if finish_reminders_sent > MAX_TOOLLESS_REMINDERS:
-                    print(
-                        f"[qid={qid}] Round {round_num}: Reached reminder limit without a tool call",
-                        flush=True,
-                    )
-                    break
-                reminder_content = build_tool_call_retry_message(
-                    reminder_index=finish_reminders_sent,
-                    max_reminders=MAX_TOOLLESS_REMINDERS,
-                )
-                messages.append({
-                    "role": "user",
-                    "content": reminder_content,
-                })
                 print(
                     f"[qid={qid}] Round {round_num}: No tool calls detected; "
-                    f"queued tool-call reminder {finish_reminders_sent}/{MAX_TOOLLESS_REMINDERS}",
+                    "stopping without a reminder",
                     flush=True,
                 )
-                continue
+                break
 
-            finish_reminders_sent = 0
             finish_tool_called = False
             for tc_idx, tool_call in enumerate(tool_calls):
                 tool_id = tool_call["id"]
@@ -554,18 +445,6 @@ async def run_one_native(
                         function_args = function_args_raw
                     else:
                         function_args = json.loads(function_args_raw)
-
-                    function_args, sanitize_notes = sanitize_ehr_tool_args(
-                        function_name,
-                        function_args,
-                        patient_context,
-                    )
-                    if sanitize_notes:
-                        print(
-                            f"[qid={qid}] Round {round_num} TOOL_SANITIZE[{tc_idx}]: "
-                            + "; ".join(sanitize_notes),
-                            flush=True,
-                        )
                     if function_name != raw_function_name:
                         print(
                             f"[qid={qid}] Round {round_num} TOOL_NAME_NORMALIZE[{tc_idx}]: "
@@ -596,6 +475,9 @@ async def run_one_native(
                     else:
                         result = f"Unknown tool namespace: {function_name}"
 
+                    original_result_len = len(result) if isinstance(result, str) else None
+                    result = truncate_tool_result(result, max_tool_result_chars)
+
                     # Add tool response
                     messages.append({
                         "role": "tool",
@@ -604,6 +486,12 @@ async def run_one_native(
                     })
 
                     result_preview = result[:200] if len(result) > 200 else result
+                    if original_result_len is not None and original_result_len > len(result):
+                        print(
+                            f"[qid={qid}] Round {round_num} TOOL_RESULT_TRUNCATED[{tc_idx}]: "
+                            f"{original_result_len} -> {len(result)} chars",
+                            flush=True,
+                        )
                     print(f"[qid={qid}] Round {round_num} TOOL_RESULT[{tc_idx}]: len={len(result)}, preview={result_preview!r}", flush=True)
 
                     actual_finish_name = function_name.replace("ehr_", "").replace("ehr.", "")
@@ -612,6 +500,7 @@ async def run_one_native(
 
                 except Exception as e:
                     error_msg = f"Error executing {function_name}: {str(e)}"
+                    error_msg = truncate_tool_result(error_msg, max_tool_result_chars)
                     print(f"[qid={qid}] Round {round_num} TOOL_ERROR[{tc_idx}]: {error_msg}", flush=True)
                     messages.append({
                         "role": "tool",
@@ -646,6 +535,7 @@ async def run_one_query(
     ehr_pool: EHRToolPool = None,
     max_rounds: int = 200,
     temperature: float = 1.0,
+    max_tool_result_chars: int = DEFAULT_MAX_TOOL_RESULT_CHARS,
 ):
     """Run a single query and return the result."""
     try:
@@ -657,6 +547,7 @@ async def run_one_query(
             ehr_pool=ehr_pool,
             max_rounds=max_rounds,
             temperature=temperature,
+            max_tool_result_chars=max_tool_result_chars,
         )
 
         completed, stop_reason = summarize_conversation_completion(messages)
@@ -703,6 +594,7 @@ async def process_query_item(
     ehr_pool: EHRToolPool,
     max_rounds: int,
     temperature: float,
+    max_tool_result_chars: int,
     semaphore: asyncio.Semaphore,
     out_f: Any,
     output_file: str,
@@ -735,6 +627,7 @@ async def process_query_item(
                 ehr_pool=ehr_pool,
                 max_rounds=max_rounds,
                 temperature=temperature,
+                max_tool_result_chars=max_tool_result_chars,
             )
             result = attach_source_fields(result, item)
     except Exception as e:
@@ -823,6 +716,8 @@ async def main():
                         help="Number of independent runs to execute for each question")
     parser.add_argument("--max_concurrency", type=int, default=MAX_PARALLEL_QUERIES,
                         help=f"Maximum parallel queries (capped at {MAX_PARALLEL_QUERIES})")
+    parser.add_argument("--max_tool_result_chars", type=int, default=DEFAULT_MAX_TOOL_RESULT_CHARS,
+                        help="Maximum number of characters kept from each tool result")
     parser.add_argument("--verbose", action="store_true",
                         help="Enable verbose output")
 
@@ -849,6 +744,9 @@ async def main():
 
     if args.runs_per_question < 1:
         raise ValueError("--runs_per_question must be at least 1")
+
+    if args.max_tool_result_chars < 1:
+        raise ValueError("--max_tool_result_chars must be at least 1")
 
     concurrency = min(args.max_concurrency, MAX_PARALLEL_QUERIES)
     if concurrency != args.max_concurrency:
@@ -922,6 +820,7 @@ async def main():
         f"({total_task_runs} total runs)"
     )
     print(f"Running with max concurrency: {concurrency}")
+    print(f"Tool result char limit: {args.max_tool_result_chars}")
 
     if hasattr(generator, '_init_tokenizer'):
         await generator._init_tokenizer()
@@ -951,6 +850,7 @@ async def main():
                             ehr_pool=ehr_pool,
                             max_rounds=args.max_rounds,
                             temperature=args.temperature,
+                            max_tool_result_chars=args.max_tool_result_chars,
                             semaphore=semaphore,
                             out_f=out_f,
                             output_file=output_file,

@@ -15,7 +15,7 @@ You must find the most likely official CCS candidates using the **`diagnoses_ccs
 
 When you need medical knowledge or clinical information to support your diagnostic reasoning, use the `browser.search` tool to find authoritative medical information from reliable sources.
 
-Present your final answer as a **list format** with `finish` tool calling, which must contain **multiple plausible diagnoses**. Each item in the list must be a string representing an official CCS diagnosis name, and **must not contain any codes or other additional information**.
+Submit your final answer through `ehr.finish` as a **list** containing **multiple plausible diagnoses**. Each item in the list must be a string representing an official CCS diagnosis name, and **must not contain any codes or other additional information**.
 </task_instruction>
 
 <patient_info>
@@ -32,7 +32,7 @@ You must find the most likely official CCS procedure candidates using the **`pro
 
 When you need medical knowledge or clinical information to support your procedure planning, use the `browser.search` tool to find authoritative medical information from reliable sources.
 
-Present your final answer as a **list format** with `finish` tool calling, which must contain **multiple plausible procedures**. Each item in the list must be a string representing an official CCS procedure name, and **must not contain any codes or other additional information**.
+Submit your final answer through `ehr.finish` as a **list** containing **multiple plausible procedures**. Each item in the list must be a string representing an official CCS procedure name, and **must not contain any codes or other additional information**.
 </task_instruction>
 
 <patient_info>
@@ -51,7 +51,7 @@ You must find the most likely official laboratory test candidates using the **`l
 
 When you need medical knowledge or clinical information to support your laboratory planning, use the `browser.search` tool to find authoritative medical information from reliable sources.
 
-Present your final answer as a **list format** with `finish` tool calling, which must contain **multiple plausible laboratory tests**. Each item in the list must be a string representing an official laboratory test name, and **must not contain any codes or other additional information**.
+Submit your final answer through `ehr.finish` as a **list** containing **multiple plausible laboratory tests**. Each item in the list must be a string representing an official laboratory test name, and **must not contain any codes or other additional information**.
 </task_instruction>
 
 <patient_info>
@@ -68,7 +68,7 @@ You must find the most likely official ATC name candidates using the **`prescrip
 
 When you need medical knowledge or clinical information to support your medication planning, use the `browser.search` tool to find authoritative medical information from reliable sources.
 
-Present your final answer as a **list format** with `finish` tool calling, which must contain **multiple plausible ATC names**. Each item in the list must be a string representing an official ATC name, and **must not contain any codes or other additional information**.
+Submit your final answer through `ehr.finish` as a **list** containing **multiple plausible ATC names**. Each item in the list must be a string representing an official ATC name, and **must not contain any codes or other additional information**.
 </task_instruction>
 
 <patient_info>
@@ -85,7 +85,7 @@ You must find the most likely official microbiological test candidates using the
 
 When you need medical knowledge or clinical information to support your microbiological assessment, use the `browser.search` tool to find authoritative medical information from reliable sources.
 
-Present your final answer as a **list format** with `finish` tool calling, which must contain **multiple plausible microbiological tests**. Each item in the list must be a string representing an official microbiological test name, and **must not contain any codes or other additional information**.
+Submit your final answer through `ehr.finish` as a **list** containing **multiple plausible microbiological tests**. Each item in the list must be a string representing an official microbiological test name, and **must not contain any codes or other additional information**.
 </task_instruction>
 
 <patient_info>
@@ -104,7 +104,7 @@ You must find the most likely official care unit candidates using the **`transfe
 
 When you need medical knowledge or clinical information to support your transfer planning, use the `browser.search` tool to find authoritative medical information from reliable sources.
 
-Present your final answer as a **list format** with `finish` tool calling, which must contain **multiple plausible care units**. Each item in the list must be a string representing an official care unit name, and **must not contain any codes or other additional information**.
+Submit your final answer through `ehr.finish` as a **list** containing **multiple plausible care units**. Each item in the list must be a string representing an official care unit name, and **must not contain any codes or other additional information**.
 </task_instruction>
 
 <patient_info>
@@ -170,22 +170,8 @@ You are a research assistant with access to both web browsing and clinical EHR t
 
 **Important:** Whenever you engage in thinking, reasoning, or analysis, you MUST use Browser Tools to support your process, including assisting with information retrieval and verification. Do NOT rely solely on internal knowledge.
 
-**Tool Call Format Requirement:** Whenever you call a tool, you MUST emit the tool call in exactly this plain-text format:
-`[Tool Call: {function_name}({arguments})]`
-
-Formatting rules for tool calls:
-- Use exactly the prefix `[Tool Call:`
-- `function_name` must be the full tool name such as `ehr.load_ehr`, `ehr.get_records_by_time`, `browser.search`, or `ehr.finish`
-- `{arguments}` must be a valid JSON object
-- Do not use XML tool-call formats
-- Do not use raw JSON arrays or other wrapper formats for tool calls
-- If you need to call multiple tools in one response, emit one `[Tool Call: ...]` entry per tool
-- When you have enough information to answer, you must call `ehr.finish` using this same format
-
 The `cursor` appears in brackets before each browsing display: `[{cursor}]`.
 Cite web sources using: 【{cursor}†L{line_start}(-L{line_end})?】
-
-Your final response should be submitted by calling `ehr.finish` in the required `[Tool Call: ...]` format.
 
 sources=web,ehr
 """
@@ -417,28 +403,6 @@ EHR_TOOL_CONTENT = """
           }
         },
         "required": ["table_name", "query"]
-      }
-    }
-  },
-  {
-    "type": "function",
-    "function": {
-      "name": "ehr.retrieve_pubmed",
-      "description": "Searches PubMed for medical literature related to a query. More focused than general web search for medical topics.",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "query": {
-            "type": "string",
-            "description": "The medical query to search for in PubMed"
-          },
-          "top_k": {
-            "type": "integer",
-            "description": "Number of top results to return",
-            "default": 5
-          }
-        },
-        "required": ["query"]
       }
     }
   }
