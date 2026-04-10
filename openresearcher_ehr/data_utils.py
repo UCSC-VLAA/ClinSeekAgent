@@ -135,6 +135,36 @@ def generate_question_from_task(task_data):
 
     return question
 
+# DEVELOPER_CONTENT_CLAUDE = """
+# You are a research assistant with access to both web browsing and clinical EHR tools.
+
+# **EHR Tools** (for clinical data analysis):
+# - ehr.load_ehr: Load patient EHR database (must be called first for clinical tasks)
+# - ehr.get_table_names: List available patient data tables
+# - ehr.get_column_names: Get table column information
+# - ehr.get_records_by_time: Query patient records within time range
+# - ehr.run_sql_query: Execute SQL queries on patient database
+# - ehr.get_candidates_by_semantic_similarity: Search medical terminology/diagnosis codes
+# - ehr.get_candidates_by_keyword: Search diagnosis codes by keyword
+# - ehr.think: Record your reasoning process
+# - ehr.finish: Submit your final answer
+
+# **Browser Tools** (for web research and medical knowledge):
+# - browser.search: Search the web for information, medical knowledge, clinical guidelines, diagnostic criteria
+# - browser.open: Open and read web pages
+# - browser.find: Find text within pages
+
+# **Priority Rules:**
+# - For patient-related tasks, EHR Tools are the primary and default source of truth.
+# - Always call `ehr.load_ehr` first before trying to inspect patient data.
+# - Use `ehr.*` tools to obtain patient-specific facts, including admissions, diagnoses, procedures, medications, labs, microbiology, transfers, demographics, timestamps, and candidate/reference tables.
+# - Do not use Browser Tools to search for patient-specific information, subject IDs, or EHR table contents that should come from the EHR environment.
+# - Only use Browser Tools when EHR data is insufficient and you truly need external medical knowledge, such as disease background, diagnostic criteria, guideline context, or terminology clarification.
+# - Use only the tool names listed above. Do not invent new tool names or alternate aliases.
+
+# sources=ehr,web
+# """
+
 DEVELOPER_CONTENT_CLAUDE = """
 You are a research assistant with access to both web browsing and clinical EHR tools.
 
@@ -156,8 +186,22 @@ You are a research assistant with access to both web browsing and clinical EHR t
 
 **Important:** Whenever you engage in thinking, reasoning, or analysis, you MUST use Browser Tools to support your process, including assisting with information retrieval and verification. Do NOT rely solely on internal knowledge.
 
+**Tool Call Format Requirement:** Whenever you call a tool, you MUST emit the tool call in exactly this plain-text format:
+`[Tool Call: {function_name}({arguments})]`
+
+Formatting rules for tool calls:
+- Use exactly the prefix `[Tool Call:`
+- `function_name` must be the full tool name such as `ehr.load_ehr`, `ehr.get_records_by_time`, `browser.search`, or `ehr.finish`
+- `{arguments}` must be a valid JSON object
+- Do not use XML tool-call formats
+- Do not use raw JSON arrays or other wrapper formats for tool calls
+- If you need to call multiple tools in one response, emit one `[Tool Call: ...]` entry per tool
+- When you have enough information to answer, you must call `ehr.finish` using this same format
+
 The `cursor` appears in brackets before each browsing display: `[{cursor}]`.
 Cite web sources using: 【{cursor}†L{line_start}(-L{line_end})?】
+
+Your final response should be submitted by calling `ehr.finish` in the required `[Tool Call: ...]` format.
 
 sources=web,ehr
 """
@@ -818,7 +862,7 @@ def get_combined_tools_with_all_ehr():
     """Get browser tools + 16 EHR tools (knowledge retrieval tools excluded, using web search instead)."""
     browser_tools = json.loads(BROWSER_TOOL_CONTENT)
     ehr_tools = json.loads(EHR_TOOL_CONTENT_JSON)
-    return browser_tools + ehr_tools
+    return ehr_tools + browser_tools
 
 # For use in deploy_agent.py - update COMBINED_TOOL_CONTENT to use all tools
 COMBINED_TOOL_CONTENT_FULL = json.dumps(get_combined_tools_with_all_ehr())
