@@ -124,6 +124,30 @@ class VLLMOpenAIAsyncGenerator:
 
         return normalized_tool_calls
 
+    @staticmethod
+    def _render_tool_calls_as_content(tool_calls: List[Dict[str, Any]]) -> str:
+        rendered_lines: List[str] = []
+
+        for tool_call in tool_calls:
+            function = tool_call.get("function", {})
+            function_name = function.get("name", "").strip()
+            if not function_name:
+                continue
+
+            arguments = function.get("arguments")
+            if arguments is None:
+                arguments_str = "{}"
+            elif isinstance(arguments, str):
+                arguments_str = arguments
+            else:
+                arguments_str = json.dumps(arguments, ensure_ascii=False)
+
+            rendered_lines.append(
+                f"[Tool Call: {function_name}({arguments_str})]"
+            )
+
+        return "\n".join(rendered_lines)
+
     def _prepare_messages(self, messages: List[dict]) -> List[dict]:
         prepared: List[Dict[str, Any]] = []
 
@@ -142,15 +166,21 @@ class VLLMOpenAIAsyncGenerator:
                     original_turn.get("reasoning")
                     or original_turn.get("reasoning_content")
                 )
-                if assistant_content:
+                if normalized_tool_calls:
+                    rendered_tool_calls = self._render_tool_calls_as_content(
+                        normalized_tool_calls
+                    )
+                    if assistant_content:
+                        turn["content"] = (
+                            f"{assistant_content}\n{rendered_tool_calls}"
+                        )
+                    else:
+                        turn["content"] = rendered_tool_calls
+                elif assistant_content:
                     turn["content"] = assistant_content
-                elif normalized_tool_calls:
-                    turn["content"] = None
                 else:
                     turn["content"] = ""
 
-                if normalized_tool_calls:
-                    turn["tool_calls"] = normalized_tool_calls
                 if assistant_reasoning:
                     # vLLM's current chat schema uses `reasoning`; internally we
                     # still keep `reasoning_content` for backward compatibility.
