@@ -5,13 +5,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 export SERPER_API_KEY="${SERPER_API_KEY:-61877f4a59d2968ae439a7d13d49dc2990bc0a1b}"
 
-DATA_PATH='/home/efs/zlt/deepresearch/data/EHRAgentBench/common/subset_400/merged_subsets_400.json'
+DATA_PATH='/home/efs/zlt/deepresearch/data/EHRAgentBench/common/subset_500/merged_subsets_500.json'
 
 EHR_MCP_URL=${EHR_MCP_URL:-http://127.0.0.1:5103/mcp}
 MAX_CONCURRENCY=${MAX_CONCURRENCY:-5}
-RUNS_PER_QUESTION=${RUNS_PER_QUESTION:-1}
-MAX_ROUNDS=${MAX_ROUNDS:-200}
-MAX_TOOL_RESULT_CHARS=${MAX_TOOL_RESULT_CHARS:-200000}
+RUNS_PER_QUESTION=1
+MAX_ROUNDS=200
+MAX_TOOL_RESULT_CHARS=200000
 
 VLLM_BASE_URL=${VLLM_BASE_URL:-http://127.0.0.1:4000}
 VLLM_MODEL_NAME=${VLLM_MODEL_NAME:-auto}
@@ -57,7 +57,7 @@ print(slug or "vllm_model")
 PY
 )"
 
-OUTPUT_DIR=./subset_400_${MODEL_SLUG}
+OUTPUT_DIR=./subset_500_${MODEL_SLUG}
 
 
 THINKING_FLAG=()

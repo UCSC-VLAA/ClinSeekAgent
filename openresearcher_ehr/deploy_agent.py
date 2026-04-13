@@ -8,6 +8,7 @@ import asyncio
 import datetime
 import argparse
 import re
+import uuid
 from typing import List, Dict, Any
 import traceback
 
@@ -398,11 +399,14 @@ async def run_one_native(
             # Extract message from response
             message = response["choices"][0]["message"]
             content = message.get("content", "")
+            raw_content = message.get("raw_content")
             reasoning_content = (message.get("reasoning_content") or "").strip()
             tool_calls = message.get("tool_calls", [])
+            parse_error = (message.get("parse_error") or "").strip()
+            is_openseeker_repo_like = raw_content is not None
 
             preview_text = content or reasoning_content
-            preview_text = preview_text[:300] if len(preview_text) > 300 else preview_text
+            preview_text = preview_text[:2000] if len(preview_text) > 2000 else preview_text
             preview_label = "CONTENT" if content else "REASONING"
             print(
                 f"[qid={qid}] Round {round_num} MODEL RESPONSE: "
@@ -413,11 +417,16 @@ async def run_one_native(
                 f"[qid={qid}] Round {round_num} {preview_label} PREVIEW: {preview_text!r}",
                 flush=True,
             )
+            if parse_error and not tool_calls:
+                print(
+                    f"[qid={qid}] Round {round_num} PARSE ERROR: {parse_error}",
+                    flush=True,
+                )
 
             # Add assistant message
             assistant_message = {
                 "role": "assistant",
-                "content": content,
+                "content": raw_content if raw_content is not None else content,
                 "tool_calls": tool_calls if tool_calls else None
             }
             if reasoning_content:
@@ -477,11 +486,16 @@ async def run_one_native(
                     result = truncate_tool_result(result, max_tool_result_chars)
 
                     # Add tool response
-                    messages.append({
+                    tool_message = {
                         "role": "tool",
-                        "tool_call_id": tool_id,
                         "content": result
-                    })
+                    }
+                    if is_openseeker_repo_like:
+                        tool_message["name"] = raw_function_name
+                        tool_message["tool_call_id"] = str(uuid.uuid4())
+                    else:
+                        tool_message["tool_call_id"] = tool_id
+                    messages.append(tool_message)
 
                     result_preview = result[:200] if len(result) > 200 else result
                     if original_result_len is not None and original_result_len > len(result):
@@ -500,11 +514,16 @@ async def run_one_native(
                     error_msg = f"Error executing {function_name}: {str(e)}"
                     error_msg = truncate_tool_result(error_msg, max_tool_result_chars)
                     print(f"[qid={qid}] Round {round_num} TOOL_ERROR[{tc_idx}]: {error_msg}", flush=True)
-                    messages.append({
+                    error_message = {
                         "role": "tool",
-                        "tool_call_id": tool_id,
                         "content": error_msg
-                    })
+                    }
+                    if is_openseeker_repo_like:
+                        error_message["name"] = raw_function_name
+                        error_message["tool_call_id"] = str(uuid.uuid4())
+                    else:
+                        error_message["tool_call_id"] = tool_id
+                    messages.append(error_message)
 
             if finish_tool_called:
                 print(f"[qid={qid}] ✅ Round {round_num}: ehr.finish called - DONE", flush=True)

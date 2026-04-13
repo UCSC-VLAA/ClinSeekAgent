@@ -3,15 +3,16 @@ import argparse
 import ast
 import json
 import math
-from collections import Counter, defaultdict
+import re
+from collections import Counter, defaultdict, deque
 from pathlib import Path
 
 
 DEFAULT_RESULTS = (
-    "/home/efs/zlt/deepresearch/openresearcher_ehr/subset_400_qwen3_5_35b_a3b_deepmed_sft_epoch2/results.jsonl"
+    "/home/efs/zlt/deepresearch/openresearcher_ehr/subset_500_openseeker_v1_30b_sft/results.jsonl"
 )
 DEFAULT_BENCHMARK = (
-    "/home/efs/zlt/deepresearch/data/EHRAgentBench/common/subset_400/merged_subsets_400.json"
+    "/home/efs/zlt/deepresearch/data/EHRAgentBench/common/subset_500/merged_subsets_500.json"
 )
 
 
@@ -61,7 +62,317 @@ def parse_json_or_python(value):
         return ast.literal_eval(value)
 
 
-def extract_finish_predictions(result):
+def normalize_text(text):
+    return re.sub(r"\s+", " ", (text or "")).strip().lower()
+
+
+def dedupe_string_predictions(values):
+    deduped = []
+    seen = set()
+    for value in values:
+        if not isinstance(value, str):
+            continue
+        cleaned = re.sub(r"\s+", " ", value).strip().strip('"').strip("'")
+        if not cleaned:
+            continue
+        key = normalize_text(cleaned)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(cleaned)
+    return deduped
+
+
+def extract_candidate_names_from_tool_output(text):
+    names = []
+    single_column_mode = False
+
+    for raw_line in (text or "").splitlines():
+        line = raw_line.rstrip("\n")
+        stripped = line.strip()
+        lower = stripped.lower()
+
+        if not stripped:
+            single_column_mode = False
+            continue
+
+        if stripped.startswith("--- Results for keyword "):
+            single_column_mode = False
+            continue
+
+        if stripped.startswith("Error:") or stripped.startswith("No records found"):
+            single_column_mode = False
+            continue
+
+        if lower == "candidate":
+            single_column_mode = True
+            continue
+
+        if "icd_code" in lower and "candidate" in lower:
+            single_column_mode = False
+            continue
+
+        if single_column_mode:
+            if not any(
+                token in lower
+                for token in ("similarity_score", "columns:", "table:", "description:")
+            ):
+                names.append(stripped)
+            continue
+
+        match = re.match(
+            r"^\s*(\S+)\s+(\d{1,2})\s+(.+?)\s+(\d+(?:\.\d+)?)\s*$",
+            line,
+        )
+        if match:
+            names.append(match.group(3).strip())
+            continue
+
+        match = re.match(r"^\s*(\S+)\s+(\d{1,2})\s+(.+?)\s*$", line)
+        if match:
+            names.append(match.group(3).strip())
+            continue
+
+    return dedupe_string_predictions(names)
+
+
+def collect_official_candidate_names(messages):
+    pending_tool_calls = deque()
+    official_names = []
+    seen = set()
+
+    for message in messages:
+        role = message.get("role")
+        if role == "assistant":
+            pending_tool_calls.extend(message.get("tool_calls") or [])
+            continue
+
+        if role != "tool":
+            continue
+
+        associated_tool_call = pending_tool_calls.popleft() if pending_tool_calls else None
+        tool_name = message.get("name", "")
+        tool_args = ""
+        if associated_tool_call:
+            function = associated_tool_call.get("function", {})
+            tool_name = tool_name or function.get("name", "")
+            tool_args = function.get("arguments", "")
+
+        if not isinstance(tool_args, str):
+            tool_args = json.dumps(tool_args, ensure_ascii=False)
+
+        if "_candidates" not in tool_args:
+            continue
+
+        if "get_candidates" not in tool_name and "run_sql_query" not in tool_name:
+            continue
+
+        for candidate in extract_candidate_names_from_tool_output(message.get("content", "")):
+            key = normalize_text(candidate)
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            official_names.append(candidate)
+
+    return official_names
+
+
+def extract_explicit_string_list_from_text(text):
+    snippets = []
+
+    answer_blocks = list(
+        re.finditer(r"<answer>\s*(.*?)\s*</answer>", text or "", flags=re.IGNORECASE | re.DOTALL)
+    )
+    for match in reversed(answer_blocks):
+        snippets.append(match.group(1).strip())
+
+    list_literals = list(re.finditer(r"\[[\s\S]{1,2000}?\]", text or "", flags=re.DOTALL))
+    for match in reversed(list_literals):
+        snippet = match.group(0)
+        if '"' not in snippet and "'" not in snippet:
+            continue
+        snippets.append(snippet)
+
+    for snippet in snippets:
+        try:
+            parsed = parse_json_or_python(snippet)
+        except Exception:
+            continue
+
+        if isinstance(parsed, dict):
+            for key in ("response", "answer", "answers", "predictions"):
+                if isinstance(parsed.get(key), list):
+                    parsed = parsed[key]
+                    break
+
+        if isinstance(parsed, list):
+            cleaned = dedupe_string_predictions(parsed)
+            if cleaned:
+                return cleaned
+
+    return []
+
+
+def extract_bullet_list_from_text(text):
+    if not text:
+        return []
+
+    cue_re = re.compile(
+        r"(final answer|answer should|plausible diagnoses include|list of strings|list like)",
+        flags=re.IGNORECASE,
+    )
+    bullet_re = re.compile(r"^[-*]\s+(.+?)\s*$")
+
+    lines = text.splitlines()
+    collecting = False
+    bullets = []
+    best = []
+
+    for raw_line in lines:
+        stripped = raw_line.strip()
+        if not stripped:
+            if collecting and bullets:
+                best = bullets
+                break
+            continue
+
+        if cue_re.search(stripped):
+            collecting = True
+            bullets = []
+            continue
+
+        match = bullet_re.match(stripped)
+        if collecting and match:
+            bullets.append(match.group(1).strip())
+            continue
+
+        if collecting and bullets:
+            best = bullets
+            break
+
+    if not best and bullets:
+        best = bullets
+
+    return dedupe_string_predictions(best)
+
+
+def align_predictions_to_official_candidates(predictions, official_candidates):
+    if not predictions:
+        return []
+
+    official_by_key = {
+        normalize_text(candidate): candidate
+        for candidate in official_candidates
+        if normalize_text(candidate)
+    }
+    aligned = []
+    seen = set()
+
+    for prediction in predictions:
+        pred_key = normalize_text(prediction)
+        if not pred_key:
+            continue
+
+        canonical = official_by_key.get(pred_key)
+        if canonical is None:
+            for official in official_candidates:
+                official_key = normalize_text(official)
+                if not official_key:
+                    continue
+                if official_key in pred_key or pred_key in official_key:
+                    canonical = official
+                    break
+
+        final_value = canonical or prediction
+        final_key = normalize_text(final_value)
+        if final_key in seen:
+            continue
+        seen.add(final_key)
+        aligned.append(final_value)
+
+    return aligned
+
+
+def extract_official_candidate_mentions(text, official_candidates):
+    normalized = normalize_text(text)
+    if not normalized or not official_candidates:
+        return []
+
+    matches = []
+    for candidate in official_candidates:
+        candidate_key = normalize_text(candidate)
+        if not candidate_key:
+            continue
+        position = normalized.find(candidate_key)
+        if position == -1:
+            continue
+        matches.append((position, candidate))
+
+    matches.sort(key=lambda item: item[0])
+    return dedupe_string_predictions([candidate for _, candidate in matches])
+
+
+def extract_fallback_predictions_from_last_assistant(messages):
+    last_assistant_message = None
+    for message in reversed(messages):
+        if message.get("role") == "assistant":
+            last_assistant_message = message
+            break
+
+    if last_assistant_message is None:
+        return [], None
+
+    text = "\n".join(
+        part
+        for part in (
+            (last_assistant_message.get("content") or "").strip(),
+            (last_assistant_message.get("reasoning_content") or "").strip(),
+        )
+        if part
+    ).strip()
+    if not text:
+        return [], None
+
+    explicit_predictions = extract_explicit_string_list_from_text(text)
+    official_candidates = collect_official_candidate_names(messages)
+    if explicit_predictions:
+        aligned = align_predictions_to_official_candidates(
+            explicit_predictions,
+            official_candidates,
+        )
+        return aligned or explicit_predictions, "fallback_explicit_string_list"
+
+    bullet_predictions = extract_bullet_list_from_text(text)
+    if bullet_predictions:
+        aligned = align_predictions_to_official_candidates(
+            bullet_predictions,
+            official_candidates,
+        )
+        if aligned:
+            return aligned, "fallback_bullet_list"
+
+    answer_like = any(
+        cue in normalize_text(text)
+        for cue in (
+            "ehr.finish",
+            "final answer",
+            "thus, the answer",
+            "list of strings",
+            "plausible diagnoses",
+            "use ehr.finish",
+        )
+    )
+    if not answer_like:
+        return [], None
+
+    mentioned_candidates = extract_official_candidate_mentions(text, official_candidates)
+    if mentioned_candidates:
+        return mentioned_candidates, "fallback_official_candidate_mentions"
+
+    return [], None
+
+
+def extract_finish_predictions_with_source(result):
     messages = result.get("messages", [])
 
     for message in reversed(messages):
@@ -75,7 +386,7 @@ def extract_finish_predictions(result):
             try:
                 arguments = parse_json_or_python(function.get("arguments", {}))
             except Exception:
-                return []
+                return [], "finish_parse_error"
 
             if isinstance(arguments, dict):
                 predictions = arguments.get("response", [])
@@ -83,10 +394,16 @@ def extract_finish_predictions(result):
                 predictions = arguments
 
             if isinstance(predictions, list):
-                return predictions
-            return []
+                return predictions, "finish_tool_call"
+            return [], "finish_tool_call_non_list"
 
-    return []
+    predictions, source = extract_fallback_predictions_from_last_assistant(messages)
+    return predictions, source or "no_prediction"
+
+
+def extract_finish_predictions(result):
+    predictions, _ = extract_finish_predictions_with_source(result)
+    return predictions
 
 
 def f1_score(predictions, standard_answer):
@@ -236,6 +553,7 @@ def evaluate(results_path, benchmark_path):
     completed_task_scores_by_task = defaultdict(dict)
     benchmark_qids_by_task = defaultdict(list)
     task_details = []
+    prediction_source_counts = Counter()
 
     for qid, benchmark_item in benchmark_by_qid.items():
         runs = results_by_qid.get(qid, [])
@@ -263,7 +581,8 @@ def evaluate(results_path, benchmark_path):
             task_scores = [zero_score]
         else:
             for run_index, run in enumerate(runs, start=1):
-                predictions = extract_finish_predictions(run)
+                predictions, prediction_source = extract_finish_predictions_with_source(run)
+                prediction_source_counts[prediction_source] += 1
                 score = f1_score(predictions, ground_truth)
                 task_scores.append(score)
                 run_details.append(
@@ -272,6 +591,7 @@ def evaluate(results_path, benchmark_path):
                         "completed": run.get("completed", False),
                         "status": run.get("status", "unknown"),
                         "stop_reason": run.get("stop_reason", "unknown"),
+                        "prediction_source": prediction_source,
                         "prediction_count": len(
                             {item for item in predictions if isinstance(item, str)}
                         ),
@@ -338,6 +658,7 @@ def evaluate(results_path, benchmark_path):
         "non_success_run_rate": (
             len(non_success_runs) / total_result_runs if total_result_runs else 0.0
         ),
+        "prediction_source_counts": dict(prediction_source_counts),
         "non_success_run_statuses": dict(non_success_run_statuses),
         "avg_runs_per_task": (
             total_result_runs / len(benchmark_by_qid) if benchmark_by_qid else 0.0
