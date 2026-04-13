@@ -2,10 +2,12 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+cd "$SCRIPT_DIR"
 
-export SERPER_API_KEY="${SERPER_API_KEY:-61877f4a59d2968ae439a7d13d49dc2990bc0a1b}"
+export SERPER_API_KEY="61877f4a59d2968ae439a7d13d49dc2990bc0a1b"
 
-DATA_PATH='/home/efs/zlt/deepresearch/data/EHRAgentBench/common/subset_500/merged_subsets_500.json'
+DATA_PATH="../data/AgentEHR-Bench/MIMICIVAgentBench/common/subset_500/merged_subsets_500.json"
 
 EHR_MCP_URL=${EHR_MCP_URL:-http://127.0.0.1:5103/mcp}
 MAX_CONCURRENCY=${MAX_CONCURRENCY:-5}

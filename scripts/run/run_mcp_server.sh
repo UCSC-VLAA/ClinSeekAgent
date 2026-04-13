@@ -1,15 +1,19 @@
 #!/bin/bash
 
-# 切换到 AgentEHR 项目根目录（脚本在 scripts/run/ 下）
-# cd "$(dirname "$0")/../.." || exit 1
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+PYTHON_BIN="${SCRIPT_DIR}/../../../miniconda3/bin/python3.13"
 
 GPU_ID=${1:-0}
 PORT=${2:-5103}
-DATA_PATH="/home/efs/zlt/deepresearch/data/EHRAgentBench"
+DATA_PATH="${REPO_ROOT}/data/AgentEHR-Bench/MIMICIVAgentBench"
 HOST=127.0.0.1
 
-CUDA_VISIBLE_DEVICES=${GPU_ID} /home/efs/zlt/miniconda3/bin/python3.13 src/run_mcp_server.py \
+cd "${REPO_ROOT}"
+
+CUDA_VISIBLE_DEVICES=${GPU_ID} "${PYTHON_BIN}" "./src/run_mcp_server.py" \
     --mode "http" \
     --host $HOST \
     --port $PORT \
+    --disable-knowledge-tools \
     --data_path "$DATA_PATH"

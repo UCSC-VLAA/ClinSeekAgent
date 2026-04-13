@@ -129,14 +129,14 @@ def main():
         check_status(
             "MCP Server Running",
             False,
-            "Start with: cd ../; python src/run_mcp_server.py --mode http --port 5003 --data_path ./data/EHRAgentBench"
+            "Start with: cd ../; python src/run_mcp_server.py --mode http --port 5003 --data_path ../data/AgentEHR-Bench/MIMICIVAgentBench"
         )
         all_passed = False
 
     # Check 5: EHR Data
     check_section("EHR Data")
 
-    ehr_data_path = "../data/EHRAgentBench"
+    ehr_data_path = "../data/AgentEHR-Bench/MIMICIVAgentBench"
     if os.path.exists(ehr_data_path):
         check_status(
             "EHR Data Directory",
@@ -240,7 +240,7 @@ def main():
         print("\nCommon fixes:")
         print("  1. Install dependencies: pip install -r requirements.txt")
         print("  2. Configure AWS: aws configure")
-        print("  3. Start MCP server: cd ../; python src/run_mcp_server.py --mode http --port 5003 --data_path ./data/EHRAgentBench")
+        print("  3. Start MCP server: cd ../; python src/run_mcp_server.py --mode http --port 5003 --data_path ../data/AgentEHR-Bench/MIMICIVAgentBench")
         print("\nSee QUICKSTART.md for detailed setup instructions.")
 
     print("\n" + "="*70)

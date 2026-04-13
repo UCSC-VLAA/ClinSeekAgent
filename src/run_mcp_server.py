@@ -3,6 +3,7 @@ import asyncio
 import pandas as pd
 import numpy as np
 import json
+from pathlib import Path
 from pydantic import Field
 from typing import Annotated
 from sentence_transformers import SentenceTransformer
@@ -18,16 +19,28 @@ from agentlite.mcp_tools.tool_utils import (
     SESSION_EHR_TIMESTAMP_KEY,
 )
 
+SCRIPT_DIR = Path(__file__).resolve().parent
+DEFAULT_DATA_PATH = Path("../data/AgentEHR-Bench/MIMICIVAgentBench")
+
+
 def get_parser():
     import argparse
     parser = argparse.ArgumentParser(description="EHR MCP Tool Server")
-    parser.add_argument('--data_path', type=str, default="/home/efs/zlt/AgentEHR/data/MIMICIIIAgentBench/database", help='Path to the EHR data directory')
+    parser.add_argument('--data_path', type=str, default=str(DEFAULT_DATA_PATH), help='Path to the EHR data directory')
     parser.add_argument('--mode', type=str, default="studio", choices=["studio", "http"], help='Mode to run the server in')
     parser.add_argument('--host', type=str, default="127.0.0.1", help='Host IP for HTTP mode')
     parser.add_argument('--port', type=int, default=9000, help='Port for HTTP mode')
+    parser.add_argument(
+        '--disable-knowledge-tools',
+        action='store_true',
+        help='Do not register corpus retrieval tools from knowledge_tools.py.',
+    )
     return parser.parse_args()
 
 args = get_parser()
+if not os.path.isabs(args.data_path):
+    args.data_path = str((SCRIPT_DIR / args.data_path).resolve())
+
 ehr_manager = EHRManager(args.data_path)
 load_ehr_lock = asyncio.Lock()
 ehr_session_store = {}
@@ -124,10 +137,11 @@ async def clear_session_ehr(ctx: Context) -> str:
 import agentlite.mcp_tools.table_tools
 import agentlite.mcp_tools.record_tools
 import agentlite.mcp_tools.candidate_tools
-# Skip knowledge_tools to avoid large dataset downloads - use web search instead
-# import agentlite.mcp_tools.knowledge_tools
 import agentlite.mcp_tools.resource_tools
 import agentlite.mcp_tools.inner_tools
+
+if not args.disable_knowledge_tools:
+    import agentlite.mcp_tools.knowledge_tools
 
 
 async def run_mcp_server():

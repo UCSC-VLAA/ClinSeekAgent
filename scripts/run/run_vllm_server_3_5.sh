@@ -2,7 +2,10 @@
 
 # set -euo pipefail
 
-export MODEL="/home/efs/zlt/deepresearch/models/Qwen3.5-35B-A3B-DeepMed-SFT-epoch2"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+
+export MODEL="${REPO_ROOT}/models/Qwen3.5-35B-A3B"
 export MODEL_ARCH="Qwen3_5MoeForConditionalGeneration"
 export MODEL_TYPE="qwen3_5_moe"
 export CUDA_DEVICES=${1:-0,1,2,3,4,5,6,7}

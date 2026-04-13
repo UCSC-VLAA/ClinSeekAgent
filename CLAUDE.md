@@ -30,7 +30,7 @@ AgentEHR is a benchmark for evaluating autonomous clinical decision-making agent
 - **Dynamic Tool Building**: `mcp_builder.py` allows LLM-generated tool creation with auto-install dependencies
 
 ### Data Flow
-1. **EHR Database**: SQLite databases in `data/EHRAgentBench/` containing patient records
+1. **EHR Database**: SQLite databases in `data/AgentEHR-Bench/MIMICIVAgentBench/` containing patient records
 2. **Task Metadata**: JSON files with subject_id, prediction_time, task type, and ground truth labels
 3. **Agent Execution**: Agent loads EHR, uses MCP tools to query data, generates predictions
 4. **Evaluation**: F1 score (precision/recall) between predictions and ground truth
@@ -72,7 +72,7 @@ CUDA_VISIBLE_DEVICES=0 python src/run_mcp_server.py \
     --mode "http" \
     --host 127.0.0.1 \
     --port 5002 \
-    --data_path "../data/EHRAgentBench"
+    --data_path "../data/AgentEHR-Bench/MIMICIVAgentBench"
 ```
 
 #### 3. Run Agent Evaluation
@@ -82,12 +82,12 @@ bash ./scripts/method_run/qwen3_30b_moe_react.sh
 
 # Or manually run test.py:
 python src/test.py \
-    --data_path "../data/EHRAgentBench/common/diagnoses_ccs_500.json" \
+    --data_path "./data/AgentEHR-Bench/MIMICIVAgentBench/common/diagnoses_ccs_500.json" \
     --output_path "../results" \
     --model_name_or_path "qwen3_30b_moe" \
     --vllm_server_url "http://127.0.0.1:4000" \
     --mcp_url "http://127.0.0.1:5000/mcp" \
-    --ehr_path "../data/EHRAgentBench" \
+    --ehr_path "./data/AgentEHR-Bench/MIMICIVAgentBench" \
     --temperature 0.7 \
     --top_p 0.8 \
     --agent_type mcp_retrosum \
@@ -110,7 +110,7 @@ python data_preprocess/meta_sql_data_generation.py \
     --data_path <MIMIC_IV_PATH> \
     --task diagnoses_ccs \
     --sample_num 500 \
-    --output_path "./data/EHRAgentBench"
+    --output_path "./data/AgentEHR-Bench/MIMICIVAgentBench"
 ```
 
 #### Generate Patient Databases
@@ -121,8 +121,8 @@ bash ./scripts/data_preprocess/generate_patient_db.sh
 # Or manually:
 python data_preprocess/patient_event2db.py \
     --data_path <MIMIC_IV_PATH> \
-    --meta_file "./data/EHRAgentBench/common/diagnoses_ccs_500.json" \
-    --output_path "./data/EHRAgentBench/common/patient_db"
+    --meta_file "./data/AgentEHR-Bench/MIMICIVAgentBench/common/diagnoses_ccs_500.json" \
+    --output_path "./data/AgentEHR-Bench/MIMICIVAgentBench/common/patient_db"
 ```
 
 #### Label-wise Sampling
@@ -138,7 +138,7 @@ bash ./scripts/train/train_reflectoolagent.sh
 
 # Or manually:
 python src/agentlite/train/optimization_mcp.py \
-    --data_path "./data/EHRAgentBench/train/mix_600.json" \
+    --data_path "./data/AgentEHR-Bench/MIMICIVAgentBench/train/mix_600.json" \
     --output_path "./ckpt" \
     --model_name_or_path "qwen3_30b_moe" \
     --vllm_server_url "http://127.0.0.1:8000" \

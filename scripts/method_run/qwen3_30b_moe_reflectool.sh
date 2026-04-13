@@ -32,8 +32,8 @@ MODE="refine"
 CKPT_PATH="/sfs/rhome/liaoyusheng/data/Datasets/EHRAgent/ckpt/train_mix_600/Qwen3-30B-A3B-Instruct-2507/mix_600/mcp_reflectool"
 
 OUTPUT="./results/${SUBSET}/${MODEL}"
-EHR_PATH="./data/EHRAgentBench"
-DATA_BASE="./data/EHRAgentBench/${SUBSET}"
+EHR_PATH="./data/AgentEHR-Bench/MIMICIVAgentBench"
+DATA_BASE="./data/AgentEHR-Bench/MIMICIVAgentBench/${SUBSET}"
 TASKS=(
     "diagnoses_ccs_500" 
     # "labevents_500" 

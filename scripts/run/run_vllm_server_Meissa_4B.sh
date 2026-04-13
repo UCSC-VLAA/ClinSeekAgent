@@ -2,7 +2,10 @@
 
 # set -euo pipefail
 
-export MODEL="/home/efs/zlt/deepresearch/models/Meissa-4B"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+
+export MODEL="${REPO_ROOT}/models/Meissa-4B"
 export MODEL_ARCH="Qwen3VLForConditionalGeneration"
 export MODEL_TYPE="qwen3_vl"
 export SERVED_MODEL_NAME=${SERVED_MODEL_NAME:-Meissa-4B}

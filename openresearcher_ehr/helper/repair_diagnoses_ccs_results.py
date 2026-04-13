@@ -14,17 +14,18 @@ from collections import Counter
 from pathlib import Path
 
 
+SCRIPT_DIR = Path(__file__).resolve().parent
+OPENRESEARCHER_DIR = SCRIPT_DIR.parent
+
 DEFAULT_RESULTS = (
-    "/home/efs/zlt/deepresearch/openresearcher_ehr/"
-    "diagnoses_ccs_500_results_qwen3_5_35b_a3b_deepmed_sft_epoch2_vllm_fixed_20260326T230132Z/"
-    "results.jsonl"
+    OPENRESEARCHER_DIR
+    / "diagnoses_ccs_500_results_qwen3_5_35b_a3b_deepmed_sft_epoch2_vllm_fixed_20260326T230132Z"
+    / "results.jsonl"
 )
 
 
 def load_deploy_agent_module():
-    module_path = (
-        "/home/efs/zlt/deepresearch/openresearcher_ehr/deploy_agent.py"
-    )
+    module_path = OPENRESEARCHER_DIR / "deploy_agent.py"
     spec = importlib.util.spec_from_file_location("deploy_agent", module_path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

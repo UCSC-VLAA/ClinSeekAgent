@@ -28,7 +28,7 @@ python src/run_mcp_server.py \
     --mode http \
     --host 127.0.0.1 \
     --port 5003 \
-    --data_path ./data/EHRAgentBench
+    --data_path ../data/AgentEHR-Bench/MIMICIVAgentBench
 ```
 
 Keep this running in the background.
@@ -173,7 +173,7 @@ aws configure
 ```bash
 # Solution: Start the EHR MCP server
 cd /fsx-shared/juncheng/EHR
-python src/run_mcp_server.py --mode http --port 5003 --data_path ./data/EHRAgentBench
+python src/run_mcp_server.py --mode http --port 5003 --data_path ../data/AgentEHR-Bench/MIMICIVAgentBench
 ```
 
 **Issue: "Module not found: openai_harmony"**

@@ -9,10 +9,10 @@ from pathlib import Path
 
 
 DEFAULT_RESULTS = (
-    "/home/efs/zlt/deepresearch/openresearcher_ehr/subset_500_openseeker_v1_30b_sft/results.jsonl"
+    "./openresearcher_ehr/subset_500_qwen3_5_35b_a3b/results.jsonl"
 )
 DEFAULT_BENCHMARK = (
-    "/home/efs/zlt/deepresearch/data/EHRAgentBench/common/subset_500/merged_subsets_500.json"
+    "./data/AgentEHR-Bench/MIMICIVAgentBench/common/subset_500/merged_subsets_500.json"
 )
 
 
@@ -372,7 +372,11 @@ def extract_fallback_predictions_from_last_assistant(messages):
     return [], None
 
 
-def extract_finish_predictions_with_source(result):
+def extract_finish_predictions_with_source(
+    result,
+    *,
+    allow_text_answer_extraction_without_finish=False,
+):
     messages = result.get("messages", [])
 
     for message in reversed(messages):
@@ -397,12 +401,24 @@ def extract_finish_predictions_with_source(result):
                 return predictions, "finish_tool_call"
             return [], "finish_tool_call_non_list"
 
+    if not allow_text_answer_extraction_without_finish:
+        return [], "no_prediction"
+
     predictions, source = extract_fallback_predictions_from_last_assistant(messages)
     return predictions, source or "no_prediction"
 
 
-def extract_finish_predictions(result):
-    predictions, _ = extract_finish_predictions_with_source(result)
+def extract_finish_predictions(
+    result,
+    *,
+    allow_text_answer_extraction_without_finish=False,
+):
+    predictions, _ = extract_finish_predictions_with_source(
+        result,
+        allow_text_answer_extraction_without_finish=(
+            allow_text_answer_extraction_without_finish
+        ),
+    )
     return predictions
 
 
@@ -528,7 +544,12 @@ def summarize_scores(completed_task_scores_by_qid, total_result_runs, total_task
     return summary
 
 
-def evaluate(results_path, benchmark_path):
+def evaluate(
+    results_path,
+    benchmark_path,
+    *,
+    allow_text_answer_extraction_without_finish=False,
+):
     benchmark_by_qid = load_benchmark(benchmark_path)
     results_by_qid = load_results(results_path)
 
@@ -581,7 +602,12 @@ def evaluate(results_path, benchmark_path):
             task_scores = [zero_score]
         else:
             for run_index, run in enumerate(runs, start=1):
-                predictions, prediction_source = extract_finish_predictions_with_source(run)
+                predictions, prediction_source = extract_finish_predictions_with_source(
+                    run,
+                    allow_text_answer_extraction_without_finish=(
+                        allow_text_answer_extraction_without_finish
+                    ),
+                )
                 prediction_source_counts[prediction_source] += 1
                 score = f1_score(predictions, ground_truth)
                 task_scores.append(score)
@@ -638,6 +664,9 @@ def evaluate(results_path, benchmark_path):
     summary["info"] = {
         "results_file": str(results_path),
         "benchmark_file": str(benchmark_path),
+        "allow_text_answer_extraction_without_finish": (
+            allow_text_answer_extraction_without_finish
+        ),
         "matched_task_count": len(benchmark_by_qid) - len(missing_qids),
         "completed_task_count": len(completed_task_scores_by_qid),
         "missing_task_count": len(missing_qids),
@@ -777,6 +806,14 @@ def main():
         default=None,
         help="Path to per-task details jsonl. Defaults to task_scores.jsonl next to results file.",
     )
+    parser.add_argument(
+        "--extract-text-answer-without-finish",
+        action="store_true",
+        help=(
+            "When ehr.finish is missing, extract predictions from the last assistant "
+            "text response. Disabled by default."
+        ),
+    )
     args = parser.parse_args()
 
     results_path = Path(args.results)
@@ -788,7 +825,13 @@ def main():
         else results_path.with_name("task_scores.jsonl")
     )
 
-    summary, task_details = evaluate(results_path, benchmark_path)
+    summary, task_details = evaluate(
+        results_path,
+        benchmark_path,
+        allow_text_answer_extraction_without_finish=(
+            args.extract_text_answer_without_finish
+        ),
+    )
 
     write_json(output_path, summary)
     write_jsonl(details_output_path, task_details)

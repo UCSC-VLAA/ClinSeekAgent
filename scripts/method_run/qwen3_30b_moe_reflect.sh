@@ -30,8 +30,8 @@ NUM_RUNS=1
 METHOD="mcp_reflexion"
 
 OUTPUT="./results/${SUBSET}/${MODEL}"
-EHR_PATH="./data/EHRAgentBench"
-DATA_BASE="./data/EHRAgentBench/${SUBSET}"
+EHR_PATH="./data/AgentEHR-Bench/MIMICIVAgentBench"
+DATA_BASE="./data/AgentEHR-Bench/MIMICIVAgentBench/${SUBSET}"
 TASKS=(
     "diagnoses_ccs_500" 
 )

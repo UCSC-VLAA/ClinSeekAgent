@@ -3,12 +3,15 @@
 
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
 # Configuration
 OUTPUT_DIR="./test_results"
 MODEL="us.anthropic.claude-sonnet-4-5-v1:0"  # Bedrock model ID
 SEARCH_URL="http://localhost:8001"  # Local search backend (or use Serper)
 EHR_MCP_URL="http://127.0.0.1:5003/mcp"  # EHR MCP server
-EHR_DATA_PATH="../data/EHRAgentBench"
+EHR_DATA_PATH="../data/AgentEHR-Bench/MIMICIVAgentBench"
 
 mkdir -p $OUTPUT_DIR
 

@@ -15,9 +15,10 @@ from pathlib import Path
 
 os.environ['HF_TOKEN']='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'
 
-DEFAULT_FILE = Path(
-    "/home/efs/zlt/deepresearch/openresearcher_ehr/diagnoses_ccs_500_results/results_with_answers.json"
-)
+SCRIPT_DIR = Path(__file__).resolve().parent
+OPENRESEARCHER_DIR = SCRIPT_DIR.parent
+
+DEFAULT_FILE = OPENRESEARCHER_DIR / "diagnoses_ccs_500_results" / "results_with_answers.json"
 
 
 def load_hf_api():

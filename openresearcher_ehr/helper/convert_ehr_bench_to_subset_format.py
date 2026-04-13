@@ -2,7 +2,7 @@
 """Convert EHR-Bench JSONL files into deploy_agent-compatible JSON arrays.
 
 The output format is intentionally close to
-`data/EHRAgentBench/common/subset_500/merged_subsets_500.json` while keeping
+`./data/AgentEHR-Bench/MIMICIVAgentBench/common/subset_500/merged_subsets_500.json` while keeping
 the original self-contained timeline text. Each converted record includes:
 
 - `qid`: stable unique identifier
@@ -27,6 +27,8 @@ from typing import Any, Iterable
 
 TIMESTAMP_RE = re.compile(r"\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\]")
 TS_FORMAT = "%Y-%m-%d %H:%M:%S"
+SCRIPT_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = SCRIPT_DIR.parent.parent
 
 
 def load_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -231,8 +233,8 @@ def parse_args() -> argparse.Namespace:
         nargs="*",
         type=Path,
         default=[
-            Path("/home/efs/zlt/deepresearch/data/EHR-Bench/ehr_bench_decision_making.jsonl"),
-            Path("/home/efs/zlt/deepresearch/data/EHR-Bench/ehr_bench_risk_prediction.jsonl"),
+            PROJECT_ROOT / "data" / "EHR-Bench" / "ehr_bench_decision_making.jsonl",
+            PROJECT_ROOT / "data" / "EHR-Bench" / "ehr_bench_risk_prediction.jsonl",
         ],
         help="Source EHR-Bench JSONL files.",
     )

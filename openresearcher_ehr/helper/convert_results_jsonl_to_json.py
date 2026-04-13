@@ -9,12 +9,18 @@ import json
 from pathlib import Path
 
 
-DEFAULT_RESULTS = Path(
-    "/home/efs/zlt/deepresearch/openresearcher_ehr/"
-    "diagnoses_ccs_500_results/results.jsonl"
-)
-DEFAULT_BENCHMARK = Path(
-    "/home/efs/zlt/deepresearch/data/EHRAgentBench/common/diagnoses_ccs_500.json"
+SCRIPT_DIR = Path(__file__).resolve().parent
+OPENRESEARCHER_DIR = SCRIPT_DIR.parent
+PROJECT_ROOT = OPENRESEARCHER_DIR.parent
+
+DEFAULT_RESULTS = OPENRESEARCHER_DIR / "diagnoses_ccs_500_results" / "results.jsonl"
+DEFAULT_BENCHMARK = (
+    PROJECT_ROOT
+    / "data"
+    / "AgentEHR-Bench"
+    / "MIMICIVAgentBench"
+    / "common"
+    / "diagnoses_ccs_500.json"
 )
 
 

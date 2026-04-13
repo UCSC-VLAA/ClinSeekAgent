@@ -65,7 +65,7 @@ python src/run_mcp_server.py \
     --mode http \
     --host 127.0.0.1 \
     --port 5003 \
-    --data_path ./data/EHRAgentBench
+    --data_path ../data/AgentEHR-Bench/MIMICIVAgentBench
 ```
 
 ### 3. Search Backend (Optional)
@@ -243,7 +243,7 @@ Error: HTTP Error 404: Not Found
 **Solution:** Start the EHR MCP server:
 ```bash
 cd /fsx-shared/juncheng/EHR
-python src/run_mcp_server.py --mode http --host 127.0.0.1 --port 5003 --data_path ./data/EHRAgentBench
+python src/run_mcp_server.py --mode http --host 127.0.0.1 --port 5003 --data_path ../data/AgentEHR-Bench/MIMICIVAgentBench
 ```
 
 ### AWS Credentials Error
@@ -317,7 +317,7 @@ This system uses the same EHR MCP server as the main AgentEHR benchmark:
 
 - **MCP Server**: `/fsx-shared/juncheng/EHR/src/run_mcp_server.py`
 - **MCP Tools**: `/fsx-shared/juncheng/EHR/src/agentlite/mcp_tools/`
-- **Data**: `/fsx-shared/juncheng/EHR/data/EHRAgentBench/`
+- **Data**: `data/AgentEHR-Bench/MIMICIVAgentBench/`
 
 No modifications are needed to the original EHR system.
 

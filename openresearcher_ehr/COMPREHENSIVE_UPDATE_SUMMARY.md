@@ -255,7 +255,7 @@ python src/run_mcp_server.py \
     --mode http \
     --host 127.0.0.1 \
     --port 5003 \
-    --data_path ./data/EHRAgentBench
+    --data_path ../data/AgentEHR-Bench/MIMICIVAgentBench
 ```
 
 **Note**: Server startup takes 2-5 minutes to load embeddings for semantic similarity tools.

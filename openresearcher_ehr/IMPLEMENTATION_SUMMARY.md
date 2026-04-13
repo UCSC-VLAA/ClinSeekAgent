@@ -179,7 +179,7 @@ Successfully created a subfolder integration that combines **OpenResearcher's we
 ### With Original EHR System
 - **MCP Server**: `/fsx-shared/juncheng/EHR/src/run_mcp_server.py`
 - **MCP Tools**: `/fsx-shared/juncheng/EHR/src/agentlite/mcp_tools/`
-- **Data**: `/fsx-shared/juncheng/EHR/data/EHRAgentBench/`
+- **Data**: `data/AgentEHR-Bench/MIMICIVAgentBench/`
 - **Connection**: HTTP at `http://127.0.0.1:5003/mcp`
 
 ### With OpenResearcher
@@ -230,7 +230,7 @@ python -c "import httpx, boto3; print('✅ Dependencies OK')"
 ```bash
 # Start server
 cd /fsx-shared/juncheng/EHR
-python src/run_mcp_server.py --mode http --port 5003 --data_path ./data/EHRAgentBench &
+python src/run_mcp_server.py --mode http --port 5003 --data_path ../data/AgentEHR-Bench/MIMICIVAgentBench &
 
 # Test connection
 curl http://127.0.0.1:5003/mcp/health

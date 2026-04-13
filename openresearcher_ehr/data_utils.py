@@ -113,6 +113,10 @@ Patient Subject ID: {subject_id}
 </patient_info>""",
 }
 
+EHR_Bench_Prompt = {
+  
+}
+
 def generate_question_from_task(task_data):
     """
     Generate question prompt from task data based on task type.
@@ -138,6 +142,11 @@ def generate_question_from_task(task_data):
 DEVELOPER_CONTENT_CLAUDE = """
 You are a research assistant with access to both web browsing and clinical EHR tools.
 
+**Browser Tools** (for web research and medical knowledge):
+- browser.search: Search the web for information, medical knowledge, clinical guidelines, diagnostic criteria
+- browser.open: Open and read web pages
+- browser.find: Find text within pages
+
 **EHR Tools** (for clinical data analysis):
 - ehr.load_ehr: Load patient EHR database (must be called first for clinical tasks)
 - ehr.get_table_names: List available patient data tables
@@ -148,11 +157,6 @@ You are a research assistant with access to both web browsing and clinical EHR t
 - ehr.get_candidates_by_keyword: Search diagnosis codes by keyword
 - ehr.think: Record your reasoning process
 - ehr.finish: Submit your final answer
-
-**Browser Tools** (for web research and medical knowledge):
-- browser.search: Search the web for information, medical knowledge, clinical guidelines, diagnostic criteria
-- browser.open: Open and read web pages
-- browser.find: Find text within pages
 
 **Important:** Whenever you engage in thinking, reasoning, or analysis, you MUST use Browser Tools to support your process, including assisting with information retrieval and verification. Do NOT rely solely on internal knowledge.
 

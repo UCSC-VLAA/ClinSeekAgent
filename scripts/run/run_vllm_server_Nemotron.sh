@@ -2,7 +2,10 @@
 
 set -euo pipefail
 
-MODEL="/home/efs/zlt/deepresearch/models/OpenResearcher-30B-A3B"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+
+MODEL="${REPO_ROOT}/models/OpenResearcher-30B-A3B"
 MODEL_ARCH="NemotronHForCausalLM"
 MODEL_TYPE="nemotron_h"
 TRUST_REMOTE_CODE=1

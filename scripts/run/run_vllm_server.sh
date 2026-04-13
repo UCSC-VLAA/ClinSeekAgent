@@ -5,7 +5,7 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
-export MODEL="/home/efs/zlt/deepresearch/models/OpenSeeker-v1-30B-SFT"
+export MODEL="${REPO_ROOT}/models/OpenSeeker-v1-30B-SFT"
 export MODEL_ARCH="Qwen3MoeForCausalLM"
 export MODEL_TYPE="qwen3_moe"
 export CUDA_DEVICES=${1:-0,1,2,3,4,5,6,7}

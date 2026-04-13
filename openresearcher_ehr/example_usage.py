@@ -5,8 +5,6 @@ This script demonstrates how to use the integrated system
 in your own Python code.
 """
 import asyncio
-import sys
-sys.path.append('/home/efs/zlt/deepresearch/openresearcher_ehr')
 
 from browser import LocalServiceBrowserBackend, SerperServiceBrowserBackend
 from ehr_pool import EHRToolPool
@@ -250,5 +248,5 @@ if __name__ == "__main__":
     else:
         print("\nPlease complete prerequisites first:")
         print("  - aws configure")
-        print("  - python /fsx-shared/juncheng/EHR/src/run_mcp_server.py --mode http --port 5003 ...")
+        print("  - python ../src/run_mcp_server.py --mode http --port 5003 ...")
         print("  - export SERPER_API_KEY=your_key")
