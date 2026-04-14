@@ -23,14 +23,15 @@ hf download --repo-type dataset BlueZeros/EHR-Bench --local-dir data/EHR-Bench
 - `openresearcher_ehr/run_test_subset.sh` 使用 `data/AgentEHR-Bench/MIMICIVAgentBench/common/subset_500/merged_subsets_500.json`
 - `scripts/run/run_vllm_server_3_5.sh` 使用 `models/Qwen3.5-35B-A3B`
 
-当前脚本默认依赖仓库外的 `../miniconda3/bin/python3.13` 及对应环境。建议直接使用这个解释器安装 `requirements.txt` 中的依赖。
+完成环境安装后，直接激活对应环境即可。下面以 `ehragent` 为例：
 
 ```bash
-../miniconda3/bin/python3.13 -m pip install --upgrade pip
-../miniconda3/bin/python3.13 -m pip install -r requirements.txt
+pip install --upgrade pip
+pip install -r requirements.txt
+conda activate ehragent
 ```
 
-如果你使用的不是 `../miniconda3/bin/python3.13` 这套环境，需要确保后续执行脚本时 `python` 和 `vllm` 都能正确解析到已安装依赖的环境中。
+确保后续执行脚本时，`python`、`vllm` 和相关依赖都来自这个已激活的环境。
 
 ## 2. 启动 MCP 服务
 
@@ -57,7 +58,7 @@ bash scripts/run/run_mcp_server.sh 0 5103
 打开第二个终端后运行：
 
 ```bash
-PATH="../miniconda3/bin:${PATH}" bash scripts/run/run_vllm_server_3_5.sh
+bash scripts/run/run_vllm_server_3_5.sh
 ```
 
 默认情况下该脚本会使用：
@@ -69,7 +70,7 @@ PATH="../miniconda3/bin:${PATH}" bash scripts/run/run_vllm_server_3_5.sh
 如果需要显式指定 GPU 和端口，可以这样运行：
 
 ```bash
-PATH="../miniconda3/bin:${PATH}" bash scripts/run/run_vllm_server_3_5.sh 0,1,2,3,4,5,6,7 4000
+bash scripts/run/run_vllm_server_3_5.sh 0,1,2,3,4,5,6,7 4000
 ```
 
 ## 4. 启动 Evaluation
@@ -78,7 +79,7 @@ PATH="../miniconda3/bin:${PATH}" bash scripts/run/run_vllm_server_3_5.sh 0,1,2,3
 
 ```bash
 cd openresearcher_ehr
-PATH="../../miniconda3/bin:${PATH}" bash run_test_subset.sh
+bash run_test_subset.sh
 ```
 
 该脚本默认会连接：

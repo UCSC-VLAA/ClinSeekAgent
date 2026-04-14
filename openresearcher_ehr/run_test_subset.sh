@@ -60,6 +60,16 @@ PY
 )"
 
 OUTPUT_DIR=./subset_500_${MODEL_SLUG}
+mkdir -p "$OUTPUT_DIR"
+
+LOG_TIMESTAMP=${RUN_TEST_SUBSET_LOG_TIMESTAMP:-$(date -u +%Y%m%dT%H%M%SZ)}
+LOG_FILE=${RUN_TEST_SUBSET_LOG_FILE:-"${OUTPUT_DIR}/run_test_subset_${LOG_TIMESTAMP}.log"}
+
+if [[ "${RUN_TEST_SUBSET_LOGGING_INITIALIZED:-0}" != "1" ]]; then
+    export RUN_TEST_SUBSET_LOGGING_INITIALIZED=1
+    export RUN_TEST_SUBSET_LOG_FILE="$LOG_FILE"
+    exec > >(tee -a "$RUN_TEST_SUBSET_LOG_FILE") 2>&1
+fi
 
 
 THINKING_FLAG=()
@@ -72,6 +82,7 @@ fi
 echo "Using vLLM base URL: ${VLLM_BASE_URL}"
 echo "Resolved served model: ${VLLM_MODEL_NAME}"
 echo "Output directory: ${OUTPUT_DIR}"
+echo "Log file: ${RUN_TEST_SUBSET_LOG_FILE}"
 echo "EHR MCP URL: ${EHR_MCP_URL}"
 echo "Tool result char limit: ${MAX_TOOL_RESULT_CHARS}"
 
