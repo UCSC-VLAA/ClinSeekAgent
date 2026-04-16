@@ -7,6 +7,7 @@ import boto3
 import json
 from concurrent.futures import ThreadPoolExecutor
 import asyncio
+from botocore.exceptions import BotoCoreError, ClientError
 
 # Pre-import transformers to avoid issues in multiprocessing
 try:
@@ -16,6 +17,10 @@ except Exception as e:
     print(f"Warning: transformers not available: {e}")
     _TRANSFORMERS_AVAILABLE = False
     AutoTokenizer = None
+
+
+API_RETRY_DELAY_SECONDS = 5
+API_MAX_RETRIES = 2
 
 
 class BedrockAsyncGenerator:
@@ -31,7 +36,9 @@ class BedrockAsyncGenerator:
         aws_access_key_id: str = None,
         aws_secret_access_key: str = None,
         max_tokens_default: int = 8192,
-        max_workers: int = 10
+        max_workers: int = 10,
+        enable_thinking: Optional[bool] = None,
+        thinking_budget_tokens: int = 1024,
     ):
         """
         Args:
@@ -45,6 +52,8 @@ class BedrockAsyncGenerator:
         self.model_id = model_id
         self.region_name = region_name
         self.max_tokens_default = max_tokens_default
+        self.enable_thinking = enable_thinking
+        self.thinking_budget_tokens = thinking_budget_tokens
 
         # Initialize boto3 client
         # If credentials not provided, boto3 will use environment variables or IAM role
@@ -68,6 +77,103 @@ class BedrockAsyncGenerator:
         self.tokenizer = None
 
         print(f"[Bedrock] Initialized with model: {model_id}, region: {region_name}")
+
+    @staticmethod
+    def _clone_jsonable(value: Any) -> Any:
+        return json.loads(json.dumps(value))
+
+    def _supports_adaptive_thinking(self) -> bool:
+        normalized = self.model_id.lower()
+        return "claude-opus-4-6" in normalized
+
+    def _build_thinking_config(self, max_tokens: int) -> Optional[dict]:
+        if not self.enable_thinking:
+            return None
+
+        if self._supports_adaptive_thinking():
+            return {"type": "adaptive"}
+
+        budget_tokens = min(self.thinking_budget_tokens, max_tokens - 1)
+        if budget_tokens < 1024:
+            raise ValueError(
+                "Bedrock thinking requires max_tokens to exceed 1024 so a valid "
+                "thinking budget can be allocated."
+            )
+        return {
+            "type": "enabled",
+            "budget_tokens": budget_tokens,
+        }
+
+    @staticmethod
+    def _extract_reasoning_content(content_blocks: List[dict]) -> str:
+        reasoning_parts = []
+        for block in content_blocks:
+            block_type = block.get("type")
+            if block_type == "thinking":
+                thinking = block.get("thinking")
+                if isinstance(thinking, str) and thinking.strip():
+                    reasoning_parts.append(thinking.strip())
+            elif block_type == "redacted_thinking":
+                reasoning_parts.append("[redacted_thinking]")
+        return "\n\n".join(reasoning_parts).strip()
+
+    @staticmethod
+    def _is_retriable_api_error(exc: Exception) -> bool:
+        if isinstance(exc, ClientError):
+            error = (getattr(exc, "response", None) or {}).get("Error", {})
+            error_code = (error.get("Code") or "").strip()
+            if error_code in {
+                "InternalServerException",
+                "ModelNotReadyException",
+                "RequestTimeoutException",
+                "ServiceUnavailableException",
+                "ThrottlingException",
+                "TooManyRequestsException",
+            }:
+                return True
+
+        if isinstance(exc, BotoCoreError):
+            return True
+
+        message = str(exc).lower()
+        return any(
+            marker in message
+            for marker in (
+                "busy",
+                "rate exceeded",
+                "service unavailable",
+                "temporarily unavailable",
+                "throttl",
+                "timeout",
+                "too many requests",
+            )
+        )
+
+    async def _invoke_model_with_retry(self, request: dict) -> dict:
+        loop = asyncio.get_event_loop()
+        total_attempts = API_MAX_RETRIES + 1
+
+        for attempt in range(1, total_attempts + 1):
+            try:
+                response = await loop.run_in_executor(
+                    self.executor,
+                    lambda: self.client.invoke_model(
+                        modelId=self.model_id,
+                        body=json.dumps(request)
+                    )
+                )
+                return json.loads(response["body"].read())
+            except Exception as exc:
+                if attempt >= total_attempts or not self._is_retriable_api_error(exc):
+                    raise
+
+                retry_index = attempt
+                print(
+                    f"[Bedrock] Retriable API error: {exc} | "
+                    f"retry {retry_index}/{API_MAX_RETRIES} in "
+                    f"{API_RETRY_DELAY_SECONDS}s"
+                )
+                await asyncio.sleep(API_RETRY_DELAY_SECONDS)
 
     async def _init_tokenizer(self):
         """Initialize tokenizer for compatibility (uses GPT-2 as approximation)"""
@@ -140,46 +246,51 @@ class BedrockAsyncGenerator:
 
             elif role == "assistant":
                 # Assistant message (may have tool_calls)
+                raw_bedrock_blocks = msg.get("bedrock_content_blocks")
                 assistant_content = []
 
-                # Add reasoning/thinking content if present
-                reasoning = msg.get("reasoning_content")
-                if reasoning:
-                    assistant_content.append({
-                        "type": "text",
-                        "text": f"<think>{reasoning}</think>"
-                    })
+                if isinstance(raw_bedrock_blocks, list) and raw_bedrock_blocks:
+                    assistant_content = self._clone_jsonable(raw_bedrock_blocks)
 
-                # Add regular content
-                if content:
-                    assistant_content.append({
-                        "type": "text",
-                        "text": content
-                    })
-
-                # Add tool calls if present
-                tool_calls = msg.get("tool_calls")
-                if tool_calls:
-                    for tc in tool_calls:
-                        function_name = tc["function"]["name"]
-                        function_args = tc["function"]["arguments"]
-
-                        # Parse arguments if string
-                        if isinstance(function_args, str):
-                            try:
-                                function_args = json.loads(function_args)
-                            except:
-                                pass
-
-                        # Bedrock requires names matching ^[a-zA-Z0-9_-]{1,128}$
-                        bedrock_name = function_name.replace(".", "_")
-
+                if not assistant_content:
+                    # Fallback path for messages that were not produced by Bedrock.
+                    reasoning = msg.get("reasoning_content")
+                    if reasoning:
                         assistant_content.append({
-                            "type": "tool_use",
-                            "id": tc.get("id", "1"),
-                            "name": bedrock_name,
-                            "input": function_args
+                            "type": "text",
+                            "text": f"<think>{reasoning}</think>"
                         })
+
+                    # Add regular content
+                    if content:
+                        assistant_content.append({
+                            "type": "text",
+                            "text": content
+                        })
+
+                    # Add tool calls if present
+                    tool_calls = msg.get("tool_calls")
+                    if tool_calls:
+                        for tc in tool_calls:
+                            function_name = tc["function"]["name"]
+                            function_args = tc["function"]["arguments"]
+
+                            # Parse arguments if string
+                            if isinstance(function_args, str):
+                                try:
+                                    function_args = json.loads(function_args)
+                                except Exception:
+                                    pass
+
+                            # Bedrock requires names matching ^[a-zA-Z0-9_-]{1,128}$
+                            bedrock_name = function_name.replace(".", "_")
+
+                            assistant_content.append({
+                                "type": "tool_use",
+                                "id": tc.get("id", "1"),
+                                "name": bedrock_name,
+                                "input": function_args
+                            })
 
                 if assistant_content:
                     anthropic_messages.append({
@@ -286,6 +397,7 @@ class BedrockAsyncGenerator:
 
         text_content = ""
         tool_calls = []
+        reasoning_content = self._extract_reasoning_content(content_blocks)
 
         for block in content_blocks:
             if block.get("type") == "text":
@@ -316,6 +428,10 @@ class BedrockAsyncGenerator:
             "content": text_content
         }
 
+        if reasoning_content:
+            message["reasoning_content"] = reasoning_content
+        if content_blocks:
+            message["bedrock_content_blocks"] = self._clone_jsonable(content_blocks)
         if tool_calls:
             message["tool_calls"] = tool_calls
 
@@ -354,14 +470,23 @@ class BedrockAsyncGenerator:
 
         # Convert messages to Anthropic format
         system_prompt, anthropic_messages = self._convert_messages_to_anthropic(messages)
+        request_max_tokens = max_tokens or self.max_tokens_default
+        thinking_config = self._build_thinking_config(request_max_tokens)
 
         # Build request
         request = {
             "anthropic_version": "bedrock-2023-05-31",
-            "max_tokens": max_tokens or self.max_tokens_default,
-            "temperature": temperature,
+            "max_tokens": request_max_tokens,
             "messages": anthropic_messages
         }
+        if thinking_config:
+            if temperature != 1.0:
+                raise ValueError(
+                    "Bedrock thinking is not compatible with non-default temperature values."
+                )
+            request["thinking"] = thinking_config
+        else:
+            request["temperature"] = temperature
 
         # Add system prompt if present
         if system_prompt:
@@ -373,36 +498,40 @@ class BedrockAsyncGenerator:
             request["tools"] = anthropic_tools
 
             # Convert tool_choice
-            if tool_choice == "auto":
+            if thinking_config:
+                # Bedrock rejects forced tool choice when thinking is enabled.
+                # Let the model decide whether to emit tool_use blocks.
+                pass
+            elif tool_choice == "auto":
                 request["tool_choice"] = {"type": "auto"}
+            elif tool_choice == "any":
+                request["tool_choice"] = {"type": "any"}
             elif tool_choice == "none":
                 # Anthropic doesn't have explicit "none", just omit tool_choice
                 pass
             else:
                 # Specific tool
-                request["tool_choice"] = {"type": "tool", "name": tool_choice}
+                request["tool_choice"] = {
+                    "type": "tool",
+                    "name": tool_choice.replace(".", "_"),
+                }
 
-        print(f"[Bedrock] Request: model={self.model_id}, messages={len(anthropic_messages)}, tools={len(tools) if tools else 0}")
-
-        # Make async request using thread pool
-        loop = asyncio.get_event_loop()
+        print(
+            f"[Bedrock] Request: model={self.model_id}, messages={len(anthropic_messages)}, "
+            f"tools={len(tools) if tools else 0}, "
+            f"thinking={thinking_config['type'] if thinking_config else 'disabled'}"
+        )
 
         try:
-            response = await loop.run_in_executor(
-                self.executor,
-                lambda: self.client.invoke_model(
-                    modelId=self.model_id,
-                    body=json.dumps(request)
-                )
-            )
-
-            # Parse response
-            model_response = json.loads(response["body"].read())
+            model_response = await self._invoke_model_with_retry(request)
 
             print(f"[Bedrock] Response received: stop_reason={model_response.get('stop_reason')}")
 
             # Convert to OpenAI format
-            return self._convert_response_to_openai(model_response)
+            converted = self._convert_response_to_openai(model_response)
+            if not use_reasoning_content:
+                converted["choices"][0]["message"].pop("reasoning_content", None)
+            return converted
 
         except Exception as e:
             print(f"[Bedrock] Error: {e}")

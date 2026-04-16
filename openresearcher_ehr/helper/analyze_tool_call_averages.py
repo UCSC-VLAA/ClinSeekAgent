@@ -217,7 +217,7 @@ def main():
     parser.add_argument(
         "--results_file",
         help="Path to results.jsonl",
-        default="./openresearcher_ehr/subset_500_qwen3_5_35b_a3b/results.jsonl",
+        default="./openresearcher_ehr/results/train_trajectory_3k_4ep_20260415T002208Z/results.jsonl",
     )
     parser.add_argument(
         "--output_file",

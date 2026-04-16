@@ -5,18 +5,18 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
-export MODEL="${REPO_ROOT}/models/Qwen3.5-35B-A3B"
-export MODEL_ARCH="Qwen3_5MoeForConditionalGeneration"
-export MODEL_TYPE="qwen3_5_moe"
-export CUDA_DEVICES=${1:-0,1,2,3,4,5,6,7}
-export PORT=${2:-4000}
-export MAX_MODEL_LEN=1000000
-export GPU_MEMORY_UTILIZATION=${GPU_MEMORY_UTILIZATION:-0.8}
-export TRUST_REMOTE_CODE=1
-export DTYPE=bfloat16
-export TOOL_CALL_PARSER=qwen3_xml
-export REASONING_PARSER=qwen3
-export LANGUAGE_MODEL_ONLY=1
+MODEL="${REPO_ROOT}/models/Qwen3.5-35B-A3B"
+MODEL_ARCH="Qwen3_5MoeForConditionalGeneration"
+MODEL_TYPE="qwen3_5_moe"
+CUDA_DEVICES=${1:-0,1,2,3,4,5,6,7}
+PORT=${2:-4000}
+MAX_MODEL_LEN=1000000
+GPU_MEMORY_UTILIZATION=${GPU_MEMORY_UTILIZATION:-0.8}
+TRUST_REMOTE_CODE=1
+DTYPE=bfloat16
+TOOL_CALL_PARSER=qwen3_xml
+REASONING_PARSER=qwen3
+LANGUAGE_MODEL_ONLY=1
 
 IFS=',' read -r -a DEVICE_ARRAY <<< "${CUDA_DEVICES}"
 TP_SIZE=${#DEVICE_ARRAY[@]}
@@ -33,7 +33,7 @@ if [[ -n "${HF_OVERRIDES}" ]]; then
     echo "hf_overrides: ${HF_OVERRIDES}"
 fi
 
-export VLLM_ALLOW_LONG_MAX_MODEL_LEN=1
+VLLM_ALLOW_LONG_MAX_MODEL_LEN=1
 
 ARGS=(
     "${SERVE_MODEL}"

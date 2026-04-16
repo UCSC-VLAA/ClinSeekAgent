@@ -6,18 +6,46 @@ cd "$SCRIPT_DIR"
 
 export SERPER_API_KEY=61877f4a59d2968ae439a7d13d49dc2990bc0a1b
 export BEDROCK_API_KEY="${BEDROCK_API_KEY:-ABSKQmVkcm9ja0FQSUtleS1xc3k2LWF0LTA2MDc5NTkxNzg0NjpuOUFPMWQwRk9mdTdTeG9icFpzeUtxMWkya0toaEQ5UGYxNGxmTDdoQXNydFA0R095TDBLdk5hWDZIUT0=}"
-export AWS_BEARER_TOKEN_BEDROCK="${AWS_BEARER_TOKEN_BEDROCK:-$BEDROCK_API_KEY}"
+export AWS_BEARER_TOKEN_BEDROCK="${BEDROCK_API_KEY}"
 
 EHR_MCP_URL=${EHR_MCP_URL:-http://127.0.0.1:5103/mcp}
-MAX_CONCURRENCY=${MAX_CONCURRENCY:-10}
-RUNS_PER_QUESTION=${RUNS_PER_QUESTION:-1}
+MAX_CONCURRENCY=${MAX_CONCURRENCY:-12}
+RUNS_PER_QUESTION=${RUNS_PER_QUESTION:-4}
+MAX_ROUNDS=${MAX_ROUNDS:-200}
+MAX_TOOL_RESULT_CHARS=${MAX_TOOL_RESULT_CHARS:-100000}
+ENABLE_THINKING=${ENABLE_THINKING:-0}
 BEDROCK_REGION=${BEDROCK_REGION:-us-east-1}
-# Bedrock requires the US inference profile ID for Claude Sonnet 4.6.
-BEDROCK_MODEL_ID=${BEDROCK_MODEL_ID:-us.anthropic.claude-sonnet-4-6}
+BEDROCK_MODEL_ID=${BEDROCK_MODEL_ID:-us.anthropic.claude-opus-4-6-v1}
+DATA_PATH=${DATA_PATH:-../data/AgentEHR-Bench/MIMICIVAgentBench/train/mix_training_3k.json}
+OUTPUT_DIR=${OUTPUT_DIR:-./results/train_trajectory_3k_4ep}
+mkdir -p "$OUTPUT_DIR"
+
+LOG_TIMESTAMP=${RUN_LOG_TIMESTAMP:-$(date -u +%Y%m%dT%H%M%SZ)}
+LOG_FILE=${RUN_LOG_FILE:-"${OUTPUT_DIR}/run_${LOG_TIMESTAMP}.log"}
+
+if [[ "${RUN_LOGGING_INITIALIZED:-0}" != "1" ]]; then
+    export RUN_LOGGING_INITIALIZED=1
+    export RUN_LOG_FILE="$LOG_FILE"
+    exec > >(tee -a "$RUN_LOG_FILE") 2>&1
+fi
+
+THINKING_FLAG=()
+if [[ "${ENABLE_THINKING}" == "1" ]]; then
+    THINKING_FLAG+=(--enable_thinking)
+else
+    THINKING_FLAG+=(--disable_thinking)
+fi
+
+echo "Output directory: ${OUTPUT_DIR}"
+echo "Log file: ${RUN_LOG_FILE}"
+echo "EHR MCP URL: ${EHR_MCP_URL}"
+echo "Model: ${BEDROCK_MODEL_ID} @ ${BEDROCK_REGION}"
+echo "Thinking: ${ENABLE_THINKING}"
+echo "Tool result char limit: ${MAX_TOOL_RESULT_CHARS}"
 
 python ./deploy_agent.py \
-    --data_path ../data/AgentEHR-Bench/MIMICIVAgentBench/common/diagnoses_ccs_500.json \
-    --output_dir ./diagnoses_ccs_500_results \
+    --data_path "$DATA_PATH" \
+    --output_dir "$OUTPUT_DIR" \
     --use_bedrock \
     --bedrock_model_id "$BEDROCK_MODEL_ID" \
     --bedrock_region "$BEDROCK_REGION" \
@@ -26,4 +54,7 @@ python ./deploy_agent.py \
     --ehr_mcp_url "$EHR_MCP_URL" \
     --runs_per_question "$RUNS_PER_QUESTION" \
     --max_concurrency "$MAX_CONCURRENCY" \
+    --max_rounds "$MAX_ROUNDS" \
+    --max_tool_result_chars "$MAX_TOOL_RESULT_CHARS" \
+    "${THINKING_FLAG[@]}" \
     --verbose

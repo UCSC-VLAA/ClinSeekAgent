@@ -5,20 +5,20 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
-export MODEL="${REPO_ROOT}/models/Meissa-4B"
-export MODEL_ARCH="Qwen3VLForConditionalGeneration"
-export MODEL_TYPE="qwen3_vl"
-export SERVED_MODEL_NAME=${SERVED_MODEL_NAME:-Meissa-4B}
-export CUDA_DEVICES=${1:-0}
-export PORT=${2:-4000}
-export MAX_MODEL_LEN=8192
-export GPU_MEMORY_UTILIZATION=${GPU_MEMORY_UTILIZATION:-0.85}
-export TRUST_REMOTE_CODE=${TRUST_REMOTE_CODE:-1}
-export DTYPE=${DTYPE:-bfloat16}
+MODEL="${REPO_ROOT}/models/Meissa-4B"
+MODEL_ARCH="Qwen3VLForConditionalGeneration"
+MODEL_TYPE="qwen3_vl"
+SERVED_MODEL_NAME=${SERVED_MODEL_NAME:-Meissa-4B}
+CUDA_DEVICES=${1:-0}
+PORT=${2:-4000}
+MAX_MODEL_LEN=8192
+GPU_MEMORY_UTILIZATION=${GPU_MEMORY_UTILIZATION:-0.85}
+TRUST_REMOTE_CODE=${TRUST_REMOTE_CODE:-1}
+DTYPE=${DTYPE:-bfloat16}
 # Meissa-4B uses Hermes-format tool calls and should stay multimodal by default.
-export TOOL_CALL_PARSER=${TOOL_CALL_PARSER:-hermes}
-export REASONING_PARSER=${REASONING_PARSER:-}
-export LANGUAGE_MODEL_ONLY=${LANGUAGE_MODEL_ONLY:-0}
+TOOL_CALL_PARSER=${TOOL_CALL_PARSER:-hermes}
+REASONING_PARSER=${REASONING_PARSER:-}
+LANGUAGE_MODEL_ONLY=${LANGUAGE_MODEL_ONLY:-0}
 
 IFS=',' read -r -a DEVICE_ARRAY <<< "${CUDA_DEVICES}"
 TP_SIZE=${#DEVICE_ARRAY[@]}
@@ -41,7 +41,7 @@ if [[ -n "${HF_OVERRIDES}" ]]; then
     echo "hf_overrides: ${HF_OVERRIDES}"
 fi
 
-export VLLM_ALLOW_LONG_MAX_MODEL_LEN=1
+VLLM_ALLOW_LONG_MAX_MODEL_LEN=1
 
 ARGS=(
     "${SERVE_MODEL}"

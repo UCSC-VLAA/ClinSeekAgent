@@ -9,10 +9,10 @@ from pathlib import Path
 
 
 DEFAULT_RESULTS = (
-    "./openresearcher_ehr/subset_500_qwen3_5_35b_a3b/results.jsonl"
+    "./openresearcher_ehr/results/train_trajectory_3k_4ep_20260415T002208Z/results.jsonl"
 )
 DEFAULT_BENCHMARK = (
-    "./data/AgentEHR-Bench/MIMICIVAgentBench/common/subset_500/merged_subsets_500.json"
+    "./data/AgentEHR-Bench/MIMICIVAgentBench/train/mix_training_3k.json"
 )
 
 
@@ -433,6 +433,9 @@ def f1_score(predictions, standard_answer):
         name = answer.get("name")
         if isinstance(name, str):
             ground_truth.add(name)
+        atc_name = answer.get("atc_name")
+        if isinstance(atc_name, str):
+            ground_truth.add(atc_name)
 
     if not prediction_set:
         return {

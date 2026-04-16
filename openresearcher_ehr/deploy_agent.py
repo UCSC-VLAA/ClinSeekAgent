@@ -14,20 +14,20 @@ import traceback
 
 from browser import BrowserTool, LocalServiceBrowserBackend, SerperServiceBrowserBackend
 from ehr_pool import EHRToolPool
-from data_utils import DEVELOPER_CONTENT_CLAUDE, COMBINED_TOOL_CONTENT_FULL
+from data_utils import DEVELOPER_CONTENT_CLAUDE, SFT_MODEL_PROMPT, COMBINED_TOOL_CONTENT_FULL
 import dotenv
 
 # Verbose flag
 VERBOSE = False
-DEFAULT_BEDROCK_MODEL_ID = "us.anthropic.claude-sonnet-4-6"
+DEFAULT_BEDROCK_MODEL_ID = "us.anthropic.claude-opus-4-6-v1"
 DEFAULT_BEDROCK_REGION = "us-east-1"
 DEFAULT_VLLM_BASE_URL = "http://127.0.0.1:4000"
 DEFAULT_VLLM_API_KEY = "EMPTY"
-MAX_PARALLEL_QUERIES = 10
-DEFAULT_MAX_TOOL_RESULT_CHARS = 50000
+MAX_PARALLEL_QUERIES = 12
+DEFAULT_MAX_TOOL_RESULT_CHARS = 100000
 
 BEDROCK_MODEL_ALIASES = {
-    "anthropic.claude-sonnet-4-6": "us.anthropic.claude-sonnet-4-6",
+    "anthropic.claude-opus-4-6-v1": "us.anthropic.claude-opus-4-6-v1",
 }
 
 def vprint(*args, **kwargs):
@@ -108,11 +108,27 @@ def normalize_tool_call_name(function_name: str) -> str:
     if name in {"search", "open", "find"}:
         return f"browser.{name}"
 
-    if name.startswith("ehr.") or name.startswith("ehr_"):
+    if name.startswith("ehr."):
         return name
+    if name.startswith("ehr_"):
+        suffix = name[len("ehr_"):].strip("_")
+        return f"ehr.{suffix}" if suffix else "ehr."
     if "." not in name:
-        return f"ehr_{name}"
+        return f"ehr.{name}"
     return name
+
+
+def normalize_tool_calls(tool_calls: List[Dict[str, Any]] | None) -> List[Dict[str, Any]]:
+    normalized_tool_calls: List[Dict[str, Any]] = []
+
+    for tool_call in tool_calls or []:
+        normalized_tool_call = dict(tool_call)
+        function = dict(tool_call.get("function") or {})
+        function["name"] = normalize_tool_call_name(function.get("name", ""))
+        normalized_tool_call["function"] = function
+        normalized_tool_calls.append(normalized_tool_call)
+
+    return normalized_tool_calls
 
 
 def truncate_tool_result(result: Any, max_chars: int) -> str:
@@ -344,6 +360,7 @@ async def run_one_native(
     max_rounds: int = 200,
     temperature: float = 1.0,
     max_tool_result_chars: int = DEFAULT_MAX_TOOL_RESULT_CHARS,
+    model_name: str = "",
 ) -> List[dict]:
     """
     Native API tool calling for Bedrock Claude with dual tool support.
@@ -360,8 +377,11 @@ async def run_one_native(
     if hasattr(generator, '_init_tokenizer'):
         await generator._init_tokenizer()
 
-    # System prompt
-    system_prompt = DEVELOPER_CONTENT_CLAUDE # + f"\n\nToday's date: {datetime.datetime.now().strftime('%Y-%m-%d')}"
+    # System prompt — use SFT_MODEL_PROMPT for DeepMed-SFT models
+    if "deepmed-sft" in (model_name or "").lower():
+        system_prompt = SFT_MODEL_PROMPT
+    else:
+        system_prompt = DEVELOPER_CONTENT_CLAUDE
     messages = [
         {
             "role": "system",
@@ -417,20 +437,35 @@ async def run_one_native(
                 f"[qid={qid}] Round {round_num} {preview_label} PREVIEW: {preview_text!r}",
                 flush=True,
             )
+            if reasoning_content and content:
+                reasoning_preview = (
+                    reasoning_content[:2000]
+                    if len(reasoning_content) > 2000
+                    else reasoning_content
+                )
+                print(
+                    f"[qid={qid}] Round {round_num} REASONING PREVIEW: "
+                    f"{reasoning_preview!r}",
+                    flush=True,
+                )
             if parse_error and not tool_calls:
                 print(
                     f"[qid={qid}] Round {round_num} PARSE ERROR: {parse_error}",
                     flush=True,
                 )
 
+            normalized_tool_calls = normalize_tool_calls(tool_calls)
+
             # Add assistant message
             assistant_message = {
                 "role": "assistant",
                 "content": raw_content if raw_content is not None else content,
-                "tool_calls": tool_calls if tool_calls else None
+                "tool_calls": normalized_tool_calls if normalized_tool_calls else None
             }
             if reasoning_content:
                 assistant_message["reasoning_content"] = reasoning_content
+            if message.get("bedrock_content_blocks"):
+                assistant_message["bedrock_content_blocks"] = message["bedrock_content_blocks"]
             messages.append(assistant_message)
 
             if not tool_calls:
@@ -442,10 +477,12 @@ async def run_one_native(
                 break
 
             finish_tool_called = False
-            for tc_idx, tool_call in enumerate(tool_calls):
+            for tc_idx, (raw_tool_call, tool_call) in enumerate(
+                zip(tool_calls, normalized_tool_calls)
+            ):
                 tool_id = tool_call["id"]
-                raw_function_name = tool_call["function"]["name"]
-                function_name = normalize_tool_call_name(raw_function_name)
+                raw_function_name = raw_tool_call["function"]["name"]
+                function_name = tool_call["function"]["name"]
                 function_args_raw = tool_call["function"]["arguments"]
 
                 try:
@@ -454,21 +491,20 @@ async def run_one_native(
                         function_args = function_args_raw
                     else:
                         function_args = json.loads(function_args_raw)
-                    if function_name != raw_function_name:
-                        print(
-                            f"[qid={qid}] Round {round_num} TOOL_NAME_NORMALIZE[{tc_idx}]: "
-                            f"{raw_function_name!r} -> {function_name!r}",
-                            flush=True,
-                        )
+                    # if function_name != raw_function_name:
+                    #     print(
+                    #         f"[qid={qid}] Round {round_num} TOOL_NAME_NORMALIZE[{tc_idx}]: "
+                    #         f"{raw_function_name!r} -> {function_name!r}",
+                    #         flush=True,
+                    #     )
 
                     print(f"[qid={qid}] Round {round_num} TOOL_CALL[{tc_idx}]: {function_name}({json.dumps(function_args, ensure_ascii=False)[:200]})", flush=True)
 
                     # Route to appropriate tool pool
-                    if function_name.startswith("ehr.") or function_name.startswith("ehr_"):
-                        # EHR tool execution (handle both ehr. and ehr_ formats)
+                    if function_name.startswith("ehr."):
+                        # EHR tool execution
                         if ehr_pool:
-                            # Normalize: remove both ehr. and ehr_ prefixes
-                            actual_function_name = function_name.replace("ehr_", "").replace("ehr.", "")
+                            actual_function_name = function_name.split(".", 1)[1]
                             result = await ehr_pool.call_tool(qid, actual_function_name, function_args)
                         else:
                             result = "Error: EHR tools not available. Start with --enable_ehr flag."
@@ -491,7 +527,7 @@ async def run_one_native(
                         "content": result
                     }
                     if is_openseeker_repo_like:
-                        tool_message["name"] = raw_function_name
+                        tool_message["name"] = function_name
                         tool_message["tool_call_id"] = str(uuid.uuid4())
                     else:
                         tool_message["tool_call_id"] = tool_id
@@ -506,7 +542,11 @@ async def run_one_native(
                         )
                     print(f"[qid={qid}] Round {round_num} TOOL_RESULT[{tc_idx}]: len={len(result)}, preview={result_preview!r}", flush=True)
 
-                    actual_finish_name = function_name.replace("ehr_", "").replace("ehr.", "")
+                    actual_finish_name = (
+                        function_name.split(".", 1)[1]
+                        if function_name.startswith("ehr.")
+                        else function_name
+                    )
                     if actual_finish_name == "finish":
                         finish_tool_called = True
 
@@ -519,7 +559,7 @@ async def run_one_native(
                         "content": error_msg
                     }
                     if is_openseeker_repo_like:
-                        error_message["name"] = raw_function_name
+                        error_message["name"] = function_name
                         error_message["tool_call_id"] = str(uuid.uuid4())
                     else:
                         error_message["tool_call_id"] = tool_id
@@ -553,6 +593,7 @@ async def run_one_query(
     max_rounds: int = 200,
     temperature: float = 1.0,
     max_tool_result_chars: int = DEFAULT_MAX_TOOL_RESULT_CHARS,
+    model_name: str = "",
 ):
     """Run a single query and return the result."""
     try:
@@ -565,6 +606,7 @@ async def run_one_query(
             max_rounds=max_rounds,
             temperature=temperature,
             max_tool_result_chars=max_tool_result_chars,
+            model_name=model_name,
         )
 
         completed, stop_reason = summarize_conversation_completion(messages)
@@ -616,6 +658,7 @@ async def process_query_item(
     out_f: Any,
     output_file: str,
     write_lock: asyncio.Lock,
+    model_name: str = "",
 ) -> Dict[str, Any]:
     qid = resolve_qid(item)
     session_id = f"{qid}__q_{question_index}__run_{run_index}"
@@ -645,6 +688,7 @@ async def process_query_item(
                 max_rounds=max_rounds,
                 temperature=temperature,
                 max_tool_result_chars=max_tool_result_chars,
+                model_name=model_name,
             )
             result = attach_source_fields(result, item)
     except Exception as e:
@@ -792,13 +836,18 @@ async def main():
         generator = BedrockAsyncGenerator(
             model_id=resolved_model_id,
             region_name=args.bedrock_region,
-            max_tokens_default=8192
+            max_tokens_default=8192,
+            enable_thinking=args.enable_thinking,
         )
         if bedrock_api_key:
             print(f"Using Bedrock bearer token auth: {mask_secret(bedrock_api_key)}")
         else:
             print("Using default AWS credential chain for Bedrock auth")
-        print(f"Using AWS Bedrock: {generator.model_id} @ {args.bedrock_region}")
+        print(
+            "Using AWS Bedrock: "
+            f"{generator.model_id} @ {args.bedrock_region} | "
+            f"thinking={'auto' if args.enable_thinking is None else args.enable_thinking}"
+        )
     elif selected_backend == "vllm":
         from vllm_generator import VLLMOpenAIAsyncGenerator
 
@@ -836,6 +885,10 @@ async def main():
         f"Running {args.runs_per_question} run(s) per query "
         f"({total_task_runs} total runs)"
     )
+    print(
+        "Execution order: run 1 over all queries, then run 2, "
+        "until runs_per_question is exhausted"
+    )
     print(f"Running with max concurrency: {concurrency}")
     print(f"Tool result char limit: {args.max_tool_result_chars}")
 
@@ -847,12 +900,19 @@ async def main():
     with open(output_file, 'w', encoding='utf-8') as out_f:
         semaphore = asyncio.Semaphore(concurrency)
         write_lock = asyncio.Lock()
-        tasks = []
         task_index = 1
 
-        for question_index, item in enumerate(data, start=1):
-            for run_index in range(1, args.runs_per_question + 1):
-                tasks.append(
+        for run_index in range(1, args.runs_per_question + 1):
+            print(
+                f"\n{'#' * 80}\n"
+                f"Starting run batch {run_index}/{args.runs_per_question} "
+                f"for {len(data)} query(ies)\n"
+                f"{'#' * 80}"
+            )
+            batch_tasks = []
+
+            for question_index, item in enumerate(data, start=1):
+                batch_tasks.append(
                     asyncio.create_task(
                         process_query_item(
                             item=item,
@@ -872,13 +932,14 @@ async def main():
                             out_f=out_f,
                             output_file=output_file,
                             write_lock=write_lock,
+                            model_name=args.model_name_or_path,
                         )
                     )
                 )
                 task_index += 1
 
-        if tasks:
-            await asyncio.gather(*tasks)
+            if batch_tasks:
+                await asyncio.gather(*batch_tasks)
 
     print(f"\n✅ All queries processed. Results in {output_file}")
 
