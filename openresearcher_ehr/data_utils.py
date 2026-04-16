@@ -113,9 +113,47 @@ Patient Subject ID: {subject_id}
 </patient_info>""",
 }
 
-# EHR_Bench_Prompt = {
-  
-# }
+EHR_Bench_Prompt = """<task_instruction>
+{instruction}
+
+Analyze the patient's EHR records up to the current time to make your prediction.
+Do not assume any unseen future events beyond the current time.
+When you need medical knowledge or clinical information, use the `browser.search` tool to find authoritative medical information from reliable sources.
+Submit your final answer through `ehr.finish`. Your answer must be chosen only from the candidate list below.
+</task_instruction>
+
+<patient_info>
+Current Time: {prediction_time}
+Patient Subject ID: {subject_id}
+</patient_info>
+
+<candidate_answers>
+{candidates}
+</candidate_answers>"""
+
+
+def generate_ehr_bench_prompt(task_data):
+    """
+    Generate prompt for EHR-Bench tasks (both decision_making and risk_prediction).
+
+    Args:
+        task_data: dict from ehr_bench_sampled_20_per_task.json or ehr_bench_merged_filtered.json
+
+    Returns:
+        str: formatted prompt
+    """
+    candidates = task_data.get("candidates", [])
+    if isinstance(candidates, list):
+        candidates_str = json.dumps(candidates)
+    else:
+        candidates_str = str(candidates)
+
+    return EHR_Bench_Prompt.format(
+        instruction=task_data["instruction"],
+        prediction_time=task_data["prediction_time"],
+        subject_id=task_data["subject_id"],
+        candidates=candidates_str,
+    )
 
 def generate_question_from_task(task_data):
     """

@@ -232,7 +232,11 @@ def resolve_qid(item: Dict[str, Any]) -> str:
     return "unknown"
 
 
-def resolve_question(item: Dict[str, Any]) -> str:
+def resolve_question(item: Dict[str, Any], data_path: str = "") -> str:
+    if "ehr_bench" in os.path.basename(data_path):
+        from data_utils import generate_ehr_bench_prompt
+        return generate_ehr_bench_prompt(item)
+
     if 'question' in item or 'query' in item:
         return item.get('question', item.get('query', ''))
 
@@ -659,12 +663,13 @@ async def process_query_item(
     output_file: str,
     write_lock: asyncio.Lock,
     model_name: str = "",
+    data_path: str = "",
 ) -> Dict[str, Any]:
     qid = resolve_qid(item)
     session_id = f"{qid}__q_{question_index}__run_{run_index}"
 
     try:
-        question = resolve_question(item)
+        question = resolve_question(item, data_path=data_path)
 
         async with semaphore:
             print(f"\n{'='*80}")
@@ -933,6 +938,7 @@ async def main():
                             output_file=output_file,
                             write_lock=write_lock,
                             model_name=args.model_name_or_path,
+                            data_path=args.data_path,
                         )
                     )
                 )
