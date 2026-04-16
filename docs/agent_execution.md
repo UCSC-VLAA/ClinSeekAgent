@@ -347,6 +347,37 @@ while round_num < max_rounds:
 "get_records_by_time" → "ehr.get_records_by_time"
 ```
 
+### 6.5 工具调用解析格式（vLLM）
+
+**文件**: `openresearcher_ehr/vllm_generator.py` — `_convert_response_to_openai()`
+
+vLLM 返回的模型输出中，工具调用可能以多种文本格式出现。`VLLMOpenAIAsyncGenerator` 按优先级依次尝试解析，**首个成功即停止**。解析同时在 `content` 和 `reasoning_content` 中进行（先 content，再 reasoning）。
+
+#### 非 OpenSeeker 模型的解析链
+
+| 优先级 | 格式 | 解析方法 | 示例 |
+|--------|------|----------|------|
+| 0（最高） | vLLM 原生 tool_calls | OpenAI SDK 自动解析（`--enable-auto-tool-choice --tool-call-parser hermes`） | — |
+| 1 | XML `<tool_call>` 块 | `_extract_xml_tool_calls` | `<tool_call><function=fn><parameter=k>v</parameter></function></tool_call>` 或 `<tool_call>{"name":"fn","arguments":{...}}</tool_call>` |
+| 2 | 裸 XML function | `_extract_naked_xml_function_calls` | `<function=fn><parameter=k>v</parameter></function>` |
+| 3 | 内联 function 调用 | `_extract_inline_function_calls` | `<function=fn({"k":"v"})` |
+| 4 | JSON + `</tool_call>` | `_extract_json_tool_calls` | `{"name":"fn","arguments":{...}}</tool_call>` |
+| 5 | 方括号格式 | `_extract_bracket_tool_calls` | `[Tool Call: fn({"k":"v"})]` |
+
+#### OpenSeeker 模型的解析
+
+OpenSeeker 走独立的 `completions` API（非 `chat.completions`），解析方法为 `_extract_openseeker_tool_calls_repo_like`：
+
+```xml
+<tool_calls_begin>
+<tool_call>
+{"name": "fn", "arguments": {...}}
+</tool_call>
+</tool_calls_end>
+```
+
+字段名支持 `tool_name`/`name` 和 `tool_args`/`arguments` 两种变体。
+
 ---
 
 ## 7. 对话历史（messages）结构
@@ -380,6 +411,77 @@ Agent 维护的 `messages` 列表遵循 OpenAI Chat API 格式：
 ```
 
 如果模型支持 thinking，assistant 消息中还会包含 `reasoning_content` 字段。
+
+### 7.2 发送给 vLLM 的 message 格式
+
+发送给模型的 messages 取决于模型类型，有两条路径。
+
+#### 路径 A：非 OpenSeeker 模型（`_prepare_messages` → `chat.completions.create`）
+
+经过 `_prepare_messages()` 规范化后，以结构化列表传入 OpenAI SDK：
+
+```python
+# system
+{"role": "system", "content": "<system_prompt>"}
+
+# user
+{"role": "user", "content": "<question>"}
+
+# assistant（有 tool_calls 时 content 为 None）
+{
+    "role": "assistant",
+    "content": "<text or None>",
+    "tool_calls": [
+        {"id": "call_1", "type": "function",
+         "function": {"name": "ehr.load_ehr", "arguments": "{...}"}}
+    ],
+    "reasoning": "<thinking>"   # 注意：reasoning_content 重命名为 reasoning
+}
+
+# tool result
+{"role": "tool", "content": "<result>", "tool_call_id": "call_1"}
+```
+
+关键细节：
+- `reasoning_content` → `reasoning`（vLLM schema 要求）
+- `arguments` 始终为 JSON 字符串（经 `_normalize_assistant_tool_calls` 处理）
+- 有 tool_calls 但无文本时 `content` 设为 `None`
+
+#### 路径 B：OpenSeeker 模型（Jinja 模板 → `completions.create`）
+
+通过 `openseeker_vllm/chat_template.jinja` 渲染为纯文本 prompt：
+
+```
+<|im_start|>system
+<system_prompt>
+
+# Tools
+...tool definitions in JSON...
+<|im_end|>
+<|im_start|>user
+<question><|im_end|>
+<|im_start|>assistant
+<think>
+<reasoning>
+</think>
+
+<tool_call>
+{"name": "ehr.load_ehr", "arguments": {...}}
+</tool_call><|im_end|>
+<|im_start|>user
+<tool_response>
+EHR loaded successfully
+</tool_response><|im_end|>
+<|im_start|>assistant
+<think>
+```
+
+关键细节：
+- tool result 角色变为 `user`，包裹在 `<tool_response>` 标签中
+- 连续多个 tool result 合并在同一个 `<|im_start|>user...<|im_end|>` 块内
+- assistant 的 tool_calls 由 `_prepare_messages_for_openseeker` 重建为 `<tool_call>` XML 文本
+- generation prompt 固定以 `<|im_start|>assistant\n<think>\n` 结尾，强制模型先思考
+- `tool_call_id` 使用随机 UUID（因 OpenSeeker 的 id 是解析器生成的，不具对应关系）
 
 ---
 
