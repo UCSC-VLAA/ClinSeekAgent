@@ -20,12 +20,12 @@ from pathlib import Path
 # Defaults
 # ---------------------------------------------------------------------------
 DEFAULT_RESULTS = (
-    # "./openresearcher_ehr/results/train_trajectory_3k_4ep_20260415T002208Z/results.jsonl"
-    "./openresearcher_ehr/results/subset_500_gemma_4_26b_a4b_it/results.jsonl"
+    "./openresearcher_ehr/results/train_trajectory_3k_4ep_20260415T002208Z/results.jsonl"
+    # "./openresearcher_ehr/results/subset_500_gemma_4_26b_a4b_it/results.jsonl"
 )
 DEFAULT_BENCHMARK = (
-    # "./data/AgentEHR-Bench/MIMICIVAgentBench/train/mix_training_3k.json"
-    "./data/AgentEHR-Bench/MIMICIVAgentBench/common/subset_500/merged_subsets_500.json"
+    "./data/AgentEHR-Bench/MIMICIVAgentBench/train/mix_training_3k.json"
+    # "./data/AgentEHR-Bench/MIMICIVAgentBench/common/subset_500/merged_subsets_500.json"
 )
 
 
@@ -322,13 +322,16 @@ def extract_finish_predictions_with_source(result, *, allow_text=False):
 def f1_score(predictions, standard_answer):
     pred_set = {p for p in predictions if isinstance(p, str)}
     gt = set()
+    has_atc = any(ans.get("atc_name") for ans in standard_answer)
     for ans in standard_answer:
-        name = ans.get("name")
-        if isinstance(name, str):
-            gt.add(name)
-        atc = ans.get("atc_name")
-        if isinstance(atc, str):
-            gt.add(atc)
+        if has_atc:
+            atc = ans.get("atc_name")
+            if isinstance(atc, str):
+                gt.add(atc)
+        else:
+            name = ans.get("name")
+            if isinstance(name, str):
+                gt.add(name)
 
     if not pred_set:
         return {"f1": 0.0, "prec": 0.0, "rec": 0.0, "em": 0.0}
