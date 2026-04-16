@@ -20,10 +20,12 @@ from pathlib import Path
 # Defaults
 # ---------------------------------------------------------------------------
 DEFAULT_RESULTS = (
-    "./openresearcher_ehr/results/train_trajectory_3k_4ep_20260415T002208Z/results.jsonl"
+    # "./openresearcher_ehr/results/train_trajectory_3k_4ep_20260415T002208Z/results.jsonl"
+    "./openresearcher_ehr/results/subset_500_gemma_4_26b_a4b_it/results.jsonl"
 )
 DEFAULT_BENCHMARK = (
-    "./data/AgentEHR-Bench/MIMICIVAgentBench/train/mix_training_3k.json"
+    # "./data/AgentEHR-Bench/MIMICIVAgentBench/train/mix_training_3k.json"
+    "./data/AgentEHR-Bench/MIMICIVAgentBench/common/subset_500/merged_subsets_500.json"
 )
 
 

@@ -50,6 +50,8 @@ venv/
 
 # HuggingFace cache
 .cache/
+.claude/
+.codex/
 
 # OS files
 .DS_Store
