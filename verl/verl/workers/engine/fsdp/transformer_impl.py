@@ -980,6 +980,12 @@ class FSDPEngineWithLMHead(FSDPEngine):
                     "position_ids": position_ids,
                 }
 
+                # Gemma4 requires mm_token_type_ids for causal mask creation during
+                # training. For text-only SFT, all tokens are text type (value 0).
+                config = getattr(self.module, "module", self.module).config
+                if getattr(config, "model_type", None) == "gemma4":
+                    model_inputs["mm_token_type_ids"] = torch.zeros_like(input_ids)
+
             else:
                 raise NotImplementedError(f"pad_mode {pad_mode} not implemented")
 

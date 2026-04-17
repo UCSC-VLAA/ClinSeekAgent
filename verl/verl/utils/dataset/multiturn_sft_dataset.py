@@ -33,6 +33,7 @@ from transformers import PreTrainedTokenizer, ProcessorMixin
 from verl.models.transformers.qwen2_vl import get_rope_index
 from verl.utils import hf_tokenizer
 from verl.utils.chat_template import apply_chat_template, extract_system_prompt_and_generation
+from verl.utils.tokenizer import normalize_token_ids
 from verl.utils.dataset.dataset_utils import DatasetPadMode
 from verl.utils.dataset.vision_utils import process_image, process_video
 from verl.utils.fs import copy_local_path_from_hdfs
@@ -179,6 +180,38 @@ class MultiTurnSFTDataset(Dataset):
         # generation prompt: <|im_start|>assistant\n
         self.system_prompt, self.generation_prompt = extract_system_prompt_and_generation(self.tokenizer)
 
+        # Validate generation_prompt against actual assistant turn header.
+        # Some models (e.g., Gemma-4-it) include thinking/channel tokens in the
+        # generation_prompt (from add_generation_prompt=True) that don't appear in
+        # normal assistant turn headers. When this happens, the per-message loss_mask
+        # is wrong — it masks too many tokens. Fall back to full-conversation
+        # tokenization with prefix diffing instead (the same path used for Qwen3.5).
+        self._force_fallback_tokenization = False
+        try:
+            _test_msgs = [{"role": "user", "content": "x"}, {"role": "assistant", "content": "y"}]
+            _full = normalize_token_ids(
+                self.tokenizer.apply_chat_template(_test_msgs, add_generation_prompt=False, tokenize=True)
+            )
+            _prefix = normalize_token_ids(
+                self.tokenizer.apply_chat_template(_test_msgs[:1], add_generation_prompt=False, tokenize=True)
+            )
+            _asst_tokens = _full[len(_prefix):]
+            # Find where content "y" starts — that gives the actual header length
+            _y_ids = normalize_token_ids(self.tokenizer.encode("y", add_special_tokens=False))
+            _header_len = None
+            for _i in range(len(_asst_tokens)):
+                if _asst_tokens[_i : _i + len(_y_ids)] == _y_ids:
+                    _header_len = _i
+                    break
+            if _header_len is not None and _header_len != len(self.generation_prompt):
+                self._force_fallback_tokenization = True
+                logger.warning(
+                    f"generation_prompt length ({len(self.generation_prompt)}) != actual assistant "
+                    f"turn header length ({_header_len}). Forcing fallback tokenization path."
+                )
+        except Exception:
+            pass  # if validation fails, proceed with default behavior
+
     def __len__(self):
         return len(self.messages)
 
@@ -297,6 +330,8 @@ class MultiTurnSFTDataset(Dataset):
         # 1. tokenize each message
         input_ids, loss_mask, attention_mask, multi_modal_inputs = [], [], [], {}
         try:
+            if self._force_fallback_tokenization:
+                raise RuntimeError("generation_prompt mismatch detected; using fallback tokenization")
             for i, message in enumerate(messages):
                 _input_ids, _loss_mask, _attention_mask, _inputs = self._process_single_message(
                     index=i,

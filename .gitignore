@@ -55,3 +55,6 @@ venv/
 
 # OS files
 .DS_Store
+
+# Third-party sources
+flash-attention/

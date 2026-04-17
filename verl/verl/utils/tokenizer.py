@@ -146,6 +146,8 @@ def hf_processor(name_or_path, **kwargs):
                 model_class = Glm4vModel
             case "MllamaProcessor":
                 pass  # MllamaProcessor and MllamaModel doesn't have get_rope_index property
+            case "Gemma4Processor":
+                pass  # Gemma4 text-only SFT uses tokenizer path; no get_rope_index needed
             case _:
                 raise ValueError(f"Unsupported processor type: {processor.__class__.__name__}")
 
