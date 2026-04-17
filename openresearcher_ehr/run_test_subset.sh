@@ -3,6 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+[[ -n "${OUTPUT_DIR:-}" && "${OUTPUT_DIR}" != /* ]] && OUTPUT_DIR="$(pwd)/${OUTPUT_DIR}"
 cd "$SCRIPT_DIR"
 
 export SERPER_API_KEY="61877f4a59d2968ae439a7d13d49dc2990bc0a1b"

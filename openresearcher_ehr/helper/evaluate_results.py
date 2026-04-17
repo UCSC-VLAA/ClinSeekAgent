@@ -20,7 +20,7 @@ from pathlib import Path
 # Defaults
 # ---------------------------------------------------------------------------
 DEFAULT_RESULTS = (
-    "./openresearcher_ehr/results/train_trajectory_3k_4ep_20260415T002208Z/results.jsonl"
+    "./openresearcher_ehr/results/train_trajectory_3k_2ep_thinking/results.jsonl"
     # "./openresearcher_ehr/results/subset_500_gemma_4_26b_a4b_it/results.jsonl"
 )
 DEFAULT_BENCHMARK = (
@@ -435,9 +435,6 @@ def evaluate(results_path, benchmark_path, *, allow_text=False):
         gt = item["label"]
 
         if not runs:
-            task_scores[t].append(0.0)
-            task_prec[t].append(0.0)
-            task_rec[t].append(0.0)
             continue
 
         task_completed[t] += 1

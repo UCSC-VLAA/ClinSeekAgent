@@ -268,12 +268,9 @@ class BedrockAsyncGenerator:
 
                 if not assistant_content:
                     # Fallback path for messages that were not produced by Bedrock.
-                    reasoning = msg.get("reasoning_content")
-                    if reasoning:
-                        assistant_content.append({
-                            "type": "text",
-                            "text": f"<think>{reasoning}</think>"
-                        })
+                    # reasoning_content is intentionally omitted here: the Claude
+                    # API requires thinking blocks to carry their original
+                    # signature, which we don't have in the fallback path.
 
                     # Add regular content
                     if content:
@@ -485,7 +482,7 @@ class BedrockAsyncGenerator:
 
         if self._is_anthropic_model():
             return await self._chat_completion_anthropic(
-                messages, tools, tool_choice, temperature, max_tokens
+                messages, tools, tool_choice, temperature, max_tokens, use_reasoning_content
             )
         else:
             return await self._chat_completion_openai(
@@ -499,6 +496,7 @@ class BedrockAsyncGenerator:
         tool_choice: str,
         temperature: float,
         max_tokens: int,
+        use_reasoning_content: bool = True,
     ) -> dict:
         """Chat completion via Anthropic invoke_model API."""
         system_prompt, anthropic_messages = self._convert_messages_to_anthropic(messages)
