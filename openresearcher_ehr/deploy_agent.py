@@ -900,12 +900,45 @@ async def main():
     if hasattr(generator, '_init_tokenizer'):
         await generator._init_tokenizer()
 
-    # Process queries
+    # Process queries — with resume support
     output_file = os.path.join(args.output_dir, "results.jsonl")
+
+    # Load existing completed results for resume
+    completed_qids = set()
+    existing_lines = []
+    if os.path.exists(output_file):
+        with open(output_file, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    result = json.loads(line)
+                    if result.get("completed"):
+                        completed_qids.add(result["qid"])
+                    existing_lines.append(line)
+                except json.JSONDecodeError:
+                    existing_lines.append(line)
+
+    if completed_qids:
+        print(f"Resuming: {len(completed_qids)} already completed, skipping them")
+
+    # Rewrite existing results + append new ones
     with open(output_file, 'w', encoding='utf-8') as out_f:
+        # Write back existing completed results
+        for line in existing_lines:
+            try:
+                r = json.loads(line)
+                if r.get("completed"):
+                    out_f.write(line + "\n")
+            except json.JSONDecodeError:
+                pass
+        out_f.flush()
+
         semaphore = asyncio.Semaphore(concurrency)
         write_lock = asyncio.Lock()
         task_index = 1
+        skipped = 0
 
         for run_index in range(1, args.runs_per_question + 1):
             print(
@@ -917,6 +950,11 @@ async def main():
             batch_tasks = []
 
             for question_index, item in enumerate(data, start=1):
+                qid = resolve_qid(item)
+                if qid in completed_qids:
+                    skipped += 1
+                    task_index += 1
+                    continue
                 batch_tasks.append(
                     asyncio.create_task(
                         process_query_item(
@@ -945,6 +983,10 @@ async def main():
                 task_index += 1
 
             if batch_tasks:
+                print(
+                    f"Queued {len(batch_tasks)} task(s) for run batch {run_index}"
+                    + (f"; skipped {skipped} already-completed so far" if skipped else "")
+                )
                 await asyncio.gather(*batch_tasks)
 
     print(f"\n✅ All queries processed. Results in {output_file}")

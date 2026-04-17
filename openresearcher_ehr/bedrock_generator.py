@@ -4,10 +4,18 @@ Uses boto3 bedrock-runtime client with Anthropic Messages API
 """
 from typing import List, Optional, AsyncIterator, Dict, Any
 import boto3
+from botocore.config import Config as BotoConfig
 import json
+import re
 from concurrent.futures import ThreadPoolExecutor
 import asyncio
 from botocore.exceptions import BotoCoreError, ClientError
+
+
+def _sanitize_tool_name(name: str) -> str:
+    """Sanitize a tool name for Bedrock Converse API: [a-zA-Z0-9_-]+, max 64 chars."""
+    name = re.sub(r"[^a-zA-Z0-9_-]", "_", name)
+    return name[:64]
 
 # Pre-import transformers to avoid issues in multiprocessing
 try:
@@ -55,19 +63,25 @@ class BedrockAsyncGenerator:
         self.enable_thinking = enable_thinking
         self.thinking_budget_tokens = thinking_budget_tokens
 
-        # Initialize boto3 client
-        # If credentials not provided, boto3 will use environment variables or IAM role
+        # Initialize boto3 client with extended timeout (5 min read, 10s connect)
+        boto_config = BotoConfig(
+            read_timeout=300,
+            connect_timeout=10,
+            retries={"max_attempts": 0},  # we handle retries ourselves
+        )
         if aws_access_key_id and aws_secret_access_key:
             self.client = boto3.client(
                 "bedrock-runtime",
                 region_name=region_name,
                 aws_access_key_id=aws_access_key_id,
-                aws_secret_access_key=aws_secret_access_key
+                aws_secret_access_key=aws_secret_access_key,
+                config=boto_config,
             )
         else:
             self.client = boto3.client(
                 "bedrock-runtime",
-                region_name=region_name
+                region_name=region_name,
+                config=boto_config,
             )
 
         # Thread pool for async execution of sync boto3 calls
@@ -443,6 +457,12 @@ class BedrockAsyncGenerator:
             "usage": bedrock_response.get("usage", {})
         }
 
+    def _is_anthropic_model(self) -> bool:
+        """Check if the current model is an Anthropic model."""
+        return "anthropic" in self.model_id.lower()
+
+    # ── Main entry point ─────────────────────────────────────────────────
+
     async def chat_completion(
         self,
         messages: List[dict],
@@ -453,27 +473,38 @@ class BedrockAsyncGenerator:
         use_reasoning_content: bool = True,
     ) -> dict:
         """
-        Create a chat completion with optional tool calling using Bedrock Anthropic API
+        Create a chat completion with optional tool calling.
 
-        Args:
-            messages: List of message dicts with 'role' and 'content'
-            tools: List of tool definitions in OpenAI format
-            tool_choice: "auto", "none", or specific tool (Anthropic supports "auto", "any", or specific tool)
-            temperature: Sampling temperature
-            max_tokens: Maximum tokens to generate
-            use_reasoning_content: If True, use 'reasoning_content' field for assistant messages
+        Uses Anthropic invoke_model API for Anthropic models,
+        and OpenAI-compatible invoke_model for other providers (e.g. Kimi).
 
         Returns:
             Response dict in OpenAI format
         """
         await self._init_tokenizer()
 
-        # Convert messages to Anthropic format
+        if self._is_anthropic_model():
+            return await self._chat_completion_anthropic(
+                messages, tools, tool_choice, temperature, max_tokens
+            )
+        else:
+            return await self._chat_completion_openai(
+                messages, tools, tool_choice, temperature, max_tokens
+            )
+
+    async def _chat_completion_anthropic(
+        self,
+        messages: List[dict],
+        tools: Optional[List[dict]],
+        tool_choice: str,
+        temperature: float,
+        max_tokens: int,
+    ) -> dict:
+        """Chat completion via Anthropic invoke_model API."""
         system_prompt, anthropic_messages = self._convert_messages_to_anthropic(messages)
         request_max_tokens = max_tokens or self.max_tokens_default
         thinking_config = self._build_thinking_config(request_max_tokens)
 
-        # Build request
         request = {
             "anthropic_version": "bedrock-2023-05-31",
             "max_tokens": request_max_tokens,
@@ -488,26 +519,18 @@ class BedrockAsyncGenerator:
         else:
             request["temperature"] = temperature
 
-        # Add system prompt if present
         if system_prompt:
             request["system"] = system_prompt
 
-        # Add tools if provided
         if tools:
             anthropic_tools = self._convert_tools_to_anthropic(tools)
             request["tools"] = anthropic_tools
 
-            # Convert tool_choice
-            if thinking_config:
-                # Bedrock rejects forced tool choice when thinking is enabled.
-                # Let the model decide whether to emit tool_use blocks.
-                pass
-            elif tool_choice == "auto":
+            if tool_choice == "auto":
                 request["tool_choice"] = {"type": "auto"}
             elif tool_choice == "any":
                 request["tool_choice"] = {"type": "any"}
             elif tool_choice == "none":
-                # Anthropic doesn't have explicit "none", just omit tool_choice
                 pass
             else:
                 # Specific tool
@@ -536,6 +559,116 @@ class BedrockAsyncGenerator:
         except Exception as e:
             print(f"[Bedrock] Error: {e}")
             raise
+
+    def _prepare_openai_messages(self, messages: List[dict]) -> List[dict]:
+        """
+        Clean messages for OpenAI-compatible models.
+        Strips internal fields (reasoning_content), ensures tool_calls
+        is absent (not None) when there are no tool calls, and
+        ensures tool call arguments are always valid JSON strings.
+        """
+        cleaned = []
+        for msg in messages:
+            m = {"role": msg["role"]}
+            if msg.get("content") is not None:
+                m["content"] = msg["content"]
+            if msg.get("tool_calls"):
+                safe_tcs = []
+                for tc in msg["tool_calls"]:
+                    tc_copy = dict(tc)
+                    func = dict(tc_copy.get("function", {}))
+                    args = func.get("arguments", "{}")
+                    if isinstance(args, str):
+                        try:
+                            json.loads(args)
+                        except (json.JSONDecodeError, TypeError):
+                            func["arguments"] = "{}"
+                    tc_copy["function"] = func
+                    safe_tcs.append(tc_copy)
+                m["tool_calls"] = safe_tcs
+            if msg.get("tool_call_id"):
+                m["tool_call_id"] = msg["tool_call_id"]
+            cleaned.append(m)
+        return cleaned
+
+    @staticmethod
+    def _truncate_tool_results(messages: List[dict], max_body_bytes: int = 10_000_000) -> List[dict]:
+        """
+        If serialized messages exceed max_body_bytes, progressively truncate
+        the oldest tool result contents to bring the payload under limit.
+        """
+        body = json.dumps(messages)
+        if len(body.encode()) <= max_body_bytes:
+            return messages
+
+        messages = [dict(m) for m in messages]
+        for m in messages:
+            if m.get("role") == "tool" and m.get("content"):
+                content = m["content"]
+                if len(content) > 500:
+                    m["content"] = content[:500] + "\n... [truncated]"
+                    body = json.dumps(messages)
+                    if len(body.encode()) <= max_body_bytes:
+                        return messages
+        return messages
+
+    async def _chat_completion_openai(
+        self,
+        messages: List[dict],
+        tools: Optional[List[dict]],
+        tool_choice: str,
+        temperature: float,
+        max_tokens: int,
+    ) -> dict:
+        """Chat completion for OpenAI-compatible models (e.g. Kimi) via invoke_model."""
+        openai_messages = self._prepare_openai_messages(messages)
+        openai_messages = self._truncate_tool_results(openai_messages)
+
+        request = {
+            "anthropic_version": "bedrock-2023-05-31",
+            "max_tokens": max_tokens or self.max_tokens_default,
+            "temperature": temperature,
+            "messages": openai_messages,
+        }
+
+        if tools:
+            request["tools"] = tools
+
+        print(f"[Bedrock/OpenAI] Request: model={self.model_id}, messages={len(openai_messages)}, tools={len(tools) if tools else 0}")
+
+        loop = asyncio.get_event_loop()
+        max_retries = 3
+        request_body = json.dumps(request)
+
+        for attempt in range(1, max_retries + 1):
+            try:
+                response = await loop.run_in_executor(
+                    self.executor,
+                    lambda: self.client.invoke_model(
+                        modelId=self.model_id,
+                        body=request_body
+                    )
+                )
+
+                model_response = json.loads(response["body"].read())
+
+                choice = model_response.get("choices", [{}])[0]
+                finish_reason = choice.get("finish_reason", "stop")
+                message = choice.get("message", {})
+
+                print(f"[Bedrock/OpenAI] Response received: finish_reason={finish_reason}, tool_calls={len(message.get('tool_calls', []))}")
+
+                return model_response
+
+            except Exception as e:
+                is_retryable = any(kw in str(e).lower() for kw in ["timeout", "throttl", "too many requests", "service unavailable", "internal server error", "internalserver", "unexpected error"])
+                if is_retryable and attempt < max_retries:
+                    wait = 2 ** attempt
+                    print(f"[Bedrock/OpenAI] Retry {attempt}/{max_retries} after {wait}s: {e}")
+                    await asyncio.sleep(wait)
+                    continue
+                print(f"[Bedrock/OpenAI] Error (attempt {attempt}/{max_retries}): {e}")
+                raise
 
     def shutdown(self) -> None:
         """Close the thread pool executor"""

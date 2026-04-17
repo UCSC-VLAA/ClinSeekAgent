@@ -2,12 +2,12 @@
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-PYTHON_BIN="${SCRIPT_DIR}/../../../miniconda3/bin/python3.13"
+PYTHON_BIN="${PYTHON_BIN:-${REPO_ROOT}/.venv_mcp/bin/python}"
 
 GPU_ID=${1:-0}
 PORT=${2:-5103}
-DATA_PATH="${REPO_ROOT}/data/AgentEHR-Bench/MIMICIVAgentBench"
-HOST=127.0.0.1
+DATA_PATH="${DATA_PATH:-${REPO_ROOT}/data/EHRAgentBench}"
+HOST="${HOST:-127.0.0.1}"
 
 cd "${REPO_ROOT}"
 
