@@ -20,12 +20,13 @@ from pathlib import Path
 # Defaults
 # ---------------------------------------------------------------------------
 DEFAULT_RESULTS = (
-    # "./openresearcher_ehr/results/train_trajectory_3k_2ep_thinking/results.jsonl"
-    "./openresearcher_ehr/results/train_trajectory_3k_4ep_nonthinking_done3ep/results.jsonl"
+    "./openresearcher_ehr/results/ehrbench_900_gemma_4_26b_a4b_it/results.jsonl"
+    # "./openresearcher_ehr/results/train_trajectory_3k_4ep_nonthinking_done3ep/results.jsonl"
     # "./openresearcher_ehr/results/subset_500_gemma_4_26b_a4b_it/results.jsonl"
 )
 DEFAULT_BENCHMARK = (
-    "./data/AgentEHR-Bench/MIMICIVAgentBench/train/mix_training_3k.json"
+    './data/EHR-Bench/ehr_bench_sampled_20_per_task.json'
+    # "./data/AgentEHR-Bench/MIMICIVAgentBench/train/mix_training_3k.json"
     # "./data/AgentEHR-Bench/MIMICIVAgentBench/common/subset_500/merged_subsets_500.json"
 )
 
@@ -33,7 +34,16 @@ DEFAULT_BENCHMARK = (
 # ---------------------------------------------------------------------------
 # QID helpers
 # ---------------------------------------------------------------------------
-def build_qid(record):
+def is_ehr_bench_path(path):
+    p = str(path).lower()
+    return "ehrbench" in p or "ehr_bench" in p
+
+
+def build_qid(record, ehr_bench_mode=False):
+    if ehr_bench_mode:
+        qid = record.get("qid")
+        if isinstance(qid, str) and qid:
+            return qid
     task = record.get("task")
     subject_id = record.get("subject_id")
     hadm_id = record.get("hadm_id")
@@ -323,16 +333,24 @@ def extract_finish_predictions_with_source(result, *, allow_text=False):
 def f1_score(predictions, standard_answer):
     pred_set = {p for p in predictions if isinstance(p, str)}
     gt = set()
-    has_atc = any(ans.get("atc_name") for ans in standard_answer)
-    for ans in standard_answer:
-        if has_atc:
-            atc = ans.get("atc_name")
-            if isinstance(atc, str):
-                gt.add(atc)
-        else:
-            name = ans.get("name")
-            if isinstance(name, str):
-                gt.add(name)
+    if isinstance(standard_answer, str):
+        gt.add(standard_answer)
+    elif isinstance(standard_answer, list):
+        has_atc = any(
+            isinstance(a, dict) and a.get("atc_name") for a in standard_answer
+        )
+        for ans in standard_answer:
+            if isinstance(ans, str):
+                gt.add(ans)
+            elif isinstance(ans, dict):
+                if has_atc:
+                    atc = ans.get("atc_name")
+                    if isinstance(atc, str):
+                        gt.add(atc)
+                else:
+                    name = ans.get("name")
+                    if isinstance(name, str):
+                        gt.add(name)
 
     if not pred_set:
         return {"f1": 0.0, "prec": 0.0, "rec": 0.0, "em": 0.0}
@@ -393,10 +411,10 @@ def count_turns(record):
 # ---------------------------------------------------------------------------
 # Loading
 # ---------------------------------------------------------------------------
-def load_benchmark(path):
+def load_benchmark(path, ehr_bench_mode=False):
     with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
-    return {build_qid(item): item for item in data}
+    return {build_qid(item, ehr_bench_mode=ehr_bench_mode): item for item in data}
 
 
 def load_results(path):
@@ -414,7 +432,8 @@ def load_results(path):
 # Main evaluation
 # ---------------------------------------------------------------------------
 def evaluate(results_path, benchmark_path, *, allow_text=False):
-    bm = load_benchmark(benchmark_path)
+    ehr_bench_mode = is_ehr_bench_path(benchmark_path) or is_ehr_bench_path(results_path)
+    bm = load_benchmark(benchmark_path, ehr_bench_mode=ehr_bench_mode)
     results = load_results(results_path)
 
     # Per-task accumulators
