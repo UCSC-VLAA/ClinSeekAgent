@@ -14,6 +14,7 @@ MAX_CONCURRENCY=${MAX_CONCURRENCY:-15}
 RUNS_PER_QUESTION=${RUNS_PER_QUESTION:-2}
 MAX_ROUNDS=${MAX_ROUNDS:-200}
 MAX_TOOL_RESULT_CHARS=${MAX_TOOL_RESULT_CHARS:-100000}
+MAX_TOKENS=${MAX_TOKENS:-32768}
 ENABLE_THINKING=${ENABLE_THINKING:-1}
 BEDROCK_REGION=${BEDROCK_REGION:-us-east-1}
 BEDROCK_MODEL_ID=${BEDROCK_MODEL_ID:-us.anthropic.claude-opus-4-6-v1}
@@ -43,6 +44,7 @@ echo "EHR MCP URL: ${EHR_MCP_URL}"
 echo "Model: ${BEDROCK_MODEL_ID} @ ${BEDROCK_REGION}"
 echo "Thinking: ${ENABLE_THINKING}"
 echo "Tool result char limit: ${MAX_TOOL_RESULT_CHARS}"
+echo "Max tokens per call: ${MAX_TOKENS}"
 
 python ./deploy_agent.py \
     --data_path "$DATA_PATH" \
@@ -57,5 +59,6 @@ python ./deploy_agent.py \
     --max_concurrency "$MAX_CONCURRENCY" \
     --max_rounds "$MAX_ROUNDS" \
     --max_tool_result_chars "$MAX_TOOL_RESULT_CHARS" \
+    --max_tokens "$MAX_TOKENS" \
     "${THINKING_FLAG[@]}" \
     --verbose

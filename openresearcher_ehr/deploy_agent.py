@@ -25,6 +25,7 @@ DEFAULT_VLLM_BASE_URL = "http://127.0.0.1:4000"
 DEFAULT_VLLM_API_KEY = "EMPTY"
 MAX_PARALLEL_QUERIES = 12
 DEFAULT_MAX_TOOL_RESULT_CHARS = 100000
+DEFAULT_MAX_TOKENS = 32768
 
 BEDROCK_MODEL_ALIASES = {
     "anthropic.claude-opus-4-6-v1": "us.anthropic.claude-opus-4-6-v1",
@@ -364,6 +365,7 @@ async def run_one_native(
     max_rounds: int = 200,
     temperature: float = 1.0,
     max_tool_result_chars: int = DEFAULT_MAX_TOOL_RESULT_CHARS,
+    max_tokens: int = DEFAULT_MAX_TOKENS,
     model_name: str = "",
 ) -> List[dict]:
     """
@@ -417,7 +419,7 @@ async def run_one_native(
                 tools=tools,
                 tool_choice="auto",
                 temperature=temperature,
-                max_tokens=8192
+                max_tokens=max_tokens
             )
 
             # Extract message from response
@@ -597,6 +599,7 @@ async def run_one_query(
     max_rounds: int = 200,
     temperature: float = 1.0,
     max_tool_result_chars: int = DEFAULT_MAX_TOOL_RESULT_CHARS,
+    max_tokens: int = DEFAULT_MAX_TOKENS,
     model_name: str = "",
 ):
     """Run a single query and return the result."""
@@ -610,6 +613,7 @@ async def run_one_query(
             max_rounds=max_rounds,
             temperature=temperature,
             max_tool_result_chars=max_tool_result_chars,
+            max_tokens=max_tokens,
             model_name=model_name,
         )
 
@@ -658,6 +662,7 @@ async def process_query_item(
     max_rounds: int,
     temperature: float,
     max_tool_result_chars: int,
+    max_tokens: int,
     semaphore: asyncio.Semaphore,
     out_f: Any,
     output_file: str,
@@ -693,6 +698,7 @@ async def process_query_item(
                 max_rounds=max_rounds,
                 temperature=temperature,
                 max_tool_result_chars=max_tool_result_chars,
+                max_tokens=max_tokens,
                 model_name=model_name,
             )
             result = attach_source_fields(result, item)
@@ -784,6 +790,8 @@ async def main():
                         help=f"Maximum parallel queries (capped at {MAX_PARALLEL_QUERIES})")
     parser.add_argument("--max_tool_result_chars", type=int, default=DEFAULT_MAX_TOOL_RESULT_CHARS,
                         help="Maximum number of characters kept from each tool result")
+    parser.add_argument("--max_tokens", type=int, default=DEFAULT_MAX_TOKENS,
+                        help="Maximum number of tokens generated per model call")
     parser.add_argument("--verbose", action="store_true",
                         help="Enable verbose output")
 
@@ -813,6 +821,9 @@ async def main():
 
     if args.max_tool_result_chars < 1:
         raise ValueError("--max_tool_result_chars must be at least 1")
+
+    if args.max_tokens < 1:
+        raise ValueError("--max_tokens must be at least 1")
 
     concurrency = min(args.max_concurrency, MAX_PARALLEL_QUERIES)
     if concurrency != args.max_concurrency:
@@ -971,6 +982,7 @@ async def main():
                             max_rounds=args.max_rounds,
                             temperature=args.temperature,
                             max_tool_result_chars=args.max_tool_result_chars,
+                            max_tokens=args.max_tokens,
                             semaphore=semaphore,
                             out_f=out_f,
                             output_file=output_file,

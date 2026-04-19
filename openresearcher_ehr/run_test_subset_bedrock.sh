@@ -10,6 +10,7 @@ EHR_MCP_URL=${EHR_MCP_URL:-http://127.0.0.1:5103/mcp}
 MAX_CONCURRENCY=${MAX_CONCURRENCY:-5}
 RUNS_PER_QUESTION=${RUNS_PER_QUESTION:-1}
 MAX_ROUNDS=${MAX_ROUNDS:-200}
+MAX_TOKENS=${MAX_TOKENS:-32768}
 TEMPERATURE=${TEMPERATURE:-1.0}
 
 BEDROCK_MODEL_ID=${BEDROCK_MODEL_ID:-global.anthropic.claude-sonnet-4-6}
@@ -41,6 +42,7 @@ echo "EHR MCP URL: ${EHR_MCP_URL}"
 echo "Data path: ${DATA_PATH}"
 echo "Max concurrency: ${MAX_CONCURRENCY}"
 echo "Temperature: ${TEMPERATURE}"
+echo "Max tokens per call: ${MAX_TOKENS}"
 
 BEDROCK_KEY_FLAG=()
 if [[ -n "${BEDROCK_API_KEY}" ]]; then
@@ -60,4 +62,5 @@ fi
     --runs_per_question "$RUNS_PER_QUESTION" \
     --max_concurrency "$MAX_CONCURRENCY" \
     --max_rounds "$MAX_ROUNDS" \
+    --max_tokens "$MAX_TOKENS" \
     --verbose

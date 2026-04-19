@@ -15,6 +15,7 @@ MAX_CONCURRENCY=${MAX_CONCURRENCY:-5}
 RUNS_PER_QUESTION=${RUNS_PER_QUESTION:-1}
 MAX_ROUNDS=${MAX_ROUNDS:-200}
 MAX_TOOL_RESULT_CHARS=${MAX_TOOL_RESULT_CHARS:-100000}
+MAX_TOKENS=${MAX_TOKENS:-32768}
 
 VLLM_BASE_URL=${VLLM_BASE_URL:-http://127.0.0.1:4000}
 VLLM_MODEL_NAME=${VLLM_MODEL_NAME:-auto}
@@ -86,6 +87,7 @@ echo "Output directory: ${OUTPUT_DIR}"
 echo "Log file: ${RUN_TEST_SUBSET_LOG_FILE}"
 echo "EHR MCP URL: ${EHR_MCP_URL}"
 echo "Tool result char limit: ${MAX_TOOL_RESULT_CHARS}"
+echo "Max tokens per call: ${MAX_TOKENS}"
 
 python "$SCRIPT_DIR/deploy_agent.py" \
     --backend vllm \
@@ -101,5 +103,6 @@ python "$SCRIPT_DIR/deploy_agent.py" \
     --max_concurrency "$MAX_CONCURRENCY" \
     --max_rounds "$MAX_ROUNDS" \
     --max_tool_result_chars "$MAX_TOOL_RESULT_CHARS" \
+    --max_tokens "$MAX_TOKENS" \
     "${THINKING_FLAG[@]}" \
     --verbose

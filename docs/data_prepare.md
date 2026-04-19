@@ -232,5 +232,5 @@ CUDA_VISIBLE_DEVICES=0 python src/run_mcp_server.py \
 ## 6. 常见问题
 
 1. **脚本里打印 "Directory not found: .../ed"**：MIMIC-IV 完整版有 `ed/` 子目录，但当前本地数据集只下载了 `hosp/`、`icu/`、`note/`。无 `ed/` 时，`diagnoses_icd` / `diagnosis` 的 `charttime` 补全逻辑会 fallback 到空字符串，不影响主流程。
-2. **某些 `subject_id` 被丢弃**：`preprocess_subject_dict` 在 `admissions` 表中找不到对应的 discharge text 时会整体移除该病人。若需要保留，可自行注释 `subjects_to_remove.append(...)` 分支。
+2. **`admissions.text` 无匹配 discharge**：若某 admission 在 `note/discharge.csv` 中找不到对应 `hadm_id`，脚本会把 `admission['text']` 置为空字符串（保留该病人）。早期版本会直接丢弃该病人，现已改为保留。
 3. **列全是 `TEXT`**：建表时所有列都被定义为 `TEXT`（见 `save_to_db` 中的 `columns_def`），数值/时间比较请在 SQL 中显式 `CAST`，或在 agent 工具层做类型转换。
