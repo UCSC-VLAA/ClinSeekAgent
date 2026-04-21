@@ -402,6 +402,8 @@ async def run_one_native(
     # Parse tools (ALL 23 tools: 3 browser + 20 EHR)
     tools = json.loads(COMBINED_TOOL_CONTENT_FULL)
     candidate_table_tool_calls = 0
+    browser_tool_calls = 0
+    max_browser_tool_calls = 40
 
     round_num = 0
 
@@ -517,6 +519,7 @@ async def run_one_native(
 
                     elif function_name.startswith("browser."):
                         # Browser tool execution
+                        browser_tool_calls += 1
                         actual_function_name = function_name.split(".", 1)[1]
                         result = await browser_pool.call_tool(qid, actual_function_name, function_args)
                         if not result:
@@ -573,6 +576,14 @@ async def run_one_native(
 
             if finish_tool_called:
                 print(f"[qid={qid}] ✅ Round {round_num}: ehr.finish called - DONE", flush=True)
+                break
+
+            if browser_tool_calls >= max_browser_tool_calls:
+                print(
+                    f"[qid={qid}] ⛔ Round {round_num}: browser tool call limit reached "
+                    f"({browser_tool_calls}/{max_browser_tool_calls}) - stopping",
+                    flush=True,
+                )
                 break
 
             # Continue to next round
@@ -914,7 +925,7 @@ async def main():
     # Process queries — with resume support
     output_file = os.path.join(args.output_dir, "results.jsonl")
 
-    # Load existing completed results for resume
+    # Load existing results for resume — skip ALL previously attempted qids
     completed_qids = set()
     existing_lines = []
     if os.path.exists(output_file):
@@ -925,25 +936,19 @@ async def main():
                     continue
                 try:
                     result = json.loads(line)
-                    if result.get("completed"):
-                        completed_qids.add(result["qid"])
+                    completed_qids.add(result["qid"])
                     existing_lines.append(line)
                 except json.JSONDecodeError:
                     existing_lines.append(line)
 
     if completed_qids:
-        print(f"Resuming: {len(completed_qids)} already completed, skipping them")
+        print(f"Resuming: {len(completed_qids)} already in results, skipping them")
 
     # Rewrite existing results + append new ones
     with open(output_file, 'w', encoding='utf-8') as out_f:
-        # Write back existing completed results
+        # Write back all existing results (completed + incomplete)
         for line in existing_lines:
-            try:
-                r = json.loads(line)
-                if r.get("completed"):
-                    out_f.write(line + "\n")
-            except json.JSONDecodeError:
-                pass
+            out_f.write(line + "\n")
         out_f.flush()
 
         semaphore = asyncio.Semaphore(concurrency)

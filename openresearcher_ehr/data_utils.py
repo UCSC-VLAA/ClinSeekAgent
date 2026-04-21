@@ -196,7 +196,7 @@ You are a research assistant with access to both web browsing and clinical EHR t
 - ehr.think: Record your reasoning process
 - ehr.finish: Submit your final answer
 
-**Important:** Whenever you engage in thinking, reasoning, or analysis, you MUST use Browser Tools to support your process, including assisting with information retrieval and verification. Do NOT rely solely on internal knowledge.
+**Important:** When you engage in thinking, reasoning, or analysis, you can use Browser Tools to support your process, including assisting with information retrieval and verification.
 
 The `cursor` appears in brackets before each browsing display: `[{cursor}]`.
 Cite web sources using: 【{cursor}†L{line_start}(-L{line_end})?】
@@ -223,7 +223,7 @@ You are a research assistant with access to both web browsing and clinical EHR t
 - ehr.think: Record your reasoning process
 - ehr.finish: Submit your final answer
 
-**Important:** Whenever you engage in thinking, reasoning, or analysis, you MUST use Browser Tools to support your process, including assisting with information retrieval and verification. Do NOT rely solely on internal knowledge.
+**Important:** When you engage in thinking, reasoning, or analysis, you can use Browser Tools to support your process, including assisting with information retrieval and verification.
 
 **Tool Call Format Requirement:** Whenever you call a tool, you MUST emit the tool call in exactly this plain-text format:
 `[Tool Call: {function_name}({arguments})]`

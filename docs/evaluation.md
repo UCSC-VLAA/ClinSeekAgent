@@ -23,6 +23,42 @@ hf download --repo-type dataset BlueZeros/AgentEHR-Bench --local-dir data/AgentE
 hf download --repo-type dataset BlueZeros/EHR-Bench --local-dir data/EHR-Bench
 ```
 
+#### EHR-Bench 评测子集
+
+`data/EHR-Bench/ehr_bench_merged_filtered.json` 是全量库（20302 条，45 个 task，分属 `risk_prediction` 和 `decision_making` 两类）。为控制评测成本，仓库提供两个按 task 分层抽样的子集：
+
+| 文件 | 每 task 条数 | 总条数 | task_type 分布 | 说明 |
+|------|------------|-------|---------------|------|
+| `data/EHR-Bench/ehr_bench_sampled_20_per_task.json` | 20 | 900 | risk 360 / decision 540 | 小规模快速冒烟 |
+| `data/EHR-Bench/ehr_bench_sampled_40_per_task.json` | 40 | 1800 | risk 720 / decision 1080 | **推荐用于正式评测** |
+
+抽样方式：按 `task` 字段分桶，在每桶内用固定随机种子无放回采样。采样脚本位于 `data/EHR-Bench/sample_per_task.py`，复现命令：
+
+```bash
+cd data/EHR-Bench
+python sample_per_task.py                           # 默认：per-task=40, seed=42
+python sample_per_task.py --per-task 20 --seed 42   # 生成 900 条子集
+```
+
+可传 `--input`、`--output`、`--per-task`、`--seed` 覆盖默认值。
+
+将评测脚本切换到 1800 子集：
+
+```bash
+DATA_PATH=../data/EHR-Bench/ehr_bench_sampled_40_per_task.json \
+    bash openresearcher_ehr/eval_ehrbench.sh
+```
+
+打分时 `--benchmark` 需指向同一个文件：
+
+```bash
+python openresearcher_ehr/helper/evaluate_results.py \
+    --results openresearcher_ehr/results/ehrbench_1800_<model_slug> \
+    --benchmark data/EHR-Bench/ehr_bench_sampled_40_per_task.json
+```
+
+`evaluate_results.py` 会同时输出整体、每 task、以及按 `task_type`（risk_prediction / decision_making）两类的分组指标。
+
 ### 1.2 安装依赖（使用 uv）
 
 使用 [uv](https://docs.astral.sh/uv/) 创建虚拟环境并安装依赖。如尚未安装 uv：
@@ -144,16 +180,6 @@ OpenSeeker 模型会自动配置专用的 chat template（`openresearcher_ehr/op
 
 ```bash
 bash scripts/run/run_vllm_server_gemma4.sh
-```
-
-自定义 GPU 和端口：
-
-```bash
-# 单卡 GPU 2, 端口 4002
-bash scripts/run/run_vllm_server_gemma4.sh 2 4002
-
-# 多卡 + 更大上下文
-MAX_MODEL_LEN=32768 bash scripts/run/run_vllm_server_gemma4.sh 0,1 4001
 ```
 
 ### 3.5 验证 vLLM 是否就绪

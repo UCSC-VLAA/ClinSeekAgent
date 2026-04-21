@@ -16,6 +16,7 @@ env/
 # Results and logs
 test_results/
 results/
+logs/
 *.log
 smoke_results/
 my_results/
