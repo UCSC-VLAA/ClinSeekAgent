@@ -13,14 +13,15 @@
 在安装依赖和启动服务前，需要先准备评测所依赖的数据和模型。以下路径均相对于仓库根目录：
 
 - 数据集 `https://huggingface.co/datasets/BlueZeros/AgentEHR-Bench` 需要下载到 `data/AgentEHR-Bench`
-- 数据集 `https://huggingface.co/datasets/BlueZeros/EHR-Bench` 需要下载到 `data/EHR-Bench`
+- EHR-Bench 需要准备到 `data/EHR-Bench`（包含 benchmark JSON 与病人 SQLite 数据库）。**具体准备流程请参考 [EHR_Bench_data_prepare.md](./EHR_Bench_data_prepare.md)**，文档中提供两种方式：
+  - 快速准备：直接下载已打包好的数据，解压即用
+  - 完整流程：从 MIMIC-IV 原始数据反向匹配并生成病人 db
 - 模型按需下载到 `models/` 目录（具体路径见第 3 节的模型配置表）
 
-如果使用 Hugging Face CLI，两个数据集可以按下面方式下载：
+AgentEHR-Bench 可使用 Hugging Face CLI 下载：
 
 ```bash
 hf download --repo-type dataset BlueZeros/AgentEHR-Bench --local-dir data/AgentEHR-Bench
-hf download --repo-type dataset BlueZeros/EHR-Bench --local-dir data/EHR-Bench
 ```
 
 #### EHR-Bench 评测子集
@@ -75,8 +76,8 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 ```bash
 uv venv venv/gemma --python 3.12
-uv pip install -r requirements.txt --python venv/gemma/bin/python
-uv pip install -r openresearcher_ehr/requirements.txt --python venv/gemma/bin/python
+uv pip install -r docs/EHR_Bench/requirements.txt --python venv/gemma/bin/python
+uv pip install -r docs/EHR_Bench/requirements_openresearcher_ehr.txt --python venv/gemma/bin/python
 uv pip install "vllm>=0.19.0" "transformers>=5.5" --python venv/gemma/bin/python
 ```
 
@@ -149,13 +150,7 @@ vLLM 服务提供 OpenAI 兼容的推理 API。根据要评测的模型选择对
 bash scripts/run/run_vllm_server_3_5.sh
 ```
 
-默认使用所有 8 张 GPU（`0,1,2,3,4,5,6,7`），端口 `4000`。如果需要指定 GPU 和端口：
-
-```bash
-bash scripts/run/run_vllm_server_3_5.sh <CUDA_DEVICES> <PORT>
-# 例如：使用 4 张卡，端口 4001
-bash scripts/run/run_vllm_server_3_5.sh 0,1,2,3 4001
-```
+默认使用所有 8 张 GPU（`0,1,2,3,4,5,6,7`），端口 `4000`。
 
 该脚本的关键参数：
 
@@ -199,7 +194,7 @@ curl -s http://127.0.0.1:4000/v1/models | python -m json.tool
 | OpenSeeker-v1-30B-SFT | 8×A100 80GB | 262144 | ~60GB/卡 |
 | OpenResearcher-30B-A3B | 8×A100 80GB | 262144 | ~60GB/卡 |
 | Meissa-4B | 1×A100 80GB | 8192 | ~15GB |
-| Gemma-4-26B-A4B-it | 1×A100 80GB | 8192 | ~75GB |
+| Gemma-4-26B-A4B-it | 8×A100 80GB | 262144 | ~60GB/卡 |
 
 如果遇到 OOM，可通过环境变量降低显存使用：
 
@@ -217,12 +212,12 @@ GPU_MEMORY_UTILIZATION=0.7 bash scripts/run/run_vllm_server_3_5.sh
 
 ```bash
 cd openresearcher_ehr
-bash run_test_subset.sh
+bash eval_ehrbench.sh
 ```
 
 该脚本会：
 1. 自动从 vLLM 的 `/v1/models` 接口探测模型名称
-2. 根据模型名生成输出目录（如 `results/subset_500_qwen3_5_35b_a3b/`）
+2. 根据模型名生成输出目录（如 `results/ehrbench_1800_qwen3_5_35b_a3b/`）
 3. 调用 `deploy_agent.py` 启动并发评测
 
 默认连接：
@@ -231,9 +226,11 @@ bash run_test_subset.sh
 |------|--------|
 | MCP 服务地址 | `http://127.0.0.1:5103/mcp` |
 | vLLM 服务地址 | `http://127.0.0.1:4000` |
-| 评测数据 | `data/AgentEHR-Bench/MIMICIVAgentBench/common/subset_500/merged_subsets_500.json` |
+| 评测数据 | `data/EHR-Bench/ehr_bench_sampled_40_per_task.json` |
 | 最大并发 | 5 |
 | 最大轮次 | 200 |
+| 单次最大 tokens | 32768 |
+| 工具返回截断 | 100000 字符 |
 | 采样温度 | 0.0 |
 | Thinking 模式 | 启用 |
 
@@ -241,19 +238,19 @@ bash run_test_subset.sh
 
 ```bash
 # 指定不同的 vLLM 地址和端口
-VLLM_BASE_URL=http://127.0.0.1:4001 bash run_test_subset.sh
+VLLM_BASE_URL=http://127.0.0.1:4001 bash eval_ehrbench.sh
 
 # 调整并发数和温度
-MAX_CONCURRENCY=10 TEMPERATURE=0.6 bash run_test_subset.sh
+MAX_CONCURRENCY=10 TEMPERATURE=0.6 bash eval_ehrbench.sh
 
-# 使用不同的数据集
-DATA_PATH=../data/AgentEHR-Bench/MIMICIVAgentBench/train/mix_training_3k.json bash run_test_subset.sh
+# 使用不同的数据集（例如切换到 900 条小规模子集）
+DATA_PATH=../data/EHR-Bench/ehr_bench_sampled_20_per_task.json bash eval_ehrbench.sh
 
 # 关闭 thinking 模式
-ENABLE_THINKING=0 bash run_test_subset.sh
+ENABLE_THINKING=0 bash eval_ehrbench.sh
 
 # 指定输出目录
-OUTPUT_DIR=./results/my_experiment bash run_test_subset.sh
+OUTPUT_DIR=./results/my_experiment bash eval_ehrbench.sh
 ```
 
 完整环境变量列表：
@@ -264,11 +261,12 @@ OUTPUT_DIR=./results/my_experiment bash run_test_subset.sh
 | `VLLM_MODEL_NAME` | `auto`（自动探测） | 模型名称，设为 auto 会自动获取 |
 | `VLLM_API_KEY` | `EMPTY` | API Key |
 | `EHR_MCP_URL` | `http://127.0.0.1:5103/mcp` | MCP 服务地址 |
-| `DATA_PATH` | `../data/.../merged_subsets_500.json` | 评测数据路径 |
-| `OUTPUT_DIR` | `./results/subset_500_<model_slug>` | 输出目录 |
+| `DATA_PATH` | `../data/EHR-Bench/ehr_bench_sampled_40_per_task.json` | 评测数据路径 |
+| `OUTPUT_DIR` | `./results/ehrbench_1800_<model_slug>` | 输出目录 |
 | `MAX_CONCURRENCY` | `5` | 最大并发任务数 |
 | `MAX_ROUNDS` | `200` | 单任务最大对话轮次 |
 | `MAX_TOOL_RESULT_CHARS` | `100000` | 工具返回内容截断字符数 |
+| `MAX_TOKENS` | `32768` | 单次调用最大生成 tokens |
 | `RUNS_PER_QUESTION` | `1` | 每个问题独立运行几次 |
 | `ENABLE_THINKING` | `1` | 是否启用 thinking 模式（1/0） |
 | `TEMPERATURE` | `0.0` | 采样温度 |

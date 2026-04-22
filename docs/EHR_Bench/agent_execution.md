@@ -1,6 +1,6 @@
 # Agent 执行机制详解
 
-本文档详细介绍评测（evaluation）过程中，Agent 从初始化到完成一个临床预测任务的完整运行流程。本文所述流程基于 `openresearcher_ehr/` 目录下的评测管线，建议先阅读 [evaluation.md](./evaluation.md) 了解评测环境的搭建方式。
+本文档详细介绍评测（evaluation）过程中，Agent 从初始化到完成一个临床预测任务的完整运行流程。本文所述流程基于 `openresearcher_ehr/` 目录下的评测管线，建议先阅读 [EHR_Bench_evaluation.md](./EHR_Bench_evaluation.md) 了解评测环境的搭建方式。
 
 ---
 
@@ -542,7 +542,7 @@ runs_per_question（默认 1）
 3. 计算 Precision / Recall / F1（大小写不敏感）
 4. 统计平均 tool call 次数和 browser 工具占比
 
-详细用法参见 [evaluation.md](./evaluation.md) 第 5 节。
+详细用法参见 [EHR_Bench_evaluation.md](./EHR_Bench_evaluation.md) 第 5 节。
 
 ---
 
