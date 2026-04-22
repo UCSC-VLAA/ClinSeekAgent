@@ -63,9 +63,12 @@ class BedrockAsyncGenerator:
         self.enable_thinking = enable_thinking
         self.thinking_budget_tokens = thinking_budget_tokens
 
-        # Initialize boto3 client with extended timeout (5 min read, 10s connect)
+        # Initialize boto3 client with bounded timeouts so a silent TLS hang
+        # surfaces as an exception instead of blocking the async loop forever.
+        # A per-request hard ceiling is layered on top via asyncio.wait_for
+        # (see _invoke_with_timeout); this config is the lower bound.
         boto_config = BotoConfig(
-            read_timeout=300,
+            read_timeout=90,
             connect_timeout=10,
             retries={"max_attempts": 0},  # we handle retries ourselves
         )
@@ -163,20 +166,42 @@ class BedrockAsyncGenerator:
             )
         )
 
+    # Hard ceiling (seconds) for a single invoke_model call, regardless of what
+    # boto3 / the TLS layer does. Prevents hung shards from blocking the
+    # async loop. Slightly larger than BotoConfig.read_timeout so the socket
+    # layer errors first when it can.
+    _ASYNCIO_INVOKE_TIMEOUT_SECONDS = 120
+
     async def _invoke_model_with_retry(self, request: dict) -> dict:
         loop = asyncio.get_event_loop()
         total_attempts = API_MAX_RETRIES + 1
 
         for attempt in range(1, total_attempts + 1):
             try:
-                response = await loop.run_in_executor(
-                    self.executor,
-                    lambda: self.client.invoke_model(
-                        modelId=self.model_id,
-                        body=json.dumps(request)
-                    )
+                response = await asyncio.wait_for(
+                    loop.run_in_executor(
+                        self.executor,
+                        lambda: self.client.invoke_model(
+                            modelId=self.model_id,
+                            body=json.dumps(request)
+                        )
+                    ),
+                    timeout=self._ASYNCIO_INVOKE_TIMEOUT_SECONDS,
                 )
                 return json.loads(response["body"].read())
+            except asyncio.TimeoutError:
+                msg = (
+                    f"asyncio wait_for timeout after "
+                    f"{self._ASYNCIO_INVOKE_TIMEOUT_SECONDS}s"
+                )
+                if attempt >= total_attempts:
+                    raise TimeoutError(msg)
+                print(
+                    f"[Bedrock] {msg} | "
+                    f"retry {attempt}/{API_MAX_RETRIES} in "
+                    f"{API_RETRY_DELAY_SECONDS}s"
+                )
+                await asyncio.sleep(API_RETRY_DELAY_SECONDS)
             except Exception as exc:
                 if attempt >= total_attempts or not self._is_retriable_api_error(exc):
                     raise
@@ -564,12 +589,35 @@ class BedrockAsyncGenerator:
         Strips internal fields (reasoning_content), ensures tool_calls
         is absent (not None) when there are no tool calls, and
         ensures tool call arguments are always valid JSON strings.
+        When a user message ships Anthropic-style content blocks (list of
+        {type: text|image|...}), we flatten to a single text string because
+        the OSS Bedrock models accept only string `content`. Image blocks are
+        replaced with a short `[image ...]` marker so the turn stays coherent.
         """
+        def _flatten(content):
+            if not isinstance(content, list):
+                return content
+            parts = []
+            for b in content:
+                if not isinstance(b, dict):
+                    parts.append(str(b))
+                    continue
+                btype = b.get("type")
+                if btype == "text":
+                    parts.append(b.get("text", ""))
+                elif btype == "image":
+                    src = b.get("source") or {}
+                    media = src.get("media_type") or src.get("type") or "image"
+                    parts.append(f"[image attached ({media}) — not inlined for this model]")
+                else:
+                    parts.append(b.get("text") or json.dumps(b)[:200])
+            return "\n".join(p for p in parts if p)
+
         cleaned = []
         for msg in messages:
             m = {"role": msg["role"]}
             if msg.get("content") is not None:
-                m["content"] = msg["content"]
+                m["content"] = _flatten(msg["content"])
             if msg.get("tool_calls"):
                 safe_tcs = []
                 for tc in msg["tool_calls"]:
@@ -618,21 +666,35 @@ class BedrockAsyncGenerator:
         temperature: float,
         max_tokens: int,
     ) -> dict:
-        """Chat completion for OpenAI-compatible models (e.g. Kimi) via invoke_model."""
+        """Chat completion for OpenAI-compatible Bedrock models.
+
+        Covers Kimi-K2.5, MiniMax-M2.5, Qwen3-VL, GLM-4.7, GPT-OSS, etc.
+        The request body follows OpenAI chat-completions shape; responses
+        come back with choices[].message having {content, tool_calls} —
+        `content` is `null` on tool-only turns (OpenAI convention). We
+        normalize that to an empty string and coerce tool_calls to a list
+        so downstream callers don't need model-specific guards.
+        """
         openai_messages = self._prepare_openai_messages(messages)
         openai_messages = self._truncate_tool_results(openai_messages)
 
         request = {
-            "anthropic_version": "bedrock-2023-05-31",
             "max_tokens": max_tokens or self.max_tokens_default,
             "temperature": temperature,
             "messages": openai_messages,
         }
-
         if tools:
             request["tools"] = tools
+            # Forward non-default tool_choice; Bedrock's OpenAI shim accepts
+            # "auto" / "none" / {"type":"function", "function":{"name":...}}.
+            if tool_choice and tool_choice != "auto":
+                request["tool_choice"] = tool_choice
 
-        print(f"[Bedrock/OpenAI] Request: model={self.model_id}, messages={len(openai_messages)}, tools={len(tools) if tools else 0}")
+        print(
+            f"[Bedrock/OpenAI] Request: model={self.model_id}, "
+            f"messages={len(openai_messages)}, "
+            f"tools={len(tools) if tools else 0}"
+        )
 
         loop = asyncio.get_event_loop()
         max_retries = 3
@@ -640,24 +702,44 @@ class BedrockAsyncGenerator:
 
         for attempt in range(1, max_retries + 1):
             try:
-                response = await loop.run_in_executor(
-                    self.executor,
-                    lambda: self.client.invoke_model(
-                        modelId=self.model_id,
-                        body=request_body
-                    )
+                response = await asyncio.wait_for(
+                    loop.run_in_executor(
+                        self.executor,
+                        lambda: self.client.invoke_model(
+                            modelId=self.model_id,
+                            body=request_body
+                        )
+                    ),
+                    timeout=self._ASYNCIO_INVOKE_TIMEOUT_SECONDS,
                 )
 
                 model_response = json.loads(response["body"].read())
+                self._normalize_openai_response(model_response)
 
-                choice = model_response.get("choices", [{}])[0]
+                choice = (model_response.get("choices") or [{}])[0]
                 finish_reason = choice.get("finish_reason", "stop")
-                message = choice.get("message", {})
+                message = choice.get("message") or {}
+                tool_calls = message.get("tool_calls") or []
 
-                print(f"[Bedrock/OpenAI] Response received: finish_reason={finish_reason}, tool_calls={len(message.get('tool_calls', []))}")
+                print(
+                    f"[Bedrock/OpenAI] Response received: "
+                    f"finish_reason={finish_reason}, tool_calls={len(tool_calls)}"
+                )
 
                 return model_response
 
+            except asyncio.TimeoutError:
+                msg = (
+                    f"asyncio wait_for timeout after "
+                    f"{self._ASYNCIO_INVOKE_TIMEOUT_SECONDS}s"
+                )
+                if attempt < max_retries:
+                    wait = 2 ** attempt
+                    print(f"[Bedrock/OpenAI] Retry {attempt}/{max_retries} after {wait}s: {msg}")
+                    await asyncio.sleep(wait)
+                    continue
+                print(f"[Bedrock/OpenAI] Error (attempt {attempt}/{max_retries}): {msg}")
+                raise TimeoutError(msg)
             except Exception as e:
                 is_retryable = any(kw in str(e).lower() for kw in ["timeout", "throttl", "too many requests", "service unavailable", "internal server error", "internalserver", "unexpected error"])
                 if is_retryable and attempt < max_retries:
@@ -667,6 +749,26 @@ class BedrockAsyncGenerator:
                     continue
                 print(f"[Bedrock/OpenAI] Error (attempt {attempt}/{max_retries}): {e}")
                 raise
+
+    @staticmethod
+    def _normalize_openai_response(resp: dict) -> None:
+        """In-place guard: make every assistant message safe to log/consume.
+
+        OpenAI-contract models emit `content: null` on tool-only turns
+        (and sometimes `tool_calls: null` on plain-text turns). Downstream
+        code assumes both are non-None when the key exists, so coerce them
+        here once instead of sprinkling `or ""` guards at every call site.
+        Also preserves any CoT strings the model inlines in `content`
+        (e.g. MiniMax's `<reasoning>…</reasoning>` blocks) verbatim.
+        """
+        for choice in resp.get("choices") or []:
+            msg = choice.get("message") if isinstance(choice, dict) else None
+            if not isinstance(msg, dict):
+                continue
+            if msg.get("content") is None:
+                msg["content"] = ""
+            if msg.get("tool_calls") is None:
+                msg["tool_calls"] = []
 
     def shutdown(self) -> None:
         """Close the thread pool executor"""
