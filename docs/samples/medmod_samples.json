@@ -1,0 +1,249 @@
+[
+  {
+    "question": "<task_instruction>\nUse only the linked AP chest X-ray study to identify all radiographic findings present in the study.\nReturn only the final answer text.\nIf the answer contains multiple items, put one item per line with no bullets or numbering.\n</task_instruction>\n\n<patient_info>\nCurrent Time: 2131-01-15 04:45:09\nPatient Subject ID: 10001884\nHospital Admission ID: 26184834\nICU Stay ID: 37510196\n</patient_info>\n\n<cxr_info>\nLinked Study IDs: [50376803]\n</cxr_info>\n\n<question>\nWhich radiographic findings are present in the linked chest X-ray study? Return one finding per line.\n</question>",
+    "image_paths": [
+      "mimic-cxr/2.0.0/files/p10/p10001884/s50376803/469d0d94-3dad5068-efac76ef-a28cc502-68fe6275.jpg"
+    ],
+    "subject_id": 10001884,
+    "study_ids": [
+      50376803
+    ],
+    "dicom_ids": [
+      "469d0d94-3dad5068-efac76ef-a28cc502-68fe6275"
+    ],
+    "stay_id": 37510196,
+    "label": [
+      {
+        "name": "Cardiomegaly"
+      },
+      {
+        "name": "Support Devices"
+      }
+    ],
+    "prediction_time": "2131-01-15 04:45:09",
+    "hadm_id": 26184834,
+    "qid": "medmod_radiology_test_50376803",
+    "task": "medmod_radiology",
+    "db_path_hint": "database/patient_10001884.db",
+    "source_benchmark": "medmod",
+    "source_split": "test",
+    "task_family": "qa",
+    "answer_type": "list",
+    "modalities": [
+      "cxr_table",
+      "cxr_image"
+    ],
+    "snapshot_spec": {
+      "cutoff_time": "2131-01-15 04:45:09",
+      "time_policy": "inclusive_leq_cutoff",
+      "cxr_policy": "linked_studies_only",
+      "table_policy": "rows_visible_if_event_time_leq_cutoff",
+      "cohort_materialization": null
+    },
+    "scope": "patient_scope",
+    "report_paths": [],
+    "source_current_time": "2131-01-15 04:45:09",
+    "official_split": "test"
+  },
+  {
+    "question": "<task_instruction>\nUse all EHR information and the linked chest X-ray before ICU discharge to identify every phenotype group that applies to the patient.\nReturn only the final answer text.\nIf the answer contains multiple items, put one item per line with no bullets or numbering.\n</task_instruction>\n\n<patient_info>\nCurrent Time: 2171-01-02 05:33:28\nPatient Subject ID: 13837390\nHospital Admission ID: 26746223\nICU Stay ID: 39213250\n</patient_info>\n\n<cxr_info>\nLinked Study IDs: [50556773]\n</cxr_info>\n\n<question>\nWhich phenotype groups apply to this patient at the current time? Return one phenotype per line.\n</question>",
+    "image_paths": [
+      "mimic-cxr/2.0.0/files/p13/p13837390/s50556773/6e243fc2-f42e6b57-d0b5b048-49ebab33-4b01a5a6.jpg"
+    ],
+    "subject_id": 13837390,
+    "study_ids": [
+      50556773
+    ],
+    "dicom_ids": [
+      "6e243fc2-f42e6b57-d0b5b048-49ebab33-4b01a5a6"
+    ],
+    "stay_id": 39213250,
+    "label": [
+      {
+        "name": "Acute and unspecified renal failure"
+      },
+      {
+        "name": "Cardiac dysrhythmias"
+      },
+      {
+        "name": "Chronic obstructive pulmonary disease and bronchiectasis"
+      },
+      {
+        "name": "Conduction disorders"
+      },
+      {
+        "name": "Congestive heart failure; nonhypertensive"
+      },
+      {
+        "name": "Coronary atherosclerosis and other heart disease"
+      },
+      {
+        "name": "Essential hypertension"
+      },
+      {
+        "name": "Fluid and electrolyte disorders"
+      },
+      {
+        "name": "Respiratory failure; insufficiency; arrest (adult)"
+      }
+    ],
+    "prediction_time": "2171-01-02 05:33:28",
+    "hadm_id": 26746223,
+    "qid": "medmod_phenotyping_train_39213250_39.988611",
+    "task": "medmod_phenotyping",
+    "db_path_hint": "database/patient_13837390.db",
+    "source_benchmark": "medmod",
+    "source_split": "train",
+    "task_family": "qa",
+    "answer_type": "list",
+    "modalities": [
+      "ehr",
+      "cxr_table",
+      "cxr_image"
+    ],
+    "snapshot_spec": {
+      "cutoff_time": "2171-01-02 05:33:28",
+      "time_policy": "inclusive_leq_cutoff",
+      "cxr_policy": "linked_studies_only",
+      "table_policy": "rows_visible_if_event_time_leq_cutoff",
+      "cohort_materialization": null
+    },
+    "scope": "patient_scope",
+    "report_paths": [],
+    "source_current_time": "2171-01-02 05:33:28",
+    "official_split": "train"
+  },
+  {
+    "question": "<task_instruction>\nUse all EHR information and the linked chest X-ray before the cutoff to decide whether the patient will die during this ICU stay.\nReturn only the final answer text.\nIf the answer contains multiple items, put one item per line with no bullets or numbering.\n</task_instruction>\n\n<patient_info>\nCurrent Time: 2168-09-30 20:19:00\nPatient Subject ID: 13687044\nHospital Admission ID: 23126093\nICU Stay ID: 31241790\n</patient_info>\n\n<cxr_info>\nLinked Study IDs: [54470875]\n</cxr_info>\n\n<question>\nWill this patient die during the current ICU stay? Answer yes or no.\n</question>",
+    "image_paths": [
+      "mimic-cxr/2.0.0/files/p13/p13687044/s54470875/aa4d168a-9c98bdb8-39ed398c-30e8ff37-51606b50.jpg"
+    ],
+    "subject_id": 13687044,
+    "study_ids": [
+      54470875
+    ],
+    "dicom_ids": [
+      "aa4d168a-9c98bdb8-39ed398c-30e8ff37-51606b50"
+    ],
+    "stay_id": 31241790,
+    "label": [
+      {
+        "name": "yes"
+      }
+    ],
+    "prediction_time": "2168-09-30 20:19:00",
+    "hadm_id": 23126093,
+    "qid": "medmod_in-hospital-mortality_train_31241790_0",
+    "task": "medmod_in_hospital_mortality",
+    "db_path_hint": "database/patient_13687044.db",
+    "source_benchmark": "medmod",
+    "source_split": "train",
+    "task_family": "qa",
+    "answer_type": "list",
+    "modalities": [
+      "ehr",
+      "cxr_table",
+      "cxr_image"
+    ],
+    "snapshot_spec": {
+      "cutoff_time": "2168-09-30 20:19:00",
+      "time_policy": "inclusive_leq_cutoff",
+      "cxr_policy": "linked_studies_only",
+      "table_policy": "rows_visible_if_event_time_leq_cutoff",
+      "cohort_materialization": null
+    },
+    "scope": "patient_scope",
+    "report_paths": [],
+    "source_current_time": "2168-09-30 20:19:00",
+    "official_split": "train"
+  },
+  {
+    "question": "<task_instruction>\nUse all EHR information and the linked chest X-ray before the cutoff to decide whether the patient will die within the next 24 hours.\nReturn only the final answer text.\nIf the answer contains multiple items, put one item per line with no bullets or numbering.\n</task_instruction>\n\n<patient_info>\nCurrent Time: 2131-01-12 05:20:05\nPatient Subject ID: 10001884\nHospital Admission ID: 26184834\nICU Stay ID: 37510196\n</patient_info>\n\n<cxr_info>\nLinked Study IDs: [50712381]\n</cxr_info>\n\n<question>\nWill this patient die within the next 24 hours after the current time? Answer yes or no.\n</question>",
+    "image_paths": [
+      "mimic-cxr/2.0.0/files/p10/p10001884/s50712381/7b25b3ed-e780a527-319cb7b3-02d5d071-f1cddee9.jpg"
+    ],
+    "subject_id": 10001884,
+    "study_ids": [
+      50712381
+    ],
+    "dicom_ids": [
+      "7b25b3ed-e780a527-319cb7b3-02d5d071-f1cddee9"
+    ],
+    "stay_id": 37510196,
+    "label": [
+      {
+        "name": "no"
+      }
+    ],
+    "prediction_time": "2131-01-12 05:20:05",
+    "hadm_id": 26184834,
+    "qid": "medmod_decompensation_test_37510196_25.0",
+    "task": "medmod_decompensation",
+    "db_path_hint": "database/patient_10001884.db",
+    "source_benchmark": "medmod",
+    "source_split": "test",
+    "task_family": "qa",
+    "answer_type": "list",
+    "modalities": [
+      "ehr",
+      "cxr_table",
+      "cxr_image"
+    ],
+    "snapshot_spec": {
+      "cutoff_time": "2131-01-12 05:20:05",
+      "time_policy": "inclusive_leq_cutoff",
+      "cxr_policy": "linked_studies_only",
+      "table_policy": "rows_visible_if_event_time_leq_cutoff",
+      "cohort_materialization": null
+    },
+    "scope": "patient_scope",
+    "report_paths": [],
+    "source_current_time": "2131-01-12 05:20:05",
+    "official_split": "test"
+  },
+  {
+    "question": "<task_instruction>\nUse all EHR information and the linked chest X-ray before the cutoff to estimate the remaining ICU length of stay in hours.\nReturn only the final answer text.\nIf the answer contains multiple items, put one item per line with no bullets or numbering.\n</task_instruction>\n\n<patient_info>\nCurrent Time: 2131-01-12 05:20:05\nPatient Subject ID: 10001884\nHospital Admission ID: 26184834\nICU Stay ID: 37510196\n</patient_info>\n\n<cxr_info>\nLinked Study IDs: [50712381]\n</cxr_info>\n\n<question>\nWhat is the remaining ICU length of stay at the current time? Return a single number in hours.\n</question>",
+    "image_paths": [
+      "mimic-cxr/2.0.0/files/p10/p10001884/s50712381/7b25b3ed-e780a527-319cb7b3-02d5d071-f1cddee9.jpg"
+    ],
+    "subject_id": 10001884,
+    "study_ids": [
+      50712381
+    ],
+    "dicom_ids": [
+      "7b25b3ed-e780a527-319cb7b3-02d5d071-f1cddee9"
+    ],
+    "stay_id": 37510196,
+    "label": [
+      {
+        "name": "195.123611",
+        "value": 195.123611
+      }
+    ],
+    "prediction_time": "2131-01-12 05:20:05",
+    "hadm_id": 26184834,
+    "qid": "medmod_length-of-stay_test_37510196_25.0",
+    "task": "medmod_length_of_stay",
+    "db_path_hint": "database/patient_10001884.db",
+    "source_benchmark": "medmod",
+    "source_split": "test",
+    "task_family": "qa",
+    "answer_type": "list",
+    "modalities": [
+      "ehr",
+      "cxr_table",
+      "cxr_image"
+    ],
+    "snapshot_spec": {
+      "cutoff_time": "2131-01-12 05:20:05",
+      "time_policy": "inclusive_leq_cutoff",
+      "cxr_policy": "linked_studies_only",
+      "table_policy": "rows_visible_if_event_time_leq_cutoff",
+      "cohort_materialization": null
+    },
+    "scope": "patient_scope",
+    "report_paths": [],
+    "source_current_time": "2131-01-12 05:20:05",
+    "official_split": "test"
+  }
+]

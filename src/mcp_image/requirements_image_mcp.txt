@@ -1,0 +1,16 @@
+# Deps for the medical-image MCP server.
+# Install in a dedicated venv so the text-only pipeline stays thin.
+fastmcp>=2.0
+pydantic>=2.0
+Pillow>=10.0
+numpy
+scikit-image
+matplotlib
+pydicom
+# Vision models
+torch
+torchvision
+torchxrayvision>=1.2
+transformers>=4.44
+accelerate
+einops
