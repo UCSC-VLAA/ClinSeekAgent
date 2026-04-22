@@ -1,3 +1,101 @@
+# 快速准备（推荐）
+
+最简单的方式是直接下载我们已经打包好的 EHR-Bench 数据（含匹配后的 JSON 和全部病人 db），解压后即可用：
+
+```bash
+# 从仓库根目录执行
+huggingface-cli download Letian2003/Bb21385 \
+    --repo-type dataset \
+    --local-dir data
+
+# 解压所有压缩文件
+for ext in zip tar.gz csv.gz; do
+    find data -name "*.${ext}" -execdir sh -c '
+        case "$1" in
+            *.zip)    unzip -o "$1" ;;
+            *.tar.gz) tar -xzf "$1" ;;
+            *.csv.gz) gunzip -f "$1" ;;
+        esac' _ {} \;
+done
+```
+
+完成后 `data/EHR-Bench/` 下即包含匹配后的 benchmark JSON 和 `database/patient_*.db`，可直接用于 MCP server（`--data_path data/EHR-Bench`）。
+
+如果需要自己从 MIMIC-IV 原始数据走完整流程（反向匹配 → 生成 db），请参考下面各节。
+
+---
+
+# MIMIC-IV 原始数据准备
+
+本节记录如何下载并准备 MIMIC-IV 原始数据，作为后续反向匹配 `subject_id` 和生成病人 db 的输入。
+
+---
+
+## 1. 数据来源
+
+MIMIC-IV 的主模块（hosp / icu / note）和 ED 模块分别托管在两个 HuggingFace 仓库：
+
+| 仓库 | 下载目标目录 |
+|------|------------|
+| https://huggingface.co/datasets/Letian2003/MA49234 | `data/MIMIC-IV/mimic_iv` |
+| https://huggingface.co/datasets/Letian2003/ry03890 | `data/MIMIC-IV/mimic_iv_ed` |
+
+---
+
+## 2. 下载
+
+从仓库根目录执行：
+
+```bash
+# 1) hosp / icu / note
+huggingface-cli download Letian2003/MA49234 \
+    --repo-type dataset \
+    --local-dir data/MIMIC-IV/mimic_iv
+
+# 2) ed
+huggingface-cli download Letian2003/ry03890 \
+    --repo-type dataset \
+    --local-dir data/MIMIC-IV/mimic_iv_ed
+```
+
+---
+
+## 3. 解压
+
+将两个目录下所有压缩文件解压（仍从仓库根目录执行）：
+
+```bash
+for d in data/MIMIC-IV/mimic_iv data/MIMIC-IV/mimic_iv_ed; do
+    find "$d" -name "*.zip"    -execdir unzip -o {} \;
+    find "$d" -name "*.tar.gz" -execdir tar -xzf {} \;
+    find "$d" -name "*.csv.gz" -exec gunzip -f {} \;
+done
+```
+
+---
+
+## 4. 归并 ED 模块
+
+将 ED 子目录移入 `mimic_iv/` 下，使其与 `hosp/` / `icu/` / `note/` 并列：
+
+```bash
+mv data/MIMIC-IV/mimic_iv_ed/mimic-iv-ed/2.2/ed data/MIMIC-IV/mimic_iv/
+```
+
+最终目录结构：
+
+```
+data/MIMIC-IV/mimic_iv/
+├── hosp/
+├── icu/
+├── note/
+└── ed/
+```
+
+完成后，`data/MIMIC-IV/mimic_iv` 即为 MIMIC-IV 根目录，可直接作为下文反向匹配（`MIMIC_DIR`）和病人 db 生成（`--root_path`）脚本的输入。
+
+---
+
 # EHR-Bench 数据准备：反向匹配 MIMIC-IV 病人标识
 
 本文记录如何将 EHR-Bench（由 EHR-R1 论文发布）中去标识化的 benchmark 数据反向匹配回 MIMIC-IV 原始数据集，恢复 `subject_id` 和 `hadm_id`。
@@ -83,16 +181,17 @@ EHR-Bench 数据集基于 MIMIC-IV 构建，但作者在发布时移除了 `subj
 
 ## 5. 运行方式
 
+从仓库根目录运行：
+
 ```bash
-cd data/EHR-Bench
-python3 reverse_match.py
+python3 helper/reverse_match.py
 ```
 
-脚本中的路径变量：
+脚本中的路径变量（均相对仓库根目录）：
 
 ```python
-MIMIC_DIR = "/home/efs/zlt/datasets/MIMIC-IV/mimic_iv"   # MIMIC-IV 数据根目录
-BENCH_DIR = "/home/efs/zlt/deepresearch/data/EHR-Bench"   # EHR-Bench 数据目录
+MIMIC_DIR = "data/MIMIC-IV/mimic_iv"   # MIMIC-IV 数据根目录
+BENCH_DIR = "data/EHR-Bench"           # EHR-Bench 数据目录
 ```
 
 运行耗时约 5–10 分钟（主要花在加载 `poe.csv`、`emar.csv` 等大表上）。
@@ -149,7 +248,7 @@ BENCH_DIR = "/home/efs/zlt/deepresearch/data/EHR-Bench"   # EHR-Bench 数据目�
 
 | 参数 | 示例（相对仓库根目录） | 说明 |
 |------|----------------------|------|
-| `--root_path` | `../datasets/MIMIC-IV/mimic_iv` | MIMIC-IV 原始数据根目录，下含 `hosp/`、`icu/`、`note/`、（可选 `ed/`） |
+| `--root_path` | `data/MIMIC-IV/mimic_iv` | MIMIC-IV 原始数据根目录，下含 `hosp/`、`icu/`、`note/`、`ed/` |
 | `--data_file_path` | `data/EHR-Bench/ehr_bench_merged_filtered.json` | 匹配后的 benchmark JSON，每条记录含 `subject_id` |
 | `--data_dir_path` | （可选）某目录 | 目录下所有 `.json` 都会被合并读取 `subject_id` |
 | `--subject_id` | （可选）单个整数 | 仅为该病人生成 db |
@@ -178,12 +277,12 @@ data/EHR-Bench/database/
 
 ## 3. 运行方式
 
-从仓库根目录 (`/home/efs/zlt/autoehr`) 运行：
+从仓库根目录运行：
 
 ```bash
 # 推荐：放后台，log 落盘
 nohup python helper/patient_event2db.py \
-    --root_path ../datasets/MIMIC-IV/mimic_iv \
+    --root_path data/MIMIC-IV/mimic_iv \
     --output_path data/EHR-Bench/database \
     --data_file_path data/EHR-Bench/ehr_bench_merged_filtered.json \
     > logs/ehr_bench_db_gen_$(date -u +%Y%m%dT%H%M%SZ).log 2>&1 &
@@ -195,7 +294,7 @@ nohup python helper/patient_event2db.py \
 
 ```bash
 python helper/patient_event2db.py \
-    --root_path ../datasets/MIMIC-IV/mimic_iv \
+    --root_path data/MIMIC-IV/mimic_iv \
     --output_path data/EHR-Bench/database \
     --subject_id 10000108
 ```
