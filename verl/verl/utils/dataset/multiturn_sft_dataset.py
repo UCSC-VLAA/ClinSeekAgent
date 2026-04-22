@@ -16,6 +16,7 @@
 Multi-turn SFT dataset that supports training on conversation data with multiple turns
 """
 
+import json
 import logging
 import os
 import re
@@ -164,6 +165,32 @@ class MultiTurnSFTDataset(Dataset):
 
         # Extract messages list from dataframe
         self.messages = self.dataframe[self.messages_key].apply(convert_nested_value_to_list_recursive).tolist()
+
+        # Post-process: convert tool_call.function.arguments back to a dict
+        # and strip null-filled placeholder fields so the chat template sees
+        # exactly the OpenAI shape it expects. Our parquet writer stores
+        # arguments as a JSON string with a uniform schema across rows (heterogeneous
+        # arg dicts otherwise break pyarrow); undo that here.
+        def _rehydrate(messages):
+            out = []
+            for m in messages:
+                if not isinstance(m, dict):
+                    out.append(m); continue
+                m = {k: v for k, v in m.items() if v is not None}
+                tcs = m.get("tool_calls")
+                if tcs:
+                    for tc in tcs:
+                        fn = tc.get("function") or {}
+                        args = fn.get("arguments")
+                        if isinstance(args, str):
+                            try:
+                                fn["arguments"] = json.loads(args) if args else {}
+                            except (TypeError, ValueError):
+                                fn["arguments"] = {}
+                        tc["function"] = fn
+                out.append(m)
+            return out
+        self.messages = [_rehydrate(ms) for ms in self.messages]
 
         # Extract tools list from dataframe
         if self.tools_key in self.dataframe.columns:

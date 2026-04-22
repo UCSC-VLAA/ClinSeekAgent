@@ -19,23 +19,56 @@
 | Max token length | ~365K tokens (before truncation) |
 
 ### Conversation Structure
-Each sample is a multi-turn conversation with roles: `system`, `user`, `assistant`.
+Each sample is a multi-turn OpenAI-native chat conversation with roles: `system`, `user`, `assistant`, `tool`. Tool calls are preserved as **structured** `tool_calls` objects on assistant turns, and `role="tool"` responses keep their `tool_call_id` so the tokenizer's chat template can render model-native tool syntax.
 
 ```
 Turn 0: role=system     content="You are a research assistant with access to both web browsing and clinical EHR tools..."
 Turn 1: role=user       content="<task_instruction> Your current task is to act as a diagnostician..."
-Turn 2: role=assistant  content="I'll start by loading the patient's EHR... [Tool Call: load_ehr({...})]"
-Turn 3: role=user       content="[Tool Response] Loading Candidate Tables: - Loading 'microbiologyevents_candidates'..."
-Turn 4: role=assistant  content="[Tool Call: ehr_get_table_names({...})] [Tool Call: ehr_get_latest_records({...})]"
-Turn 5: role=user       content="[Tool Response] Available Tables: admissions, diagnoses_icd, ..."
-Turn 6: role=assistant  content="[Tool Call: ehr_run_sql_query({...})]"
-Turn 7: role=user       content="[Tool Response] subject_id gender anchor_age..."
+Turn 2: role=assistant  content="I'll start by loading the patient's EHR..."
+                        tool_calls=[{id, type:"function",
+                                     function:{name:"ehr.load_ehr",
+                                               arguments:{subject_id:"10064835", timestamp:"..."}}},
+                                    {id, type:"function",
+                                     function:{name:"ehr.get_table_names",
+                                               arguments:{subject_id:"10064835"}}}]
+Turn 3: role=tool       tool_call_id="toolu_..._01EW..."
+                        content="Loading Candidate Tables: - Loading 'microbiologyevents_candidates'..."
+Turn 4: role=tool       tool_call_id="toolu_..._0124..."
+                        content="Available Tables: admissions, diagnoses_icd, ..."
+Turn 5: role=assistant  tool_calls=[{function:{name:"ehr.run_sql_query", arguments:{...}}}]
+Turn 6: role=tool       content="subject_id gender anchor_age..."
 ...
 ```
 
+The tokenizer's chat template (e.g. Qwen3.5's `chat_template.jinja`) renders these structured fields into the model's **native** tool-call syntax. For Qwen3.5 that is:
+
+```
+<|im_start|>assistant
+<think>
+</think>
+
+I'll start by loading the patient's EHR...
+<tool_call>
+<function=ehr.load_ehr>
+<parameter=subject_id>
+10064835
+</parameter>
+<parameter=timestamp>
+2169-05-18 21:53:00
+</parameter>
+</function>
+</tool_call><|im_end|>
+<|im_start|>user
+<tool_response>
+Loading Candidate Tables: ...
+</tool_response><|im_end|>
+```
+
 The pattern alternates between:
-- **Assistant turns**: Reasoning + tool calls (model learns to generate these)
-- **User turns**: Tool responses (model learns to understand but NOT generate these)
+- **Assistant turns**: reasoning + one or more structured `tool_calls` (model learns to generate both the natural-language reasoning and the `<tool_call>…</tool_call>` XML).
+- **Tool turns**: tool responses (rendered as `<|im_start|>user\n<tool_response>…</tool_response><|im_end|>` by Qwen3.5; not trained on).
+
+**Why native format matters**: the prior iteration flattened tool calls into `[Tool Call: name(args)]` plain text. That produced a non-native syntax no vLLM tool parser (`hermes`, `qwen3_xml`, `llama3_json`, …) could parse. With the new format, outputs are directly consumed by `--tool-call-parser qwen3_xml` (or the equivalent for the target model) — verified end-to-end against `vllm.entrypoints.openai.tool_parsers` (vLLM 0.11.0, `qwen3_xml`): 200 trajectories, 4055/4055 assistant blocks parsed, 8652/8652 tool calls recovered with correct names/ids.
 
 ---
 
@@ -43,41 +76,45 @@ The pattern alternates between:
 
 ### Script: `/fsx-shared/juncheng/EHR/prepare_deepmed_data.py`
 
-The raw HuggingFace dataset has complex message structures with `tool_calls`, `tool_call_id`, and `tool` role messages. The preparation script normalizes these into a simple `{role, content}` format compatible with chat templates.
+The raw HuggingFace dataset ships OpenAI-native messages with `tool_calls`, `tool_call_id`, and `tool` role turns. The preparation script **preserves this structure verbatim** so the tokenizer's chat template can render the model-native tool-call syntax (e.g. `<tool_call>/<tool_response>` for Qwen3.5).
 
 Key transformations:
-1. **Tool calls embedded as text**: Assistant messages with `tool_calls` field get the calls appended as `[Tool Call: func_name(arguments)]`
-2. **Tool role mapped to user**: Messages with `role=tool` are converted to `role=user` with `[Tool Response]` prefix
-3. **Consecutive same-role messages merged**: If two consecutive messages share the same role, their content is concatenated (required by chat template constraints)
-4. **Only role + content kept**: All other fields (tool_call_id, tool_calls, etc.) are stripped
+1. **Arguments coerced to dict**: the source stores `tool_calls[*].function.arguments` as a JSON **string**, but Qwen3.5's chat template iterates `arguments|items`, which requires a dict. The script parses each string with `json.loads`; malformed JSON falls back to `{"_raw": "<original text>"}`.
+2. **Assistant turns keep `tool_calls`**: `{id, type:"function", function:{name, arguments:<dict>}}` survives end-to-end.
+3. **Tool turns keep `role="tool"` + `tool_call_id`**: the chat template uses the id (and adjacency) to wrap the response in `<tool_response>`.
+4. **No flattening, no role rewriting, no merging**: consecutive same-role turns are left alone — the chat template is designed for them.
 
 ```python
 # Core transformation logic (simplified)
-for m in msgs:
-    role = m['role']
-    content = m.get('content', '') or ''
+def _coerce_arguments(arguments):
+    if isinstance(arguments, dict):
+        return arguments
+    if not arguments:
+        return {}
+    try:
+        parsed = json.loads(arguments)
+    except json.JSONDecodeError:
+        return {"_raw": arguments}
+    return parsed if isinstance(parsed, dict) else {"_raw": arguments}
 
-    # Embed tool_calls into content
-    tc = m.get('tool_calls')
-    if tc:
-        for call in tc:
-            func = call['function']
-            content += f"\n[Tool Call: {func['name']}({func['arguments']})]"
 
-    # Map tool role to user
-    if role == 'tool':
-        role = 'user'
-        content = f"[Tool Response]\n{content}"
+def _normalize_message(m):
+    role = m["role"]
+    out = {"role": role, "content": m.get("content") or ""}
 
-    cleaned.append({'role': role, 'content': content})
+    if role == "assistant" and m.get("tool_calls"):
+        out["tool_calls"] = [{
+            "id": tc.get("id", ""),
+            "type": tc.get("type", "function"),
+            "function": {
+                "name": tc["function"]["name"],
+                "arguments": _coerce_arguments(tc["function"]["arguments"]),
+            },
+        } for tc in m["tool_calls"]]
+    elif role == "tool" and m.get("tool_call_id"):
+        out["tool_call_id"] = m["tool_call_id"]
 
-# Merge consecutive same-role messages
-merged = [cleaned[0]]
-for msg in cleaned[1:]:
-    if msg['role'] == merged[-1]['role']:
-        merged[-1]['content'] += '\n' + msg['content']
-    else:
-        merged.append(msg)
+    return out
 ```
 
 ### Output Format
@@ -85,20 +122,37 @@ Saved as **pandas parquet** (NOT HuggingFace datasets parquet - important distin
 
 ```
 ~/data/deepmed_trajectory/
-    train.parquet  (2449 samples)
-    val.parquet    (49 samples)
+    train.parquet
+    val.parquet
 ```
 
-Each row has a single column `messages` containing a Python list of dicts:
+Each row has a single column `messages` containing a Python list of OpenAI-style dicts:
 ```python
 [
     {"role": "system", "content": "You are a research assistant..."},
-    {"role": "user", "content": "<task_instruction>..."},
-    {"role": "assistant", "content": "I'll start by loading..."},
-    {"role": "user", "content": "[Tool Response] Loading..."},
+    {"role": "user",   "content": "<task_instruction>..."},
+    {"role": "assistant",
+     "content": "I'll start by loading the patient's EHR...",
+     "tool_calls": [
+         {"id": "toolu_bdrk_01EW...", "type": "function",
+          "function": {"name": "ehr.load_ehr",
+                       "arguments": {"subject_id": "10064835",
+                                     "timestamp": "2169-05-18 21:53:00"}}},
+         {"id": "toolu_bdrk_0124...", "type": "function",
+          "function": {"name": "ehr.get_table_names",
+                       "arguments": {"subject_id": "10064835"}}},
+     ]},
+    {"role": "tool", "tool_call_id": "toolu_bdrk_01EW...",
+     "content": "Loading Candidate Tables: ..."},
+    {"role": "tool", "tool_call_id": "toolu_bdrk_0124...",
+     "content": "Available Tables: admissions, ..."},
     ...
 ]
 ```
+
+### Source caveat: no `tools` schema
+
+`Letian2003/DeepMed_trajectory` does **not** ship a `tools` list alongside the messages — all tool descriptions are already embedded in the system prompt text. So the chat template won't emit a `<tools>…</tools>` preamble. At inference time, pass an explicit OpenAI `tools=[…]` schema to the vLLM server (or rely on the system-prompt text plus `--tool-call-parser qwen3_xml`).
 
 ---
 

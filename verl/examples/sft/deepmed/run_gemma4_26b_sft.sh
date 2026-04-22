@@ -29,8 +29,10 @@ nproc_per_node=$1
 save_path=$2
 shift 2
 
-# Reduce CUDA memory fragmentation for MoE models with variable expert activation
-export PYTORCH_ALLOC_CONF=expandable_segments:True,max_split_size_mb:128
+# Reduce CUDA memory fragmentation for MoE models with variable expert activation.
+# expandable_segments lets the allocator grow segments instead of reserving fixed blocks,
+# which is critical when samples have highly variable lengths (2K-60K).
+export PYTORCH_ALLOC_CONF=expandable_segments:True
 
 TRAIN_FILES=${TRAIN_FILES:-/fsx-shared/juncheng/EHR/data/deepmed_trajectory/train.parquet}
 VAL_FILES=${VAL_FILES:-/fsx-shared/juncheng/EHR/data/deepmed_trajectory/val.parquet}
@@ -40,9 +42,9 @@ torchrun --standalone --nnodes=1 --nproc_per_node=$nproc_per_node \
     -m verl.trainer.sft_trainer \
     data.train_files="${TRAIN_FILES}" \
     data.val_files="${VAL_FILES}" \
-    data.train_batch_size=32 \
+    data.train_batch_size=8 \
     data.micro_batch_size_per_gpu=1 \
-    data.max_length=8192 \
+    data.max_length=60000 \
     data.truncation=left \
     data.pad_mode=no_padding \
     data.use_dynamic_bsz=False \
@@ -54,9 +56,15 @@ torchrun --standalone --nnodes=1 --nproc_per_node=$nproc_per_node \
     model.trust_remote_code=False \
     model.use_remove_padding=False \
     model.enable_gradient_checkpointing=True \
-    +model.override_config.attn_implementation=sdpa \
+    model.lora_rank=32 \
+    model.lora_alpha=64 \
+    'model.target_modules="^.*language_model\..*\.(q_proj|k_proj|v_proj|o_proj|gate_proj|up_proj|down_proj)$"' \
+    +model.override_config.attn_implementation=flash_attention_2 \
     engine.use_torch_compile=False \
-    optim.lr=2e-5 \
+    engine.strategy=fsdp \
+    engine.param_offload=False \
+    engine.optimizer_offload=False \
+    optim.lr=1e-4 \
     optim.lr_scheduler_type=cosine \
     optim.lr_warmup_steps_ratio=0.05 \
     optim.weight_decay=0.01 \
