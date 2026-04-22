@@ -20,11 +20,13 @@ from pathlib import Path
 # Defaults
 # ---------------------------------------------------------------------------
 DEFAULT_RESULTS = (
-    "./openresearcher_ehr/results/train_trajectory_3k_4ep_20260415T002208Z/results.jsonl"
+    "./openresearcher_ehr/results/ehrbench_1800_gemma_4_26b_a4b_it/results.jsonl"
+    # "./openresearcher_ehr/results/train_trajectory_3k_4ep_nonthinking_done3ep/results.jsonl"
     # "./openresearcher_ehr/results/subset_500_gemma_4_26b_a4b_it/results.jsonl"
 )
 DEFAULT_BENCHMARK = (
-    "./data/AgentEHR-Bench/MIMICIVAgentBench/train/mix_training_3k.json"
+    './data/EHR-Bench/ehr_bench_sampled_40_per_task.json'
+    # "./data/AgentEHR-Bench/MIMICIVAgentBench/train/mix_training_3k.json"
     # "./data/AgentEHR-Bench/MIMICIVAgentBench/common/subset_500/merged_subsets_500.json"
 )
 
@@ -32,7 +34,16 @@ DEFAULT_BENCHMARK = (
 # ---------------------------------------------------------------------------
 # QID helpers
 # ---------------------------------------------------------------------------
-def build_qid(record):
+def is_ehr_bench_path(path):
+    p = str(path).lower()
+    return "ehrbench" in p or "ehr_bench" in p
+
+
+def build_qid(record, ehr_bench_mode=False):
+    if ehr_bench_mode:
+        qid = record.get("qid")
+        if isinstance(qid, str) and qid:
+            return qid
     task = record.get("task")
     subject_id = record.get("subject_id")
     hadm_id = record.get("hadm_id")
@@ -309,6 +320,8 @@ def extract_finish_predictions_with_source(result, *, allow_text=False):
             preds = args.get("response", []) if isinstance(args, dict) else args
             if isinstance(preds, list):
                 return preds, "finish_tool_call"
+            if isinstance(preds, str) and preds.strip():
+                return [preds.strip()], "finish_tool_call"
             return [], "finish_tool_call_non_list"
     if not allow_text:
         return [], "no_prediction"
@@ -322,16 +335,24 @@ def extract_finish_predictions_with_source(result, *, allow_text=False):
 def f1_score(predictions, standard_answer):
     pred_set = {p for p in predictions if isinstance(p, str)}
     gt = set()
-    has_atc = any(ans.get("atc_name") for ans in standard_answer)
-    for ans in standard_answer:
-        if has_atc:
-            atc = ans.get("atc_name")
-            if isinstance(atc, str):
-                gt.add(atc)
-        else:
-            name = ans.get("name")
-            if isinstance(name, str):
-                gt.add(name)
+    if isinstance(standard_answer, str):
+        gt.add(standard_answer)
+    elif isinstance(standard_answer, list):
+        has_atc = any(
+            isinstance(a, dict) and a.get("atc_name") for a in standard_answer
+        )
+        for ans in standard_answer:
+            if isinstance(ans, str):
+                gt.add(ans)
+            elif isinstance(ans, dict):
+                if has_atc:
+                    atc = ans.get("atc_name")
+                    if isinstance(atc, str):
+                        gt.add(atc)
+                else:
+                    name = ans.get("name")
+                    if isinstance(name, str):
+                        gt.add(name)
 
     if not pred_set:
         return {"f1": 0.0, "prec": 0.0, "rec": 0.0, "em": 0.0}
@@ -385,13 +406,17 @@ def count_tool_calls(record):
     return total, browser
 
 
+def count_turns(record):
+    return sum(1 for msg in record.get("messages", []) if msg.get("role") == "assistant")
+
+
 # ---------------------------------------------------------------------------
 # Loading
 # ---------------------------------------------------------------------------
-def load_benchmark(path):
+def load_benchmark(path, ehr_bench_mode=False):
     with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
-    return {build_qid(item): item for item in data}
+    return {build_qid(item, ehr_bench_mode=ehr_bench_mode): item for item in data}
 
 
 def load_results(path):
@@ -409,7 +434,8 @@ def load_results(path):
 # Main evaluation
 # ---------------------------------------------------------------------------
 def evaluate(results_path, benchmark_path, *, allow_text=False):
-    bm = load_benchmark(benchmark_path)
+    ehr_bench_mode = is_ehr_bench_path(benchmark_path) or is_ehr_bench_path(results_path)
+    bm = load_benchmark(benchmark_path, ehr_bench_mode=ehr_bench_mode)
     results = load_results(results_path)
 
     # Per-task accumulators
@@ -418,36 +444,56 @@ def evaluate(results_path, benchmark_path, *, allow_text=False):
     task_rec = defaultdict(list)
     task_tool_counts = defaultdict(list)  # task -> list of tool-call counts
     task_browser_counts = defaultdict(list)
+    task_turn_counts = defaultdict(list)  # task -> list of conversation turn counts
     task_total = defaultdict(int)         # task -> benchmark count
     task_completed = defaultdict(int)
     task_runs = defaultdict(int)          # task -> total result runs
     task_source = defaultdict(Counter)
     bm_by_task = defaultdict(list)
 
+    # Per-category accumulators (e.g., task_type: risk_prediction / decision_making)
+    cat_scores = defaultdict(list)
+    cat_prec = defaultdict(list)
+    cat_rec = defaultdict(list)
+    cat_tool_counts = defaultdict(list)
+    cat_browser_counts = defaultdict(list)
+    cat_turn_counts = defaultdict(list)
+    cat_total = defaultdict(int)
+    cat_completed = defaultdict(int)
+    cat_runs = defaultdict(int)
+    cat_source = defaultdict(Counter)
+
     for qid, item in bm.items():
         t = item.get("task", "unknown")
         bm_by_task[t].append(qid)
         task_total[t] += 1
+        cat = item.get("task_type")
+        if isinstance(cat, str) and cat:
+            cat_total[cat] += 1
 
     for qid, item in bm.items():
         runs = results.get(qid, [])
         t = resolve_task_name(runs, item.get("task"))
         gt = item["label"]
+        cat = item.get("task_type")
+        cat = cat if isinstance(cat, str) and cat else None
 
         if not runs:
-            task_scores[t].append(0.0)
-            task_prec[t].append(0.0)
-            task_rec[t].append(0.0)
             continue
 
         task_completed[t] += 1
         task_runs[t] += len(runs)
+        if cat:
+            cat_completed[cat] += 1
+            cat_runs[cat] += len(runs)
         run_f1s = []
         run_precs = []
         run_recs = []
         for run in runs:
             preds, src = extract_finish_predictions_with_source(run, allow_text=allow_text)
             task_source[t][src] += 1
+            if cat:
+                cat_source[cat][src] += 1
             sc = f1_score(preds, gt)
             run_f1s.append(sc["f1"])
             run_precs.append(sc["prec"])
@@ -456,12 +502,39 @@ def evaluate(results_path, benchmark_path, *, allow_text=False):
             tc_total, tc_browser = count_tool_calls(run)
             task_tool_counts[t].append(tc_total)
             task_browser_counts[t].append(tc_browser)
+            task_turn_counts[t].append(count_turns(run))
+            if cat:
+                cat_tool_counts[cat].append(tc_total)
+                cat_browser_counts[cat].append(tc_browser)
+                cat_turn_counts[cat].append(count_turns(run))
 
-        task_scores[t].append(sum(run_f1s) / len(run_f1s))
-        task_prec[t].append(sum(run_precs) / len(run_precs))
-        task_rec[t].append(sum(run_recs) / len(run_recs))
+        avg_run_f1 = sum(run_f1s) / len(run_f1s)
+        avg_run_prec = sum(run_precs) / len(run_precs)
+        avg_run_rec = sum(run_recs) / len(run_recs)
+        task_scores[t].append(avg_run_f1)
+        task_prec[t].append(avg_run_prec)
+        task_rec[t].append(avg_run_rec)
+        if cat:
+            cat_scores[cat].append(avg_run_f1)
+            cat_prec[cat].append(avg_run_prec)
+            cat_rec[cat].append(avg_run_rec)
 
-    return task_scores, task_prec, task_rec, task_tool_counts, task_browser_counts, task_total, task_completed, task_runs, task_source
+    category_aggs = {
+        "scores": cat_scores,
+        "prec": cat_prec,
+        "rec": cat_rec,
+        "tools": cat_tool_counts,
+        "browsers": cat_browser_counts,
+        "turns": cat_turn_counts,
+        "total": cat_total,
+        "completed": cat_completed,
+        "runs": cat_runs,
+        "sources": cat_source,
+    }
+
+    return (task_scores, task_prec, task_rec, task_tool_counts, task_browser_counts,
+            task_turn_counts, task_total, task_completed, task_runs, task_source,
+            category_aggs)
 
 
 def main():
@@ -478,18 +551,22 @@ def main():
     if not results_path.exists():
         raise SystemExit(f"Results file not found: {results_path}")
 
-    scores, precs, recs, tools, browsers, totals, completed, runs, sources = evaluate(
+    (scores, precs, recs, tools, browsers, turns, totals, completed, runs, sources,
+     category_aggs) = evaluate(
         str(results_path), args.benchmark, allow_text=args.extract_text_answer_without_finish,
     )
 
     all_tasks = sorted(set(totals) | set(scores))
 
     # Header
-    print(f"{'Task':<22s} {'Total':>5s} {'Done':>5s} {'Runs':>5s} {'Prec':>7s} {'Rec':>7s} {'F1':>7s} {'ToolAvg':>8s} {'Brows%':>7s}")
-    print("-" * 80)
+    print(f"{'Task':<22s} {'Total':>5s} {'Done':>5s} {'Runs':>5s} {'Prec':>7s} {'Rec':>7s} {'F1':>7s} {'ToolAvg':>8s} {'Brows%':>7s} {'TurnAvg':>8s}")
+    print("-" * 89)
 
-    g_scores, g_precs, g_recs, g_tools, g_browsers = [], [], [], [], []
+    g_scores, g_precs, g_recs, g_tools, g_browsers, g_turns = [], [], [], [], [], []
 
+    zero_runs_printed = 0
+    zero_runs_skipped = 0
+    ZERO_RUNS_LIMIT = 6
     for t in all_tasks:
         n_total = totals[t]
         n_done = completed.get(t, 0)
@@ -499,11 +576,13 @@ def main():
         r = recs.get(t, [])
         tc = tools.get(t, [])
         bc = browsers.get(t, [])
+        tn = turns.get(t, [])
 
         avg_f1 = sum(s) / len(s) if s else 0.0
         avg_p = sum(p) / len(p) if p else 0.0
         avg_r = sum(r) / len(r) if r else 0.0
         avg_tc = sum(tc) / len(tc) if tc else 0.0
+        avg_tn = sum(tn) / len(tn) if tn else 0.0
         browser_pct = sum(bc) / sum(tc) * 100 if sum(tc) else 0.0
 
         g_scores.extend(s)
@@ -511,8 +590,15 @@ def main():
         g_recs.extend(r)
         g_tools.extend(tc)
         g_browsers.extend(bc)
+        g_turns.extend(tn)
 
-        print(f"{t:<22s} {n_total:>5d} {n_done:>5d} {n_runs:>5d} {avg_p:>7.4f} {avg_r:>7.4f} {avg_f1:>7.4f} {avg_tc:>8.1f} {browser_pct:>6.1f}%")
+        if n_runs == 0:
+            if zero_runs_printed >= ZERO_RUNS_LIMIT:
+                zero_runs_skipped += 1
+                continue
+            zero_runs_printed += 1
+
+        print(f"{t:<22s} {n_total:>5d} {n_done:>5d} {n_runs:>5d} {avg_p*100:>7.1f} {avg_r*100:>7.1f} {avg_f1*100:>7.1f} {avg_tc:>8.1f} {browser_pct:>6.1f}% {avg_tn:>8.1f}")
 
         # prediction source breakdown (only if interesting)
         src = sources.get(t, {})
@@ -521,17 +607,49 @@ def main():
             parts = ", ".join(f"{k}={v}" for k, v in sorted(non_finish.items()))
             print(f"  └─ sources: finish={src.get('finish_tool_call', 0)}, {parts}")
 
+    if zero_runs_skipped:
+        print(f"  └─ ... {zero_runs_skipped} more task(s) with Runs=0 hidden")
+
     # Overall
-    print("-" * 80)
+    print("-" * 89)
     avg_f1 = sum(g_scores) / len(g_scores) if g_scores else 0.0
     avg_p = sum(g_precs) / len(g_precs) if g_precs else 0.0
     avg_r = sum(g_recs) / len(g_recs) if g_recs else 0.0
     avg_tc = sum(g_tools) / len(g_tools) if g_tools else 0.0
+    avg_tn = sum(g_turns) / len(g_turns) if g_turns else 0.0
     browser_pct = sum(g_browsers) / sum(g_tools) * 100 if sum(g_tools) else 0.0
     n_total = sum(totals.values())
     n_done = sum(completed.values())
     n_runs = sum(runs.values())
-    print(f"{'Overall':<22s} {n_total:>5d} {n_done:>5d} {n_runs:>5d} {avg_p:>7.4f} {avg_r:>7.4f} {avg_f1:>7.4f} {avg_tc:>8.1f} {browser_pct:>6.1f}%")
+    print(f"{'Overall':<22s} {n_total:>5d} {n_done:>5d} {n_runs:>5d} {avg_p*100:>7.1f} {avg_r*100:>7.1f} {avg_f1*100:>7.1f} {avg_tc:>8.1f} {browser_pct:>6.1f}% {avg_tn:>8.1f}")
+
+    # Per-category breakdown (e.g. task_type: risk_prediction / decision_making)
+    cat_totals = category_aggs["total"]
+    if cat_totals:
+        print("-" * 89)
+        print("By task_type:")
+        for cat in sorted(cat_totals):
+            c_total = cat_totals[cat]
+            c_done = category_aggs["completed"].get(cat, 0)
+            c_runs = category_aggs["runs"].get(cat, 0)
+            cs = category_aggs["scores"].get(cat, [])
+            cp = category_aggs["prec"].get(cat, [])
+            cr = category_aggs["rec"].get(cat, [])
+            ctc = category_aggs["tools"].get(cat, [])
+            cbc = category_aggs["browsers"].get(cat, [])
+            ctn = category_aggs["turns"].get(cat, [])
+            c_avg_f1 = sum(cs) / len(cs) if cs else 0.0
+            c_avg_p = sum(cp) / len(cp) if cp else 0.0
+            c_avg_r = sum(cr) / len(cr) if cr else 0.0
+            c_avg_tc = sum(ctc) / len(ctc) if ctc else 0.0
+            c_avg_tn = sum(ctn) / len(ctn) if ctn else 0.0
+            c_browser_pct = sum(cbc) / sum(ctc) * 100 if sum(ctc) else 0.0
+            print(f"{cat:<22s} {c_total:>5d} {c_done:>5d} {c_runs:>5d} {c_avg_p*100:>7.1f} {c_avg_r*100:>7.1f} {c_avg_f1*100:>7.1f} {c_avg_tc:>8.1f} {c_browser_pct:>6.1f}% {c_avg_tn:>8.1f}")
+            c_src = category_aggs["sources"].get(cat, {})
+            c_non_finish = {k: v for k, v in c_src.items() if k != "finish_tool_call"}
+            if c_non_finish:
+                parts = ", ".join(f"{k}={v}" for k, v in sorted(c_non_finish.items()))
+                print(f"  └─ sources: finish={c_src.get('finish_tool_call', 0)}, {parts}")
 
     # Optional JSON output
     if args.output:
@@ -542,6 +660,7 @@ def main():
             r = recs.get(t, [])
             tc = tools.get(t, [])
             bc = browsers.get(t, [])
+            tn = turns.get(t, [])
             payload[t] = {
                 "total": totals[t],
                 "completed": completed.get(t, 0),
@@ -550,9 +669,31 @@ def main():
                 "recall": sum(r) / len(r) if r else 0.0,
                 "f1": sum(s) / len(s) if s else 0.0,
                 "tool_calls_avg": sum(tc) / len(tc) if tc else 0.0,
+                "turns_avg": sum(tn) / len(tn) if tn else 0.0,
                 "browser_tool_pct": sum(bc) / sum(tc) * 100 if sum(tc) else 0.0,
                 "prediction_sources": dict(sources.get(t, {})),
             }
+        cat_payload = {}
+        for cat in sorted(category_aggs["total"]):
+            cs = category_aggs["scores"].get(cat, [])
+            cp = category_aggs["prec"].get(cat, [])
+            cr = category_aggs["rec"].get(cat, [])
+            ctc = category_aggs["tools"].get(cat, [])
+            cbc = category_aggs["browsers"].get(cat, [])
+            ctn = category_aggs["turns"].get(cat, [])
+            cat_payload[cat] = {
+                "total": category_aggs["total"][cat],
+                "completed": category_aggs["completed"].get(cat, 0),
+                "runs": category_aggs["runs"].get(cat, 0),
+                "precision": sum(cp) / len(cp) if cp else 0.0,
+                "recall": sum(cr) / len(cr) if cr else 0.0,
+                "f1": sum(cs) / len(cs) if cs else 0.0,
+                "tool_calls_avg": sum(ctc) / len(ctc) if ctc else 0.0,
+                "turns_avg": sum(ctn) / len(ctn) if ctn else 0.0,
+                "browser_tool_pct": sum(cbc) / sum(ctc) * 100 if sum(ctc) else 0.0,
+                "prediction_sources": dict(category_aggs["sources"].get(cat, {})),
+            }
+        payload = {"per_task": payload, "per_task_type": cat_payload}
         out = Path(args.output)
         out.parent.mkdir(parents=True, exist_ok=True)
         with open(out, "w") as f:

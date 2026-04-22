@@ -442,3 +442,4 @@ Werkzeug==3.1.1
 xformers==0.0.32.post1
 xgrammar==0.1.23
 yarl==1.22.0
+gpt_oss

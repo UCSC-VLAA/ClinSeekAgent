@@ -8,7 +8,7 @@ cd "$SCRIPT_DIR"
 
 export SERPER_API_KEY="61877f4a59d2968ae439a7d13d49dc2990bc0a1b"
 
-DATA_PATH=${DATA_PATH:-../data/AgentEHR-Bench/MIMICIVAgentBench/common/subset_500/merged_subsets_500.json}
+DATA_PATH=${DATA_PATH:-../data/EHR-Bench/ehr_bench_sampled_40_per_task.json}
 
 EHR_MCP_URL=${EHR_MCP_URL:-http://127.0.0.1:5103/mcp}
 MAX_CONCURRENCY=${MAX_CONCURRENCY:-5}
@@ -61,7 +61,7 @@ print(slug or "vllm_model")
 PY
 )"
 
-OUTPUT_DIR=${OUTPUT_DIR:-./results/subset_500_${MODEL_SLUG}}
+OUTPUT_DIR=${OUTPUT_DIR:-./results/ehrbench_1800_${MODEL_SLUG}}
 mkdir -p "$OUTPUT_DIR"
 
 LOG_TIMESTAMP=${RUN_TEST_SUBSET_LOG_TIMESTAMP:-$(date -u +%Y%m%dT%H%M%SZ)}

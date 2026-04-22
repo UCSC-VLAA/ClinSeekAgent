@@ -83,6 +83,10 @@ class VLLMOpenAIAsyncGenerator:
         return "openseeker" in (model_name or "").lower()
 
     @staticmethod
+    def _is_deepmed_sft_model(model_name: Optional[str]) -> bool:
+        return "deepmed-sft" in (model_name or "").lower()
+
+    @staticmethod
     def _normalize_tool_name(function_name: str) -> str:
         name = (function_name or "").strip()
         if not name:
@@ -181,6 +185,72 @@ class VLLMOpenAIAsyncGenerator:
                     turn["tool_call_id"] = original_turn.get("tool_call_id")
 
             prepared.append(turn)
+
+        return prepared
+
+    def _prepare_messages_for_deepmed_sft(
+        self, messages: List[dict]
+    ) -> List[Dict[str, Any]]:
+        """Render messages for DeepMed-SFT models.
+
+        Assistant tool_calls are rendered as [Tool Call: name(args)] inline text.
+        Tool results are rendered as plain text in user turns.
+        No structured tool_calls field is used.
+        """
+        prepared: List[Dict[str, Any]] = []
+
+        i = 0
+        while i < len(messages):
+            original_turn = messages[i]
+            role = original_turn.get("role")
+
+            if role == "assistant":
+                parts: List[str] = []
+                content = self._stringify_message_field(original_turn.get("content"))
+                if content:
+                    parts.append(content)
+
+                tool_calls = original_turn.get("tool_calls") or []
+                for tc in tool_calls:
+                    func = tc.get("function", {})
+                    name = func.get("name", "")
+                    arguments = func.get("arguments", "{}")
+                    if isinstance(arguments, dict):
+                        arguments = json.dumps(arguments, ensure_ascii=False)
+                    parts.append(f"[Tool Call: {name}({arguments})]")
+
+                turn: Dict[str, Any] = {"role": "assistant", "content": "\n".join(parts)}
+                reasoning = (
+                    original_turn.get("reasoning")
+                    or original_turn.get("reasoning_content")
+                )
+                if reasoning:
+                    turn["reasoning"] = self._stringify_message_field(reasoning)
+                prepared.append(turn)
+                i += 1
+
+            elif role == "tool":
+                tool_results: List[str] = []
+                while i < len(messages) and messages[i].get("role") == "tool":
+                    result_content = self._stringify_message_field(
+                        messages[i].get("content")
+                    )
+                    tool_results.append(result_content)
+                    i += 1
+                prepared.append({
+                    "role": "user",
+                    "content": "\n\n".join(tool_results),
+                })
+
+            else:
+                turn = {
+                    "role": role,
+                    "content": self._stringify_message_field(
+                        original_turn.get("content")
+                    ),
+                }
+                prepared.append(turn)
+                i += 1
 
         return prepared
 
@@ -1070,8 +1140,28 @@ class VLLMOpenAIAsyncGenerator:
                 },
             })
 
+        is_deepmed_sft = VLLMOpenAIAsyncGenerator._is_deepmed_sft_model(model_name)
+
         if tool_calls:
             output_message["tool_calls"] = tool_calls
+        elif is_deepmed_sft:
+            if content:
+                fallback_content, fallback_tool_calls = (
+                    VLLMOpenAIAsyncGenerator._extract_bracket_tool_calls(content)
+                )
+                if fallback_tool_calls:
+                    output_message["content"] = fallback_content
+                    output_message["tool_calls"] = fallback_tool_calls
+            if "tool_calls" not in output_message and reasoning_content:
+                cleaned_reasoning, fallback_tool_calls = (
+                    VLLMOpenAIAsyncGenerator._extract_bracket_tool_calls(
+                        reasoning_content
+                    )
+                )
+                if fallback_tool_calls:
+                    if cleaned_reasoning != reasoning_content:
+                        output_message["reasoning_content"] = cleaned_reasoning
+                    output_message["tool_calls"] = fallback_tool_calls
         else:
             if is_openseeker_model and content:
                 fallback_content, fallback_tool_calls = (
@@ -1191,6 +1281,10 @@ class VLLMOpenAIAsyncGenerator:
             # back into the next assistant turn.
             output_message["content"] = ""
 
+        finish_reason = choice.finish_reason
+        if output_message.get("tool_calls") and finish_reason != "tool_calls":
+            finish_reason = "tool_calls"
+
         usage = getattr(response, "usage", None)
         usage_dict = {}
         if usage is not None:
@@ -1203,7 +1297,7 @@ class VLLMOpenAIAsyncGenerator:
         return {
             "choices": [{
                 "message": output_message,
-                "finish_reason": choice.finish_reason,
+                "finish_reason": finish_reason,
             }],
             "usage": usage_dict,
         }
@@ -1312,12 +1406,19 @@ class VLLMOpenAIAsyncGenerator:
             )
             return converted
 
-        prepared_messages = self._prepare_messages(messages)
+        is_deepmed_sft = self._is_deepmed_sft_model(model_name)
+
+        if is_deepmed_sft:
+            prepared_messages = self._prepare_messages_for_deepmed_sft(messages)
+        else:
+            prepared_messages = self._prepare_messages(messages)
         extra_body = self._build_extra_body()
+
+        api_tools = None if is_deepmed_sft else tools
 
         print(
             f"[vLLM] Request: model={model_name}, messages={len(prepared_messages)}, "
-            f"tools={len(tools) if tools else 0}"
+            f"tools={len(api_tools) if api_tools else 0}"
         )
 
         loop = asyncio.get_event_loop()
@@ -1326,8 +1427,8 @@ class VLLMOpenAIAsyncGenerator:
             lambda: self._make_client().chat.completions.create(
                 model=model_name,
                 messages=prepared_messages,
-                tools=tools,
-                tool_choice=tool_choice if tools else None,
+                tools=api_tools,
+                tool_choice=tool_choice if api_tools else None,
                 max_tokens=max_tokens or self.max_tokens_default,
                 temperature=temperature,
                 extra_body=extra_body,

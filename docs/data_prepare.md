@@ -118,3 +118,119 @@ BENCH_DIR = "/home/efs/zlt/deepresearch/data/EHR-Bench"   # EHR-Bench 数据目�
 1. **时间戳未做二次偏移**：MIMIC-IV 本身对日期做了随机偏移（de-identification），但 EHR-Bench 中的时间戳与 MIMIC-IV 偏移后的时间完全一致，未做额外处理，因此可以直接匹配。
 2. **`hadm_id` 为空的情况**：部分匹配只能定位到 `subject_id` 而无 `hadm_id`，这是因为 MIMIC-IV 原始 `transfers` 表中某些记录（如 ED 就诊未转入住院）本身无关联的 `hadm_id`。
 3. **丢弃的条目**：34 条未匹配的数据（占总量 0.16%）多为非急诊入院且缺少足够时间戳特征的病例，不影响 benchmark 的整体使用。
+
+---
+
+# EHR-Bench 数据准备：生成病人 SQLite 数据库
+
+本节记录如何根据匹配后的 benchmark JSON，使用 `helper/patient_event2db.py` 从 MIMIC-IV 原始 CSV 批量生成**每位病人一个 `.db` 文件**，供 MCP server (`src/run_mcp_server.py`) 加载并对 agent 提供工具接口。
+
+---
+
+## 1. 功能概述
+
+`helper/patient_event2db.py` 做的事：
+
+1. 从 `--data_file_path` 指定的 JSON 中收集所有 `subject_id`
+2. 对比 `--output_path` 中已有的 `patient_<subject_id>.db`，**自动跳过已生成的病人**
+3. 扫描 `--root_path` 下的 `hosp`、`icu`、`note`、`ed` 等子目录中的所有 `.csv` / `.csv.gz`，按 `subject_id` 过滤并分组
+4. 做预处理（`preprocess_subject_dict`）：
+   - 为 `diagnoses_icd` 补上 `charttime`（取对应 `admissions.dischtime - 1min`）
+   - 为 ed `diagnosis` 补上 `charttime`（取对应 `edstays.outtime - 1min`）
+   - 将 `note/discharge.csv` 中 `text` 字段中 "Physical Exam" 之前的部分挂到 `admissions.text`
+   - **若某病人任一 `admission` 没能匹配到 discharge text，则该病人被整体丢弃**
+5. 每个 `subject_id` 写入一个 SQLite `patient_<subject_id>.db`，每张原始 CSV 表作为一张 table（所有列存为 `TEXT`）
+
+---
+
+## 2. 输入 / 输出
+
+### 输入
+
+| 参数 | 示例（相对仓库根目录） | 说明 |
+|------|----------------------|------|
+| `--root_path` | `../datasets/MIMIC-IV/mimic_iv` | MIMIC-IV 原始数据根目录，下含 `hosp/`、`icu/`、`note/`、（可选 `ed/`） |
+| `--data_file_path` | `data/EHR-Bench/ehr_bench_merged_filtered.json` | 匹配后的 benchmark JSON，每条记录含 `subject_id` |
+| `--data_dir_path` | （可选）某目录 | 目录下所有 `.json` 都会被合并读取 `subject_id` |
+| `--subject_id` | （可选）单个整数 | 仅为该病人生成 db |
+| `--data_dirs` | 默认 `ed hosp icu note` | 要扫描的子目录列表 |
+
+三种 subject 来源 (`--subject_id` / `--data_file_path` / `--data_dir_path`) 互斥，都不指定则处理全部病人。
+
+### 输出
+
+| 参数 | 示例（相对仓库根目录） |
+|------|----------------------|
+| `--output_path` | `data/EHR-Bench/database` |
+
+输出目录下每位病人生成一个文件：
+
+```
+data/EHR-Bench/database/
+├── patient_10000108.db
+├── patient_10025995.db
+└── ...
+```
+
+每个 db 内的表名与 MIMIC-IV 的 CSV 文件名一致（如 `admissions`、`diagnoses_icd`、`labevents`、`transfers`、`radiology` 等）。
+
+---
+
+## 3. 运行方式
+
+从仓库根目录 (`/home/efs/zlt/autoehr`) 运行：
+
+```bash
+# 推荐：放后台，log 落盘
+nohup python helper/patient_event2db.py \
+    --root_path ../datasets/MIMIC-IV/mimic_iv \
+    --output_path data/EHR-Bench/database \
+    --data_file_path data/EHR-Bench/ehr_bench_merged_filtered.json \
+    > logs/ehr_bench_db_gen_$(date -u +%Y%m%dT%H%M%SZ).log 2>&1 &
+```
+
+增量运行：再次执行同一命令，脚本会根据 `output_path` 下现有的 `patient_*.db` 自动跳过，只处理缺失的 `subject_id`。
+
+只生成单个病人（调试用）：
+
+```bash
+python helper/patient_event2db.py \
+    --root_path ../datasets/MIMIC-IV/mimic_iv \
+    --output_path data/EHR-Bench/database \
+    --subject_id 10000108
+```
+
+---
+
+## 4. 资源与耗时
+
+- **输入规模**：MIMIC-IV 原始 CSV 总计约 90 GB（最大的是 `icu/chartevents.csv` 40 GB、`hosp/labevents.csv` 18 GB）
+- **内存占用**：脚本先把**所有目标病人的数据**按 `subject_id` 分组全量驻留内存，再统一写入 db。以 8000+ 病人为例，峰值 RSS 约 30–60 GB（视病人数据量而定）。
+- **耗时**：一次全量运行大概需要数小时，主要花在读取大 CSV 上。
+- **增量生成**：只为缺失的病人生成（例如只剩 100 人）时，CSV 仍需全量扫描一遍，耗时并不会线性下降——只有写 db 的部分变快。
+- **stdout 缓冲**：用 `>` 重定向到文件时，Python 默认块缓冲，启动后几分钟日志可能为空，属正常现象。若需实时日志，可在命令前加 `PYTHONUNBUFFERED=1`，或用 `python -u`。
+
+---
+
+## 5. 与下游的衔接
+
+生成的 db 由 MCP server 通过 `load_ehr` 工具加载，供 agent 查询：
+
+```bash
+# MCP server 启动（默认从此目录下读取 patient_<sid>.db）
+CUDA_VISIBLE_DEVICES=0 python src/run_mcp_server.py \
+    --mode http \
+    --host 127.0.0.1 \
+    --port 5103 \
+    --data_path data/EHR-Bench/database
+```
+
+随后通过 `openresearcher_ehr/eval_ehrbench.sh` 跑 agent 评测即可（脚本里 `EHR_MCP_URL` 默认指向 `http://127.0.0.1:5103/mcp`）。
+
+---
+
+## 6. 常见问题
+
+1. **脚本里打印 "Directory not found: .../ed"**：MIMIC-IV 完整版有 `ed/` 子目录，但当前本地数据集只下载了 `hosp/`、`icu/`、`note/`。无 `ed/` 时，`diagnoses_icd` / `diagnosis` 的 `charttime` 补全逻辑会 fallback 到空字符串，不影响主流程。
+2. **`admissions.text` 无匹配 discharge**：若某 admission 在 `note/discharge.csv` 中找不到对应 `hadm_id`，脚本会把 `admission['text']` 置为空字符串（保留该病人）。早期版本会直接丢弃该病人，现已改为保留。
+3. **列全是 `TEXT`**：建表时所有列都被定义为 `TEXT`（见 `save_to_db` 中的 `columns_def`），数值/时间比较请在 SQL 中显式 `CAST`，或在 agent 工具层做类型转换。

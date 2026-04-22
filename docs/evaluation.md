@@ -23,54 +23,80 @@ hf download --repo-type dataset BlueZeros/AgentEHR-Bench --local-dir data/AgentE
 hf download --repo-type dataset BlueZeros/EHR-Bench --local-dir data/EHR-Bench
 ```
 
-### 1.2 安装依赖
+#### EHR-Bench 评测子集
 
-完成环境安装后，直接激活对应环境即可。下面以 `ehragent` 为例：
+`data/EHR-Bench/ehr_bench_merged_filtered.json` 是全量库（20302 条，45 个 task，分属 `risk_prediction` 和 `decision_making` 两类）。为控制评测成本，仓库提供两个按 task 分层抽样的子集：
+
+| 文件 | 每 task 条数 | 总条数 | task_type 分布 | 说明 |
+|------|------------|-------|---------------|------|
+| `data/EHR-Bench/ehr_bench_sampled_20_per_task.json` | 20 | 900 | risk 360 / decision 540 | 小规模快速冒烟 |
+| `data/EHR-Bench/ehr_bench_sampled_40_per_task.json` | 40 | 1800 | risk 720 / decision 1080 | **推荐用于正式评测** |
+
+抽样方式：按 `task` 字段分桶，在每桶内用固定随机种子无放回采样。采样脚本位于 `data/EHR-Bench/sample_per_task.py`，复现命令：
 
 ```bash
-pip install --upgrade pip
-pip install -r requirements.txt
-conda activate ehragent
+cd data/EHR-Bench
+python sample_per_task.py                           # 默认：per-task=40, seed=42
+python sample_per_task.py --per-task 20 --seed 42   # 生成 900 条子集
 ```
 
-`openresearcher_ehr/` 目录下的评测脚本还额外依赖 `httpx`、`boto3`、`python-dotenv` 等包，可通过以下命令补充安装：
+可传 `--input`、`--output`、`--per-task`、`--seed` 覆盖默认值。
+
+将评测脚本切换到 1800 子集：
 
 ```bash
-pip install -r openresearcher_ehr/requirements.txt
+DATA_PATH=../data/EHR-Bench/ehr_bench_sampled_40_per_task.json \
+    bash openresearcher_ehr/eval_ehrbench.sh
 ```
 
-确保后续执行脚本时，`python`、`vllm` 和相关依赖都来自这个已激活的环境。
+打分时 `--benchmark` 需指向同一个文件：
 
-### 1.3 Gemma-4 独立环境
+```bash
+python openresearcher_ehr/helper/evaluate_results.py \
+    --results openresearcher_ehr/results/ehrbench_1800_<model_slug> \
+    --benchmark data/EHR-Bench/ehr_bench_sampled_40_per_task.json
+```
 
-Gemma-4 (gemma-4-26B-A4B-it) 需要独立的 Python 虚拟环境，因为它依赖的 `vllm` 和 `transformers` 版本高于其他模型。
+`evaluate_results.py` 会同时输出整体、每 task、以及按 `task_type`（risk_prediction / decision_making）两类的分组指标。
+
+### 1.2 安装依赖（使用 uv）
+
+使用 [uv](https://docs.astral.sh/uv/) 创建虚拟环境并安装依赖。如尚未安装 uv：
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
 
 **前置要求：**
 
 - Python 3.10+
 - CUDA 12.x
-- 模型下载到 `models/gemma-4-26B-A4B-it`
 
-**创建虚拟环境并安装依赖（使用 uv）：**
+**创建虚拟环境并安装依赖：**
 
 ```bash
-uv venv venv/gemma --python 3.10
+uv venv venv/gemma --python 3.12
+uv pip install -r requirements.txt --python venv/gemma/bin/python
+uv pip install -r openresearcher_ehr/requirements.txt --python venv/gemma/bin/python
 uv pip install "vllm>=0.19.0" "transformers>=5.5" --python venv/gemma/bin/python
 ```
+
+> **注意：** `vllm>=0.19.0` 默认会拉取 `transformers 4.x`，安装完 vllm 后需要再单独升级 transformers 到 5.x。
 
 **关键版本要求：**
 
 | 依赖 | 最低版本 | 说明 |
 |------|---------|------|
-| vllm | >= 0.19.0 | 0.19.0 起支持 `Gemma4ForConditionalGeneration` 架构 |
-| transformers | >= 5.5 | 5.5 起支持 `gemma4` model type |
+| vllm | >= 0.19.0 | 支持 Gemma4、Qwen3.5 等新架构 |
+| transformers | >= 5.5 | 支持 `gemma4` 等新 model type |
 
-> **注意：** `vllm>=0.19.0` 默认会拉取 `transformers 4.x`，安装完 vllm 后需要再单独升级 transformers 到 5.x。
+**激活环境：**
 
-**硬件参考：**
+```bash
+source venv/gemma/bin/activate
+```
 
-- 单卡 A100 80GB 可运行，`max_model_len=8192` 时显存占用约 75GB
-- 更大上下文长度需要多卡（如 `max_model_len=32768` 需要 2 卡以上）
+确保后续执行脚本时，`python`、`vllm` 和相关依赖都来自这个已激活的环境。
 
 ---
 
@@ -114,7 +140,7 @@ vLLM 服务提供 OpenAI 兼容的推理 API。根据要评测的模型选择对
 | OpenSeeker-v1-30B-SFT | `run_vllm_server.sh` | 4000 | `models/OpenSeeker-v1-30B-SFT` | 自动配置 chat template 和 tool parser |
 | OpenResearcher-30B-A3B | `run_vllm_server_Nemotron.sh` | 4000 | `models/OpenResearcher-30B-A3B` | Nemotron 架构 |
 | Meissa-4B | `run_vllm_server_Meissa_4B.sh` | 4000 | `models/Meissa-4B` | 轻量模型，单卡可运行 |
-| Gemma-4-26B-A4B-it | `run_vllm_server_gemma4.sh` | 4000 | `models/gemma-4-26B-A4B-it` | 需要独立 venv（见 1.3） |
+| Gemma-4-26B-A4B-it | `run_vllm_server_gemma4.sh` | 4000 | `models/gemma-4-26B-A4B-it` | |
 
 所有脚本都位于 `scripts/run/` 目录下。
 
@@ -154,18 +180,6 @@ OpenSeeker 模型会自动配置专用的 chat template（`openresearcher_ehr/op
 
 ```bash
 bash scripts/run/run_vllm_server_gemma4.sh
-```
-
-**无需手动激活 venv**，脚本内部已指定 `venv/gemma/bin/vllm`。
-
-自定义 GPU 和端口：
-
-```bash
-# 单卡 GPU 2, 端口 4002
-bash scripts/run/run_vllm_server_gemma4.sh 2 4002
-
-# 多卡 + 更大上下文
-MAX_MODEL_LEN=32768 bash scripts/run/run_vllm_server_gemma4.sh 0,1 4001
 ```
 
 ### 3.5 验证 vLLM 是否就绪
@@ -405,7 +419,7 @@ Overall                 3000  3000  3000  0.2423  0.6447  0.3192     54.8    9.6
 
 按下面顺序依次执行：
 
-1. 使用 `requirements.txt` 搭建环境
+1. 使用 `uv` 和 `requirements.txt` 搭建环境（见 1.2）
 2. 下载数据集和模型到指定路径
 3. 启动 MCP 服务：`bash scripts/run/run_mcp_server.sh`
 4. 启动 vLLM 服务：`bash scripts/run/run_vllm_server_3_5.sh`（或其他模型对应脚本）

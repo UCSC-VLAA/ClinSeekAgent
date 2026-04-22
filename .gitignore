@@ -1,8 +1,10 @@
 # Data directories
+data
 data/
 datasets/
 
 # Model weights
+models
 models/
 *.safetensors
 *.bin

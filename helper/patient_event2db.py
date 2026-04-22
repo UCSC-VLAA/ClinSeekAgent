@@ -100,20 +100,10 @@ def preprocess_subject_dict(subject_dict):
                             text_before_physical_exam = text.strip()
                         hadm_to_text[discharge['hadm_id']] = text_before_physical_exam
                 
-                # 需求（5）：检查是否所有admissions都有匹配的text
-                all_matched = True
+                # 为所有admissions填充text；无匹配的discharge text时置为空字符串（不再丢弃该subject）
                 for admission in admissions_data:
                     if 'hadm_id' in admission:
-                        if admission['hadm_id'] in hadm_to_text:
-                            admission['text'] = hadm_to_text[admission['hadm_id']]
-                        else:
-                            all_matched = False
-                            break
-                
-                # 如果有admissions没有匹配的text，则标记该subject_id为待删除
-                if not all_matched:
-                    print(f"Subject {subject_id} has admissions without matching discharge text, will be removed")
-                    subjects_to_remove.append(subject_id)
+                        admission['text'] = hadm_to_text.get(admission['hadm_id'], "")
         
         except Exception as e:
             print(f"Error processing subject {subject_id}: {e}")
