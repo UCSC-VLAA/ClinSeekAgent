@@ -47,6 +47,10 @@ __pycache__/
 # Virtual environments
 .venv/
 venv/
+venvs/
+
+# Temp/scratch artifacts
+tmp/
 
 # HuggingFace cache
 .cache/
