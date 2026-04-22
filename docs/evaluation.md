@@ -32,12 +32,11 @@ hf download --repo-type dataset BlueZeros/EHR-Bench --local-dir data/EHR-Bench
 | `data/EHR-Bench/ehr_bench_sampled_20_per_task.json` | 20 | 900 | risk 360 / decision 540 | 小规模快速冒烟 |
 | `data/EHR-Bench/ehr_bench_sampled_40_per_task.json` | 40 | 1800 | risk 720 / decision 1080 | **推荐用于正式评测** |
 
-抽样方式：按 `task` 字段分桶，在每桶内用固定随机种子无放回采样。采样脚本位于 `data/EHR-Bench/sample_per_task.py`，复现命令：
+抽样方式：按 `task` 字段分桶，在每桶内用固定随机种子无放回采样。采样脚本位于 `helper/sample_per_task.py`，从仓库根目录复现命令：
 
 ```bash
-cd data/EHR-Bench
-python sample_per_task.py                           # 默认：per-task=40, seed=42
-python sample_per_task.py --per-task 20 --seed 42   # 生成 900 条子集
+python helper/sample_per_task.py                           # 默认：per-task=40, seed=42
+python helper/sample_per_task.py --per-task 20 --seed 42   # 生成 900 条子集
 ```
 
 可传 `--input`、`--output`、`--per-task`、`--seed` 覆盖默认值。
