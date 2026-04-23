@@ -50,7 +50,10 @@ __pycache__/
 # Virtual environments
 .venv/
 venv/
-venvs/
+# Ignore every child of venvs/ EXCEPT venvs/requirements/*.
+venvs/*
+!venvs/requirements/
+!venvs/requirements/**
 
 # Temp/scratch artifacts
 tmp/
