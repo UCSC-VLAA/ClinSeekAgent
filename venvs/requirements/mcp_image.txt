@@ -1,0 +1,43 @@
+# ============================================================================
+# Venv C — Image MCP server (6 Meissa-ported CXR tools)
+#   Used by: src/mcp_image/run_image_mcp_server.py
+# Python: 3.12
+# GPU: required. 4 GPUs recommended (one per GPU-backed tool).
+#
+# CRITICAL PIN:
+#   transformers==4.46.3 — MAIRA-2's custom modeling code was forked from
+#   LlavaForConditionalGeneration in transformers 4.44 and breaks on 4.50+.
+#   Do NOT upgrade transformers in this venv.
+# ============================================================================
+
+# --- MCP server framework ----------------------------------------------------
+fastmcp>=2.0
+pydantic>=2.0
+
+# --- Image I/O ---------------------------------------------------------------
+Pillow>=10.0
+numpy
+scikit-image
+matplotlib
+pydicom
+
+# --- Torch + CUDA wheels (pinned to cu128 build that ships MAIRA-2 weights) -
+# Install torch/torchvision explicitly from the pytorch index BEFORE this file,
+# or re-`pip install --reinstall` afterward:
+#   pip install --reinstall \
+#       torch==2.9.0+cu128 torchvision==0.24.0+cu128 \
+#       --index-url https://download.pytorch.org/whl/cu128
+torch==2.9.0
+torchvision==0.24.0
+
+# --- Vision model zoo --------------------------------------------------------
+torchxrayvision>=1.2       # DenseNet121 classifier + PSPNet segmentation
+transformers==4.46.3       # HARD PIN — required for MAIRA-2
+accelerate
+einops
+sentencepiece
+protobuf
+
+# --- HuggingFace tooling -----------------------------------------------------
+huggingface-hub
+hf-transfer

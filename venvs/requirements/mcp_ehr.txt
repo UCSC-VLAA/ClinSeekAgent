@@ -1,0 +1,33 @@
+# ============================================================================
+# Venv B — EHR MCP server (text + SQL tools)
+#   Used by: src/run_mcp_server.py
+#            + src/agentlite/mcp_tools/{candidate,record,table,inner,resource}_tools.py
+# Python: 3.12
+# GPU: required for sentence-transformers (BioLORD-2023 semantic search).
+# Install a matching torch build for your CUDA.
+# ============================================================================
+
+# --- MCP server framework ----------------------------------------------------
+fastmcp>=2.12.5
+mcp>=1.16.0
+pydantic>=2.10
+
+# --- Data access -------------------------------------------------------------
+pandas>=2.1.0
+numpy>=1.24,<2.3
+
+# --- Semantic search (candidate_tools uses BioLORD-2023) ---------------------
+sentence-transformers>=5.0.0
+thefuzz>=0.22
+faiss-cpu>=1.8.0     # if GPU faiss is preferred, replace with faiss-gpu
+
+# --- Torch (pin to a CUDA build matching your driver) ------------------------
+# Example (CUDA 12.1):
+#   pip install torch==2.8.0 --index-url https://download.pytorch.org/whl/cu121
+# Left unpinned here — install torch separately before `pip install -r`.
+torch>=2.6,<2.10
+torchvision
+
+# --- Misc ---------------------------------------------------------------------
+tqdm
+huggingface-hub>=0.35.0

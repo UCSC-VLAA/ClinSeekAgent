@@ -1,0 +1,31 @@
+# ============================================================================
+# Venv A — deploy_agent (multimodal driver)
+#   Used by: openresearcher_ehr/deploy_agent_mm.py
+#            openresearcher_ehr/scorer_mm.py
+#            openresearcher_ehr/prepare_mm_data.py
+# Python: 3.12
+# No GPU needed here — this venv only makes HTTP calls (to Bedrock + MCPs).
+# ============================================================================
+
+# --- AWS Bedrock -------------------------------------------------------------
+boto3>=1.35.0
+botocore>=1.35.0
+
+# --- HTTP / async clients (ehr_pool, image_pool, browser) --------------------
+httpx>=0.28.0
+aiohttp>=3.9.0
+requests>=2.32.0
+
+# --- Image handling in deploy_agent_mm.py (base64, resize) ------------------
+Pillow>=10.0.0
+
+# --- Config / env ------------------------------------------------------------
+python-dotenv>=1.0.0
+
+# --- Browser tool backends (optional but imported) ---------------------------
+openai>=2.0.0
+openai-harmony>=0.0.4
+gpt_oss
+
+# --- HF dataset download (huggingface-cli) -----------------------------------
+huggingface-hub>=0.35.0
