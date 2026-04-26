@@ -24,10 +24,14 @@ def get_bench_root() -> Path:
 
 
 def get_artifact_dir() -> Path:
-    """Return the directory where generated artifacts (overlays, PNGs) are written."""
+    """Return the directory where generated artifacts (overlays, PNGs) are written.
+
+    Default is `./tmp/mm_artifacts` relative to CWD; override via
+    `$IMAGE_ARTIFACT_DIR` to place artifacts elsewhere.
+    """
     value = os.environ.get(
         "IMAGE_ARTIFACT_DIR",
-        "/fsx-shared/juncheng/EHR/tmp/mm_artifacts",
+        "tmp/mm_artifacts",
     )
     path = Path(value)
     path.mkdir(parents=True, exist_ok=True)

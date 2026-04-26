@@ -46,7 +46,7 @@ def get_parser() -> argparse.Namespace:
         default=None,
         help=(
             "Directory where generated overlays and processed images are saved. "
-            "Defaults to /fsx-shared/juncheng/EHR/tmp/mm_artifacts."
+            "Defaults to ./tmp/mm_artifacts (relative to CWD)."
         ),
     )
     parser.add_argument(

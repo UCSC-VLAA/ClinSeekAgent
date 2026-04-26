@@ -63,8 +63,15 @@ START_IMAGE=1                   # whether to start the image MCP
 ENABLE_IMAGE=1                  # whether to route image.* calls at all
 LIMIT=0                         # 0 = no limit; N = truncate to first N rows
 
+BACKEND=${BACKEND:-bedrock}     # bedrock | vllm
 BEDROCK_MODEL_ID=${BEDROCK_MODEL_ID:-us.anthropic.claude-opus-4-6-v1}
 BEDROCK_REGION=${BEDROCK_REGION:-us-east-1}
+
+# vLLM backend (only used when BACKEND=vllm)
+VLLM_API_BASE_URL=${VLLM_API_BASE_URL:-http://127.0.0.1:4000/v1}
+VLLM_API_KEY=${VLLM_API_KEY:-EMPTY}
+VLLM_MODEL=${VLLM_MODEL:-}      # empty = auto-resolve from /v1/models
+
 MAX_ROUNDS=${MAX_ROUNDS:-200}
 MAX_CONCURRENCY=${MAX_CONCURRENCY:-6}
 RUNS_PER_QUESTION=${RUNS_PER_QUESTION:-1}
@@ -73,7 +80,8 @@ IMAGE_MAX_EDGE=${IMAGE_MAX_EDGE:-1568}
 ENABLE_THINKING=${ENABLE_THINKING:-0}
 
 # Where the datasets live (must have been extracted; see docs/05_*.md)
-DATA_BASE=/fsx-shared/juncheng/EHR/data
+REPO_ROOT=${REPO_ROOT:-$(cd "${SCRIPT_DIR}/.." && pwd)}
+DATA_BASE=${DATA_BASE:-${REPO_ROOT}/data}
 BENCH_ROOT_EHRXQA="${DATA_BASE}/EHR_multimodal_bench/extracted/EHRXQAAgentBench_v3"
 BENCH_ROOT_MEDMOD="${DATA_BASE}/EHR_multimodal_bench/extracted/MedModAgentBench_v3"
 # Combined path passed to deploy_agent_mm.py (colon-separated list).
@@ -92,11 +100,13 @@ PREPARED_TEST_SET="${DATA_BASE}/EHR_multimodal_bench_tests/combined_test_set.jso
 FULL_EHRXQA_TEST="${BENCH_ROOT_EHRXQA}/common/ready/test.json"
 FULL_MEDMOD_TEST="${BENCH_ROOT_MEDMOD}/common/ready/test.json"
 
-# Python / virtualenv — override PYBIN before running if needed.
-PYBIN=${PYBIN:-/fsx-shared/juncheng/OpenResearcher/.venv/bin/python}
-# The image MCP server uses a dedicated venv pinned to transformers 4.46.x
-# (compatible with MAIRA-2's custom modeling). Override IMAGE_PYBIN to swap.
-IMAGE_PYBIN=${IMAGE_PYBIN:-/fsx-shared/juncheng/EHR/venvs/mcp_image/bin/python}
+# Python / virtualenv — override per-role before running if needed.
+#   PYBIN       : agent driver + scorer (CPU-only, talks to MCPs via HTTP)
+#   EHR_PYBIN   : EHR MCP server (needs sentence-transformers for BioLORD)
+#   IMAGE_PYBIN : image MCP server (pinned transformers==4.46.x for MAIRA-2)
+PYBIN=${PYBIN:-${REPO_ROOT}/venvs/deploy_agent/bin/python}
+EHR_PYBIN=${EHR_PYBIN:-${REPO_ROOT}/venvs/mcp_ehr/bin/python}
+IMAGE_PYBIN=${IMAGE_PYBIN:-${REPO_ROOT}/venvs/mcp_image/bin/python}
 
 # ---- CLI parsing -----------------------------------------------------------
 usage() {
@@ -178,7 +188,7 @@ start_ehr_mcp() {
     local port="$1" root="$2" tag="$3" gpu="$4"
     local log="$OUTPUT_DIR/mcp_${tag}.log"
     CUDA_VISIBLE_DEVICES="$gpu" \
-    "$PYBIN" /fsx-shared/juncheng/EHR/src/run_mcp_server.py \
+    "$EHR_PYBIN" "${REPO_ROOT}/src/run_mcp_server.py" \
         --mode http --host 127.0.0.1 --port "$port" \
         --data_path "$root" \
         --disable-knowledge-tools \
@@ -200,7 +210,7 @@ start_image_mcp() {
     IMAGE_TOOL_DEVICE_REPORT_GENERATOR="${IMAGE_TOOL_DEVICE_REPORT_GENERATOR:-cuda:3}" \
     IMAGE_TOOL_DEVICE_GROUNDING="${IMAGE_TOOL_DEVICE_GROUNDING:-cuda:4}" \
     IMAGE_TOOL_DEVICE_SEGMENTATION="${IMAGE_TOOL_DEVICE_SEGMENTATION:-cuda:5}" \
-    "$IMAGE_PYBIN" /fsx-shared/juncheng/EHR/src/mcp_image/run_image_mcp_server.py \
+    "$IMAGE_PYBIN" "${REPO_ROOT}/src/mcp_image/run_image_mcp_server.py" \
         --mode http --host 127.0.0.1 --port "$IMAGE_PORT" \
         > "$log" 2>&1 &
     MCP_PIDS+=("$!")
@@ -236,7 +246,10 @@ fi
 if [[ "$START_IMAGE" == "1" ]]; then
     echo ">>> Starting image MCP server"
     start_image_mcp
-    wait_for_port "$IMAGE_PORT" "Image MCP" || true
+    # First-run MAIRA-2 download can take several minutes (14 GB across 6 shards),
+    # so give the image MCP a long wait window. Subsequent runs hit the HF cache
+    # and come up in <30s.
+    wait_for_port "$IMAGE_PORT" "Image MCP" "${IMAGE_WAIT_TIMEOUT:-1200}" || true
 fi
 
 # ---- Thinking flag ---------------------------------------------------------
@@ -247,6 +260,25 @@ IMAGE_FLAG=()
 [[ "$ENABLE_IMAGE" == "1" ]] && IMAGE_FLAG=(--enable_image --image_mcp_url "$IMAGE_MCP_URL")
 
 # ---- Run -------------------------------------------------------------------
+BACKEND_FLAGS=(--backend "$BACKEND")
+if [[ "$BACKEND" == "bedrock" ]]; then
+    BACKEND_FLAGS+=(
+        --bedrock_model_id "$BEDROCK_MODEL_ID"
+        --bedrock_region "$BEDROCK_REGION"
+    )
+    BACKEND_SUMMARY="bedrock:$BEDROCK_MODEL_ID @ $BEDROCK_REGION"
+elif [[ "$BACKEND" == "vllm" ]]; then
+    BACKEND_FLAGS+=(
+        --api_base_url "$VLLM_API_BASE_URL"
+        --api_key     "$VLLM_API_KEY"
+    )
+    [[ -n "$VLLM_MODEL" ]] && BACKEND_FLAGS+=(--model_name_or_path "$VLLM_MODEL")
+    BACKEND_SUMMARY="vllm:${VLLM_MODEL:-auto} @ $VLLM_API_BASE_URL"
+else
+    echo "Unsupported BACKEND=$BACKEND (must be 'bedrock' or 'vllm')" >&2
+    exit 2
+fi
+
 run_agent() {
     local data="$1" out="$2"
     mkdir -p "$out"
@@ -254,7 +286,7 @@ run_agent() {
     echo ">>> Running deploy_agent_mm.py"
     echo "    data:          $data"
     echo "    output:        $out"
-    echo "    model:         $BEDROCK_MODEL_ID @ $BEDROCK_REGION"
+    echo "    backend:       $BACKEND_SUMMARY"
     echo "    max_rounds:    $MAX_ROUNDS"
     echo "    concurrency:   $MAX_CONCURRENCY"
     echo "    runs/question: $RUNS_PER_QUESTION"
@@ -263,8 +295,7 @@ run_agent() {
     "$PYBIN" "$SCRIPT_DIR/deploy_agent_mm.py" \
         --data_path "$data" \
         --output_dir "$out" \
-        --bedrock_model_id "$BEDROCK_MODEL_ID" \
-        --bedrock_region "$BEDROCK_REGION" \
+        "${BACKEND_FLAGS[@]}" \
         --enable_ehr \
         --ehr_mcp_url "$EHR_MCP_URL_EHRXQA" \
         --ehr_mcp_url_ehrxqa "$EHR_MCP_URL_EHRXQA" \

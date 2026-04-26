@@ -53,12 +53,14 @@ class VLLMOpenAIAsyncGenerator:
         max_tokens_default: int = 8192,
         max_workers: int = 10,
         enable_thinking: Optional[bool] = None,
+        strip_images: bool = False,
     ):
         self.base_url = self._normalize_base_url(base_url)
         self.api_key = api_key
         self.model_name = model_name
         self.max_tokens_default = max_tokens_default
         self.enable_thinking = enable_thinking
+        self.strip_images = strip_images
         self.executor = ThreadPoolExecutor(max_workers=max_workers)
         self._openseeker_template = None
 
@@ -113,6 +115,90 @@ class VLLMOpenAIAsyncGenerator:
         if isinstance(value, str):
             return value
         return json.dumps(value, ensure_ascii=False)
+
+    @staticmethod
+    def _anthropic_to_openai_blocks(blocks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Convert Anthropic-style content blocks to OpenAI chat vision blocks.
+
+        Input shapes handled:
+          {"type": "text", "text": "..."}                 -> kept as-is
+          {"type": "image", "source": {"type": "base64",
+               "media_type": "image/jpeg", "data": "<b64>"}}
+              -> {"type": "image_url",
+                  "image_url": {"url": "data:image/jpeg;base64,<b64>"}}
+          {"type": "image_url", ...}                      -> kept as-is
+        Unknown shapes are stringified and wrapped as a text block.
+        """
+        converted: List[Dict[str, Any]] = []
+        for block in blocks:
+            if not isinstance(block, dict):
+                converted.append({"type": "text", "text": str(block)})
+                continue
+            btype = block.get("type")
+            if btype == "text":
+                converted.append({"type": "text", "text": block.get("text", "")})
+            elif btype == "image":
+                source = block.get("source") or {}
+                if source.get("type") == "base64":
+                    media = source.get("media_type") or "image/jpeg"
+                    data = source.get("data") or ""
+                    converted.append({
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:{media};base64,{data}",
+                        },
+                    })
+                elif source.get("type") == "url":
+                    converted.append({
+                        "type": "image_url",
+                        "image_url": {"url": source.get("url", "")},
+                    })
+                else:
+                    converted.append({"type": "text", "text": json.dumps(block, ensure_ascii=False)})
+            elif btype == "image_url":
+                converted.append(block)
+            else:
+                converted.append({"type": "text", "text": json.dumps(block, ensure_ascii=False)})
+        return converted
+
+    @classmethod
+    def _normalize_user_content(cls, value: Any, *, strip_images: bool = False) -> Any:
+        """Turn an Anthropic-style content value into an OpenAI-compatible one.
+
+        - str / None / dict-like → stringified (preserves old behavior).
+        - list of blocks → converted to OpenAI vision blocks (text + image_url).
+          If the list has only text blocks, it is flattened to a plain string.
+
+        When *strip_images* is True, image blocks are dropped and replaced with
+        a short text note so that text-only models can still function (the
+        agent can use image MCP tools to analyse images instead).
+        """
+        if not isinstance(value, list):
+            return cls._stringify_message_field(value)
+        if strip_images:
+            text_parts: List[str] = []
+            n_images = 0
+            for block in value:
+                if not isinstance(block, dict):
+                    text_parts.append(str(block))
+                    continue
+                btype = block.get("type")
+                if btype == "text":
+                    text_parts.append(block.get("text", ""))
+                elif btype in ("image", "image_url"):
+                    n_images += 1
+                else:
+                    text_parts.append(json.dumps(block, ensure_ascii=False))
+            if n_images:
+                text_parts.append(
+                    f"[{n_images} image(s) attached — use the image MCP tools "
+                    f"to analyse them]"
+                )
+            return "\n".join(text_parts)
+        converted = cls._anthropic_to_openai_blocks(value)
+        if all(b.get("type") == "text" for b in converted):
+            return "\n".join(b.get("text", "") for b in converted)
+        return converted
 
     @classmethod
     def _normalize_assistant_tool_calls(
@@ -178,11 +264,18 @@ class VLLMOpenAIAsyncGenerator:
                         assistant_reasoning
                     )
             else:
-                turn["content"] = self._stringify_message_field(
-                    original_turn.get("content")
-                )
                 if role == "tool":
+                    # Tool results are always text.
+                    turn["content"] = self._stringify_message_field(
+                        original_turn.get("content")
+                    )
                     turn["tool_call_id"] = original_turn.get("tool_call_id")
+                else:
+                    # User / system: preserve multimodal list content.
+                    turn["content"] = self._normalize_user_content(
+                        original_turn.get("content"),
+                        strip_images=self.strip_images,
+                    )
 
             prepared.append(turn)
 

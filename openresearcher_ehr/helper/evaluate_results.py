@@ -20,9 +20,9 @@ from pathlib import Path
 # Defaults
 # ---------------------------------------------------------------------------
 DEFAULT_RESULTS = (
-    "./openresearcher_ehr/results/ehrbench_1800_qwen3_5_35b_a3b_deepmed_sft_epoch2/results.jsonl"
+    "./openresearcher_ehr/results/ehrbench_1800_qwen3_5_35b_a3b_deepmed_6task_sft_epoch2/results.jsonl"
     # "./openresearcher_ehr/results/train_trajectory_3k_4ep_nonthinking_done3ep/results.jsonl"
-    # "./openresearcher_ehr/results/subset_500_gemma_4_26b_a4b_it/results.jsonl"
+    # "./openresearcher_ehr/results/subset_500_deepmed_6task_sft_epoch2/results.jsonl"
 )
 DEFAULT_BENCHMARK = (
     './data/EHR-Bench/ehr_bench_sampled_40_per_task.json'

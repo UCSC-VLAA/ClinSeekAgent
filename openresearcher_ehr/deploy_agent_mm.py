@@ -785,13 +785,19 @@ async def main():
     dotenv.load_dotenv("../.env")
 
     parser = argparse.ArgumentParser(description="Multimodal OpenResearcher + EHR pipeline")
-    parser.add_argument("--backend", type=str, choices=["bedrock"], default="bedrock",
-                        help="LLM backend. vLLM is not supported for multimodal runs in this file.")
+    parser.add_argument("--backend", type=str, choices=["bedrock", "vllm"], default="bedrock",
+                        help="LLM backend. 'vllm' requires an OpenAI-compatible server "
+                             "serving a multimodal model.")
     parser.add_argument("--model_name_or_path", type=str, default=DEFAULT_BEDROCK_MODEL_ID)
-    parser.add_argument("--use_bedrock", action="store_true", default=True)
+    parser.add_argument("--use_bedrock", action="store_true", default=False,
+                        help="Deprecated alias for --backend bedrock.")
     parser.add_argument("--bedrock_model_id", type=str, default=None)
     parser.add_argument("--bedrock_region", type=str, default=DEFAULT_BEDROCK_REGION)
     parser.add_argument("--bedrock_api_key", type=str, default=None)
+    parser.add_argument("--api_base_url", type=str, default=DEFAULT_VLLM_BASE_URL,
+                        help="OpenAI-compatible API base URL for vLLM.")
+    parser.add_argument("--api_key", type=str, default=DEFAULT_VLLM_API_KEY,
+                        help="API key for the OpenAI-compatible API.")
 
     parser.add_argument("--search_url", type=str, default="http://localhost:8001")
     parser.add_argument("--browser_backend", type=str, default="local", choices=["local", "serper"])
@@ -852,36 +858,64 @@ async def main():
     concurrency = min(args.max_concurrency, MAX_PARALLEL_QUERIES)
     os.makedirs(args.output_dir, exist_ok=True)
 
-    import bedrock_generator as _bgen
-    from bedrock_generator import BedrockAsyncGenerator
+    selected_backend = "bedrock" if args.use_bedrock else args.backend
+    if args.use_bedrock and args.backend != "bedrock":
+        raise ValueError("--use_bedrock conflicts with --backend vllm")
 
-    # Runtime shim: bedrock_generator.py has a latent NameError at line 555
-    # (`use_reasoning_content` is a parameter of chat_completion(), not a
-    # local of _chat_completion_anthropic). The text-only pipeline never hits
-    # the path where the tool_use branch runs under our invocation pattern, but
-    # the multimodal run does. Inject the name into the module globals so the
-    # reference always resolves — no edit to bedrock_generator.py.
-    _bgen.__dict__.setdefault("use_reasoning_content", True)
+    if selected_backend == "bedrock":
+        import bedrock_generator as _bgen
+        from bedrock_generator import BedrockAsyncGenerator
 
-    bedrock_api_key = configure_bedrock_auth(args.bedrock_api_key)
-    resolved_model_id = resolve_bedrock_model_id(
-        args.bedrock_model_id or args.model_name_or_path
-    )
-    generator = BedrockAsyncGenerator(
-        model_id=resolved_model_id,
-        region_name=args.bedrock_region,
-        max_tokens_default=8192,
-        enable_thinking=args.enable_thinking,
-    )
-    if bedrock_api_key:
-        print(f"Using Bedrock bearer token auth: {mask_secret(bedrock_api_key)}")
+        # Runtime shim: bedrock_generator.py has a latent NameError at line 555
+        # (`use_reasoning_content` is a parameter of chat_completion(), not a
+        # local of _chat_completion_anthropic). The text-only pipeline never hits
+        # the path where the tool_use branch runs under our invocation pattern, but
+        # the multimodal run does. Inject the name into the module globals so the
+        # reference always resolves — no edit to bedrock_generator.py.
+        _bgen.__dict__.setdefault("use_reasoning_content", True)
+
+        bedrock_api_key = configure_bedrock_auth(args.bedrock_api_key)
+        resolved_model_id = resolve_bedrock_model_id(
+            args.bedrock_model_id or args.model_name_or_path
+        )
+        generator = BedrockAsyncGenerator(
+            model_id=resolved_model_id,
+            region_name=args.bedrock_region,
+            max_tokens_default=8192,
+            enable_thinking=args.enable_thinking,
+        )
+        if bedrock_api_key:
+            print(f"Using Bedrock bearer token auth: {mask_secret(bedrock_api_key)}")
+        else:
+            print("Using default AWS credential chain for Bedrock auth")
+        print(
+            "Using AWS Bedrock: "
+            f"{generator.model_id} @ {args.bedrock_region} | "
+            f"thinking={'auto' if args.enable_thinking is None else args.enable_thinking}"
+        )
+    elif selected_backend == "vllm":
+        from vllm_generator import VLLMOpenAIAsyncGenerator
+
+        # If user didn't override --model_name_or_path, fall back to auto-resolve
+        # from the vLLM /v1/models endpoint instead of passing a Bedrock model ID.
+        vllm_model = args.model_name_or_path
+        if vllm_model == DEFAULT_BEDROCK_MODEL_ID:
+            vllm_model = None
+        generator = VLLMOpenAIAsyncGenerator(
+            model_name=vllm_model,
+            base_url=args.api_base_url,
+            api_key=args.api_key,
+            max_tokens_default=8192,
+            enable_thinking=args.enable_thinking,
+        )
+        print(
+            "Using vLLM OpenAI-compatible API: "
+            f"{generator.base_url} | model={generator.model_name or 'auto'} | "
+            f"api_key={mask_optional_secret(args.api_key)} | "
+            f"thinking={'auto' if args.enable_thinking is None else args.enable_thinking}"
+        )
     else:
-        print("Using default AWS credential chain for Bedrock auth")
-    print(
-        "Using AWS Bedrock: "
-        f"{generator.model_id} @ {args.bedrock_region} | "
-        f"thinking={'auto' if args.enable_thinking is None else args.enable_thinking}"
-    )
+        raise NotImplementedError(f"Unsupported backend: {selected_backend}")
 
     browser_pool = BrowserPool(args.search_url, browser_backend=args.browser_backend)
 
