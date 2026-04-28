@@ -20,14 +20,14 @@ from pathlib import Path
 # Defaults
 # ---------------------------------------------------------------------------
 DEFAULT_RESULTS = (
-    "./openresearcher_ehr/results/ehrbench_1800_qwen3_5_35b_a3b_deepmed_6task_sft_epoch2/results.jsonl"
+    # "./openresearcher_ehr/results/ehrbench_1800_qwen3_5_35b_a3b_deepmed_6task_sft_epoch2/results.jsonl"
     # "./openresearcher_ehr/results/train_trajectory_3k_4ep_nonthinking_done3ep/results.jsonl"
-    # "./openresearcher_ehr/results/subset_500_deepmed_6task_sft_epoch2/results.jsonl"
+    "./openresearcher_ehr/results/subset_500_qwen3_5_35b_a3b_deepmed_6task_sft_epoch2_nothinking/results.jsonl"
 )
 DEFAULT_BENCHMARK = (
-    './data/EHR-Bench/ehr_bench_sampled_40_per_task.json'
+    # './data/EHR-Bench/ehr_bench_sampled_40_per_task.json'
     # "./data/AgentEHR-Bench/MIMICIVAgentBench/train/mix_training_3k.json"
-    # "./data/AgentEHR-Bench/MIMICIVAgentBench/common/subset_500/merged_subsets_500.json"
+    "./data/AgentEHR-Bench/MIMICIVAgentBench/common/subset_500/merged_subsets_500.json"
 )
 
 
