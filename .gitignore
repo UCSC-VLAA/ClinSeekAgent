@@ -3,9 +3,17 @@ data
 data/
 datasets/
 
-# Model weights
-models
-models/
+# Model weights (root-anchored so verl/verl/models/ and similar Python
+# packages named "models" still get tracked).
+/models
+/models/
+# verl/verl/models/ is a large Python package (64 files) from the upstream
+# verl tree. We only track the single file we patch in this repo — the
+# Qwen3.5-MoE Ulysses branch in monkey_patch.py — via the whitelist below.
+verl/verl/models/**
+!verl/verl/models/
+!verl/verl/models/transformers/
+!verl/verl/models/transformers/monkey_patch.py
 logs/
 *.safetensors
 *.bin

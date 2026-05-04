@@ -420,10 +420,22 @@ class RayPPOTrainer:
             if len(v) == n:
                 base_data[k] = v
 
+        def _json_default(o):
+            # numpy scalars (int64/float64/bool_) aren't JSON-serializable.
+            try:
+                import numpy as _np
+                if isinstance(o, (_np.integer, _np.floating, _np.bool_)):
+                    return o.item()
+                if isinstance(o, _np.ndarray):
+                    return o.tolist()
+            except ImportError:
+                pass
+            return str(o)
+
         lines = []
         for i in range(n):
             entry = {k: v[i] for k, v in base_data.items()}
-            lines.append(json.dumps(entry, ensure_ascii=False))
+            lines.append(json.dumps(entry, ensure_ascii=False, default=_json_default))
 
         with open(filename, "w") as f:
             f.write("\n".join(lines) + "\n")
@@ -1571,9 +1583,14 @@ class RayPPOTrainer:
                         actor_output_metrics = reduce_metrics(actor_output.meta_info["metrics"])
                         metrics.update(actor_output_metrics)
 
-                    # Log rollout generations if enabled
+                    # Log rollout generations if enabled. Gated by
+                    # `trainer.rollout_dump_freq` (default 1 = every step) so we
+                    # can cheaply dump e.g. every 5 steps without burying disk.
                     rollout_data_dir = self.config.trainer.get("rollout_data_dir", None)
-                    if rollout_data_dir:
+                    rollout_dump_freq = int(self.config.trainer.get("rollout_dump_freq", 1) or 1)
+                    if rollout_data_dir and (
+                        self.global_steps % rollout_dump_freq == 0 or is_last_step
+                    ):
                         self._log_rollout_data(batch, reward_extra_infos_dict, timing_raw, rollout_data_dir)
 
                 # validate

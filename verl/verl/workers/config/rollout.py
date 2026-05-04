@@ -56,7 +56,12 @@ class DiffusionSamplingConfig(BaseConfig):
 
 @dataclass
 class MultiTurnConfig(BaseConfig):
-    _mutable_fields = {"max_assistant_turns", "max_user_turns"}
+    _mutable_fields = {
+        "max_assistant_turns",
+        "max_user_turns",
+        "context_reset_enabled",
+        "context_reset_threshold",
+    }
 
     enable: bool = False
     max_assistant_turns: Optional[int] = None
@@ -70,6 +75,61 @@ class MultiTurnConfig(BaseConfig):
     tokenization_sanity_check_mode: str = "strict"
     format: str = "hermes"
     num_repeat_rollouts: Optional[int] = None
+    # Context management (ported from OpenResearcher researcher_v2)
+    # When len(generation_prompt) >= threshold, drop intermediate tool-call history
+    # from the vLLM prompt while keeping the full trajectory in prompt_ids for training.
+    # context_reset_threshold=0 disables the mechanism at runtime even if enabled=True.
+    context_reset_enabled: bool = False
+    context_reset_threshold: int = 0
+    context_reset_message: str = (
+        "[Context was reset to manage length. The original question is above. "
+        "Continue your research — you may search again or submit your answer.]"
+    )
+    # Optional summarizer that runs before the reset fires: when enabled, calls
+    # Claude Haiku via AWS Bedrock to condense the discarded history into bullet
+    # points of key findings, then uses that summary as the reset note. Falls
+    # back to the static context_reset_message above if the call fails.
+    # Credentials: context_reset_summarizer_aws_{key,secret} OR env
+    # CONTEXT_SUMMARIZER_AWS_ACCESS_KEY_ID / _SECRET_ACCESS_KEY OR
+    # CONTEXT_SUMMARIZER_BEDROCK_KEY (base64 "key_id:secret" combo).
+    context_reset_summarizer_enabled: bool = False
+    context_reset_summarizer_model: str = "global.anthropic.claude-haiku-4-5-20251001-v1:0"
+    context_reset_summarizer_region: str = "us-east-1"
+    context_reset_summarizer_max_tokens: int = 1024
+    context_reset_summarizer_aws_key: Optional[str] = None
+    context_reset_summarizer_aws_secret: Optional[str] = None
+    # Naive sliding-window reset (v5m): when the generation prompt crosses
+    # `context_reset_threshold`, rebuild it as
+    #   [system, original_user, *messages[-context_reset_keep_last_rounds*2:]]
+    # dropping the middle rounds. Cheaper than the summarizer and keeps the
+    # most recent tool/assistant turns verbatim. USED ONLY WHEN
+    # context_reset_mode == "sliding_window".
+    context_reset_keep_last_rounds: int = 4
+    # Max number of context resets per rollout. When the count is hit, the
+    # next overflow falls through to `_maybe_force_answer` (last resort).
+    context_reset_max_count: int = 10
+    # Which reset body to build on overflow:
+    #   "summarizer" — Claude-Haiku summary or static fallback note (v5h default,
+    #                  best for keeping rollouts submitting).
+    #   "sliding_window" — keep system + user + last N rounds verbatim (v5m).
+    context_reset_mode: str = "summarizer"
+    # Soft token-count cap for force-answer. When response_mask length crosses
+    # this threshold, the next turn-limit event injects a finish-tool prefix
+    # so the model spends its remaining (response_length − threshold) tokens
+    # emitting the answer rather than continuing to explore. 0 disables
+    # (force-answer only fires at response_length exhaustion, the old
+    # behavior).
+    force_answer_token_threshold: int = 0
+    # Force-answer variant for SFT-ed models that submit via ehr.finish tool
+    # call rather than a free-text <answer>…</answer> tag. When enabled, the
+    # last-resort _maybe_force_answer path injects a Qwen3-XML tool-call
+    # prefix (…<tool_call><function=ehr.finish>…<parameter=answer>) instead
+    # of the <answer>… text prefix. Leave disabled for base / non-SFT models.
+    force_finish_tool_enabled: bool = False
+    force_finish_tool_name: str = "ehr.finish"
+    # SFT-ed Qwen3.5 model was trained with `response` as the finish-tool
+    # argument name (not `answer`). Default matches the SFT emission format.
+    force_finish_tool_param: str = "response"
 
 
 @dataclass
