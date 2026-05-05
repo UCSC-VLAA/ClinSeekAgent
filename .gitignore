@@ -14,6 +14,10 @@ verl/verl/models/**
 !verl/verl/models/
 !verl/verl/models/transformers/
 !verl/verl/models/transformers/monkey_patch.py
+# Other upstream verl subtrees that happen to contain a "models/" dir —
+# ignore fully (we don't patch anything inside them).
+verl/tests/models/
+verl/verl/experimental/vla/models/
 logs/
 *.safetensors
 *.bin
