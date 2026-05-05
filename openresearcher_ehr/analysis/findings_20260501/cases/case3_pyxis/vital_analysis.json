@@ -1,0 +1,52 @@
+{
+  "case_id": "ehr_bench_decision_making_11698",
+  "task": "pyxis",
+  "gold": [
+    "Piperacilli 4.5g/100mL 100mL BAG"
+  ],
+  "final_answer": [
+    "MetroNIDAZ 500mg/100mL 100mL BAG"
+  ],
+  "mode": "lost_the_answer",
+  "misleading_calls": [
+    {
+      "index": 38,
+      "name": "ehr.run_sql_query",
+      "evidence": "MetroNIDAZOLE administered during prior admission (hadm_id 23137539) on 2158-06-30",
+      "misused_as": "Agent used prior admission's metronidazole use to infer it would be the next pyxis dispense, ignoring current visit's actual pyxis data."
+    },
+    {
+      "index": 57,
+      "name": "browser.search",
+      "evidence": "Search results about empiric antibiotics for intra-abdominal infections mentioning metronidazole",
+      "misused_as": "Agent used clinical guidelines suggesting metronidazole for intra-abdominal infections to override the actual pyxis dispensing pattern already visible in the data."
+    },
+    {
+      "index": 58,
+      "name": "browser.open",
+      "evidence": "UCSF guideline listing metronidazole as part of empiric regimen for peritonitis",
+      "misused_as": "Agent used this guideline to justify predicting metronidazole as next pyxis item instead of following the actual dispensing sequence in the EHR."
+    },
+    {
+      "index": 52,
+      "name": "ehr.run_sql_query",
+      "evidence": "Prior admission prescriptions showing MetroNIDAZOLE IV 500mg during June hospitalization",
+      "misused_as": "Agent extrapolated from prior admission's antibiotic regimen to predict current pyxis dispense, ignoring that piperacillin-tazobactam was already pulled."
+    }
+  ],
+  "could_have_saved_it": [
+    {
+      "index": 3,
+      "name": "ehr.get_latest_records",
+      "evidence": "Pyxis shows Piperacilli 4.5g/100mL 100mL BAG dispensed at 18:56 with med_rn=3",
+      "ignored_because": "Agent saw this data but interpreted the task as predicting a NEW medication not yet dispensed, rather than the next suggestion from already-dispensed items."
+    },
+    {
+      "index": 49,
+      "name": "ehr.run_sql_query",
+      "evidence": "Full pyxis for stay 38692269 shows Vancomycin and Piperacillin already dispensed at 18:56",
+      "ignored_because": "Agent had the complete pyxis record but chose to predict a medication not in the pyxis, reasoning clinically rather than following dispensing patterns."
+    }
+  ],
+  "root_cause_or_summary": "The agent saw Piperacillin-Tazobactam already dispensed in pyxis at 18:56 but misunderstood the task as predicting a new, undispensed medication. It used prior admission history and clinical guidelines about intra-abdominal infections to predict MetroNIDAZOLE instead of recognizing the next pyxis suggestion was the already-dispensed Piperacillin."
+}

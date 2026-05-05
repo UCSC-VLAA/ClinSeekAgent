@@ -1,0 +1,156 @@
+<!DOCTYPE html><html><body><table class='tbl'>
+<thead><tr>
+<th rowspan='2'>Model</th>
+<th colspan='3'>risk_prediction (n=720)</th>
+<th colspan='3'>decision_making (n=1080)</th>
+<th colspan='3'>overall (n=1800)</th>
+</tr><tr>
+<th>ClinSeek</th><th>Reasoning</th><th>Δ (ClinSeek − Rsn)</th>
+<th>ClinSeek</th><th>Reasoning</th><th>Δ (ClinSeek − Rsn)</th>
+<th>ClinSeek</th><th>Reasoning</th><th>Δ (ClinSeek − Rsn)</th>
+</tr></thead><tbody>
+<tr>
+<td>Claude Opus 4.6</td>
+<td class='num'>90.7</td>
+<td class='num'>81.0</td>
+<td class='num pos'>+9.7</td>
+<td class='num'>44.8</td>
+<td class='num'>45.9</td>
+<td class='num neg'>-1.1</td>
+<td class='num'>63.2</td>
+<td class='num'>60.0</td>
+<td class='num pos'>+3.2</td>
+</tr>
+<tr>
+<td>Claude Sonnet 4.6</td>
+<td class='num'>90.0</td>
+<td class='num'>77.5</td>
+<td class='num pos'>+12.5</td>
+<td class='num'>35.9</td>
+<td class='num'>42.6</td>
+<td class='num neg'>-6.8</td>
+<td class='num'>57.5</td>
+<td class='num'>56.6</td>
+<td class='num pos'>+0.9</td>
+</tr>
+<tr>
+<td>EHR-R1-72B</td>
+<td class='num'>—</td>
+<td class='num'>67.1</td>
+<td class='num '>—</td>
+<td class='num'>—</td>
+<td class='num'>45.2</td>
+<td class='num '>—</td>
+<td class='num'>—</td>
+<td class='num'>53.9</td>
+<td class='num '>—</td>
+</tr>
+<tr>
+<td>GLM-4.7</td>
+<td class='num'>75.1</td>
+<td class='num'>70.4</td>
+<td class='num pos'>+4.7</td>
+<td class='num'>23.1</td>
+<td class='num'>38.6</td>
+<td class='num neg'>-15.5</td>
+<td class='num'>43.9</td>
+<td class='num'>51.3</td>
+<td class='num neg'>-7.4</td>
+</tr>
+<tr>
+<td>Qwen3.5-35B-A3B</td>
+<td class='num'>84.4</td>
+<td class='num'>73.6</td>
+<td class='num pos'>+10.8</td>
+<td class='num'>22.0</td>
+<td class='num'>29.0</td>
+<td class='num neg'>-7.0</td>
+<td class='num'>47.0</td>
+<td class='num'>46.8</td>
+<td class='num pos'>+0.1</td>
+</tr>
+<tr>
+<td>Gemma-4-26B-A4B-it</td>
+<td class='num'>83.5</td>
+<td class='num'>78.6</td>
+<td class='num pos'>+4.9</td>
+<td class='num'>17.3</td>
+<td class='num'>27.8</td>
+<td class='num neg'>-10.5</td>
+<td class='num'>43.8</td>
+<td class='num'>48.1</td>
+<td class='num neg'>-4.3</td>
+</tr>
+<tr>
+<td>MiniMax M2.5</td>
+<td class='num'>86.7</td>
+<td class='num'>68.4</td>
+<td class='num pos'>+18.3</td>
+<td class='num'>21.0</td>
+<td class='num'>26.3</td>
+<td class='num neg'>-5.3</td>
+<td class='num'>47.3</td>
+<td class='num'>43.1</td>
+<td class='num pos'>+4.2</td>
+</tr>
+<tr>
+<td>Kimi K2.5</td>
+<td class='num'>65.0</td>
+<td class='num'>79.9</td>
+<td class='num neg'>-14.9</td>
+<td class='num'>19.8</td>
+<td class='num'>28.8</td>
+<td class='num neg'>-9.1</td>
+<td class='num'>37.9</td>
+<td class='num'>49.2</td>
+<td class='num neg'>-11.4</td>
+</tr>
+<tr>
+<td>Qwen3-VL-235B</td>
+<td class='num'>67.9</td>
+<td class='num'>71.0</td>
+<td class='num neg'>-3.1</td>
+<td class='num'>19.1</td>
+<td class='num'>33.4</td>
+<td class='num neg'>-14.3</td>
+<td class='num'>38.6</td>
+<td class='num'>48.4</td>
+<td class='num neg'>-9.8</td>
+</tr>
+<tr>
+<td>gpt-oss-120b</td>
+<td class='num'>75.4</td>
+<td class='num'>74.0</td>
+<td class='num pos'>+1.4</td>
+<td class='num'>16.6</td>
+<td class='num'>22.3</td>
+<td class='num neg'>-5.7</td>
+<td class='num'>40.1</td>
+<td class='num'>43.0</td>
+<td class='num neg'>-2.9</td>
+</tr>
+<tr>
+<td>MedGemma-27B-it</td>
+<td class='num'>—</td>
+<td class='num'>65.0</td>
+<td class='num '>—</td>
+<td class='num'>—</td>
+<td class='num'>25.2</td>
+<td class='num '>—</td>
+<td class='num'>—</td>
+<td class='num'>41.1</td>
+<td class='num '>—</td>
+</tr>
+<tr>
+<td>EHR-R1-8B</td>
+<td class='num'>—</td>
+<td class='num'>64.0</td>
+<td class='num '>—</td>
+<td class='num'>—</td>
+<td class='num'>23.4</td>
+<td class='num '>—</td>
+<td class='num'>—</td>
+<td class='num'>39.7</td>
+<td class='num '>—</td>
+</tr>
+</tbody></table></body></html>

@@ -132,6 +132,142 @@ def normalize_tool_calls(tool_calls: List[Dict[str, Any]] | None) -> List[Dict[s
     return normalized_tool_calls
 
 
+def _extract_embedded_response_json(text: str) -> List[str] | None:
+    """Look for a JSON object like {"response": [...]} embedded in free text.
+
+    OSS models (gpt-oss-120b, GLM, Qwen) often emit the ehr.finish payload
+    inline in plain content when the harness tool-call parser misfires —
+    e.g. `<final_output to=functions.ehr.finish <|message|>{"response":["yes"]}`
+    or just `{"response":["Sputum Color"]}` after a reasoning block. Scan
+    through every balanced `{ ... }` substring, json.loads it, and return
+    the first `response` list we find. Return None if nothing usable.
+    """
+    if not text or "response" not in text:
+        return None
+
+    def _unpack(obj: Any) -> List[str] | None:
+        if not isinstance(obj, dict) or "response" not in obj:
+            return None
+        resp = obj["response"]
+        if isinstance(resp, list):
+            items = [str(x).strip() for x in resp if str(x).strip()]
+            return items or None
+        if isinstance(resp, str) and resp.strip():
+            return [resp.strip()]
+        return None
+
+    # Walk the string, matching balanced braces. We scan left-to-right,
+    # stopping at the first parseable object that has a "response" field.
+    depth = 0
+    start = -1
+    last_start = -1
+    for i, ch in enumerate(text):
+        if ch == "{":
+            if depth == 0:
+                start = i
+                last_start = i
+            depth += 1
+        elif ch == "}":
+            if depth > 0:
+                depth -= 1
+                if depth == 0 and start >= 0:
+                    blob = text[start : i + 1]
+                    try:
+                        obj = json.loads(blob)
+                    except Exception:
+                        start = -1
+                        continue
+                    result = _unpack(obj)
+                    if result is not None:
+                        return result
+                    start = -1
+
+    # Fallback for unbalanced tail like `<final_answer>{ "response": ["no"]`
+    # (no closing brace). Try to complete the substring from the last open
+    # brace to end-of-string by appending closers and re-parsing.
+    if last_start >= 0 and depth > 0:
+        tail = text[last_start:].rstrip()
+        for suffix in ("}", "]}", "]]}", "\"]}"):
+            try:
+                obj = json.loads(tail + suffix)
+            except Exception:
+                continue
+            result = _unpack(obj)
+            if result is not None:
+                return result
+    return None
+
+
+def _salvage_plain_text_answer(content: str) -> List[str]:
+    """Turn a plain-text final answer into a list the ehr.finish tool expects.
+
+    Strategy (first match wins):
+      1. Parse any embedded `{"response": [...]}` JSON object.
+      2. Fall back to splitting on newlines and stripping bullets.
+      3. Final fallback: return the whole stripped string as a single item.
+    """
+    text = (content or "").strip()
+    if not text:
+        return []
+
+    # 1. embedded JSON envelope (most common OSS failure)
+    resp = _extract_embedded_response_json(text)
+    if resp:
+        return resp
+
+    # 2. bullet / newline split — mimic MM driver salvage
+    items: List[str] = []
+    for raw in text.splitlines():
+        cleaned = raw.strip().lstrip("-*•").strip()
+        if cleaned:
+            items.append(cleaned)
+    if items:
+        return items
+
+    return [text]
+
+
+def _synthesize_finish_tool_call(
+    messages: List[Dict[str, Any]],
+    content: str,
+    qid: str,
+    round_num: int,
+) -> bool:
+    """Rewrite the last assistant turn to include a synthetic ehr.finish call.
+
+    Returns True if a synthesis happened. The caller should still break out
+    of the action loop after this — we're marking the end of the run, not
+    continuing it.
+    """
+    items = _salvage_plain_text_answer(content)
+    if not items:
+        return False
+
+    synth_call = {
+        "id": f"synthetic_finish_{uuid.uuid4().hex[:8]}",
+        "type": "function",
+        "function": {
+            "name": "ehr.finish",
+            "arguments": json.dumps({"response": items}),
+        },
+    }
+    messages[-1]["tool_calls"] = [synth_call]
+    messages.append(
+        {
+            "role": "tool",
+            "content": "Finish (synthesized from plain-text answer)",
+            "tool_call_id": synth_call["id"],
+        }
+    )
+    preview = json.dumps(items)[:160]
+    print(
+        f"[qid={qid}] ✅ Round {round_num}: synthesized ehr.finish "
+        f"from plain-text answer ({len(items)} item(s)): {preview}",
+        flush=True,
+    )
+    return True
+
+
 def truncate_tool_result(result: Any, max_chars: int) -> str:
     """Cap tool results before sending them back to the model."""
     if isinstance(result, str):
@@ -482,6 +618,17 @@ async def run_one_native(
                     "stopping without a reminder",
                     flush=True,
                 )
+                # Salvage: OSS models (gpt-oss, GLM, Qwen, Kimi) often emit
+                # the final answer as plain text when their native tool-call
+                # format confuses Bedrock's shim. Synthesize an ehr.finish so
+                # downstream scoring can extract the prediction instead of
+                # marking the row incomplete. Some models (notably gpt-oss)
+                # put the answer in reasoning_content, so try both sources
+                # and pick whichever carries an embedded JSON envelope.
+                combined = "\n\n".join(
+                    p for p in (content, reasoning_content) if p
+                ).strip()
+                _synthesize_finish_tool_call(messages, combined, qid, round_num)
                 break
 
             finish_tool_called = False

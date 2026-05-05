@@ -1,0 +1,61 @@
+{
+  "case_id": "medmod_in-hospital-mortality_test_32646816_0",
+  "task": "medmod_in_hospital_mortality",
+  "gold": [
+    {
+      "name": "no"
+    }
+  ],
+  "final_answer": {
+    "response": [
+      "no"
+    ]
+  },
+  "mode": "won_the_answer",
+  "vital_calls": [
+    {
+      "index": 14,
+      "name": "ehr.run_sql_query",
+      "evidence": "Vital signs: HR 107, BP 145/78, SpO2 92, RR 19 - stable hemodynamics without shock",
+      "used_for": "Confirmed hemodynamic stability suggesting patient not actively dying"
+    },
+    {
+      "index": 23,
+      "name": "ehr.run_sql_query",
+      "evidence": "RASS 0 (Alert and calm) at 2170-03-21, GCS 15 (Spontaneous/Oriented/Obeys Commands)",
+      "used_for": "Showed neurological improvement - patient alert and oriented, not deteriorating"
+    },
+    {
+      "index": 24,
+      "name": "ehr.run_sql_query",
+      "evidence": "GCS improving: from ETT/To Pain on 3/19-20 to Spontaneous/Oriented/Obeys on 3/20-21",
+      "used_for": "Demonstrated clear trajectory of neurological recovery over 2 days"
+    },
+    {
+      "index": 27,
+      "name": "ehr.run_sql_query",
+      "evidence": "O2 delivery changed from endotracheal tube to face tent/aerosol by 3/20 12:00",
+      "used_for": "Confirmed successful extubation - respiratory improvement trajectory"
+    },
+    {
+      "index": 34,
+      "name": "ehr.run_sql_query",
+      "evidence": "Temperature 98.4F, afebrile despite leukocytosis",
+      "used_for": "Showed no fever, reducing concern about active uncontrolled sepsis"
+    },
+    {
+      "index": 25,
+      "name": "ehr.run_sql_query",
+      "evidence": "No vasopressors (norepinephrine, vasopressin, etc.) found",
+      "used_for": "Confirmed no hemodynamic support needed - not in septic shock"
+    }
+  ],
+  "non_vital_summary": "Other calls loaded EHR, explored table schemas, identified lab item IDs, checked CXR images, looked for diagnoses/cancer history, and investigated data type issues with stay_id field.",
+  "reasoning_failure_analysis": {
+    "final_answer": "yes",
+    "failure_type": "missing_evidence_in_prompt",
+    "where_it_went_wrong": "The reasoning model saw alarming labs (WBC 31.7, metabolic acidosis, anemia) and multiple ICU admissions but lacked the clinical trajectory data showing extubation, improving GCS, stable vitals, no vasopressors - all indicating recovery rather than decline.",
+    "missed_evidence": "GCS improvement to 15, RASS 0, successful extubation to face tent, no vasopressors, stable vital signs - all showing recovery trajectory absent from curated prompt",
+    "pull_quote": "This patient has multiple recurre... WBC 31.7 (markedly elevated - severe leukocytosis)... 100% neutrophils with no lymphocytes/monocytes (left shift, concerning for severe infection/sepsis)"
+  }
+}

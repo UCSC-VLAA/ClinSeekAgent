@@ -1,0 +1,56 @@
+{
+  "diagnoses_ccs": {
+    "n": 100,
+    "baseline_f1": 36.63,
+    "sft_f1": 55.37,
+    "delta_f1": 18.74,
+    "sft_wins": 75,
+    "ties": 4,
+    "sft_losses": 21
+  },
+  "labevents": {
+    "n": 100,
+    "baseline_f1": 17.74,
+    "sft_f1": 38.5,
+    "delta_f1": 20.76,
+    "sft_wins": 78,
+    "ties": 2,
+    "sft_losses": 20
+  },
+  "microbiologyevents": {
+    "n": 100,
+    "baseline_f1": 16.18,
+    "sft_f1": 27.62,
+    "delta_f1": 11.44,
+    "sft_wins": 55,
+    "ties": 31,
+    "sft_losses": 14
+  },
+  "procedures_ccs": {
+    "n": 100,
+    "baseline_f1": 21.91,
+    "sft_f1": 31.73,
+    "delta_f1": 9.82,
+    "sft_wins": 62,
+    "ties": 12,
+    "sft_losses": 26
+  },
+  "transfers": {
+    "n": 100,
+    "baseline_f1": 18.05,
+    "sft_f1": 16.67,
+    "delta_f1": -1.38,
+    "sft_wins": 23,
+    "ties": 47,
+    "sft_losses": 30
+  },
+  "__overall__": {
+    "n": 500,
+    "baseline_f1": 22.1,
+    "sft_f1": 33.98,
+    "delta_f1": 11.87,
+    "sft_wins": 293,
+    "ties": 96,
+    "sft_losses": 111
+  }
+}

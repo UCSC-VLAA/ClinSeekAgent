@@ -1,0 +1,89 @@
+{
+  "case_id": "medmod_phenotyping_test_38131454_130.604444",
+  "task": "medmod_phenotyping",
+  "gold": [
+    {
+      "name": "Complications of surgical procedures or medical care"
+    },
+    {
+      "name": "Fluid and electrolyte disorders"
+    },
+    {
+      "name": "Pneumonia (except that caused by tuberculosis or sexually transmitted disease)"
+    },
+    {
+      "name": "Septicemia (except in labor)"
+    },
+    {
+      "name": "Shock"
+    }
+  ],
+  "final_answer": [
+    "Septicemia (except in labor)",
+    "Shock",
+    "Pleurisy; pneumothorax; pulmonary collapse",
+    "Pneumonia (except that caused by tuberculosis or sexually transmitted disease)",
+    "Respiratory failure; insufficiency; arrest (adult)",
+    "Fluid and electrolyte disorders",
+    "Complications of surgical procedures or medical care"
+  ],
+  "mode": "won_the_answer",
+  "vital_calls": [
+    {
+      "index": 11,
+      "name": "ehr.run_sql_query",
+      "evidence": "Vital signs: HR >100 (tachycardia), MAP as low as 52, fevers up to 40\u00b0C",
+      "used_for": "Identified sepsis/shock indicators: tachycardia, hypotension, fever"
+    },
+    {
+      "index": 27,
+      "name": "ehr.run_sql_query",
+      "evidence": "Vancomycin trough levels 9.2-11.3 during stay, confirming IV antibiotic treatment",
+      "used_for": "Confirmed active infection treatment supporting septicemia phenotype"
+    },
+    {
+      "index": 29,
+      "name": "ehr.run_sql_query",
+      "evidence": "Labs: low albumin 2.1-2.2, low Hgb 7.5-10, low platelets, elevated lactate 2.2",
+      "used_for": "Identified fluid/electrolyte disorders, organ dysfunction markers"
+    },
+    {
+      "index": 30,
+      "name": "ehr.run_sql_query",
+      "evidence": "Fevers: 40\u00b0C on 7/26, 103.8\u00b0F on 7/27, 102\u00b0F on 7/28",
+      "used_for": "Confirmed high fevers supporting septicemia diagnosis"
+    },
+    {
+      "index": 43,
+      "name": "ehr.run_sql_query",
+      "evidence": "MAP <65 on many occasions (down to 51), persistent hypotension",
+      "used_for": "Confirmed shock phenotype based on sustained hypotension"
+    },
+    {
+      "index": 77,
+      "name": "browser.open",
+      "evidence": "25 HCUP CCS phenotype categories listed including septicemia, shock, complications",
+      "used_for": "Identified correct phenotype vocabulary from Harutyunyan benchmark"
+    },
+    {
+      "index": 80,
+      "name": "ehr.get_candidates_by_keyword",
+      "evidence": "Matched 'Septicemia (except in labor)' CCS candidate",
+      "used_for": "Confirmed exact phenotype name for septicemia"
+    },
+    {
+      "index": 31,
+      "name": "ehr.run_sql_query",
+      "evidence": "Patient has colostomy/ileostomy, indicating prior surgical procedure",
+      "used_for": "Supported 'Complications of surgical procedures or medical care' phenotype"
+    }
+  ],
+  "non_vital_summary": "Scouting calls explored table schemas, output events, trach/chest tube history, skin assessments, lung sounds, edema, stool/GI findings, and browsed web for phenotype definitions. Most were exploratory or confirmatory without yielding decisive new evidence.",
+  "reasoning_failure_analysis": {
+    "final_answer": "['Atelectasis', 'Pleural Effusion', 'Support Devices']",
+    "failure_type": "missing_evidence_in_prompt",
+    "where_it_went_wrong": "The reasoning model only saw the last 80 chart events (mostly recent vitals near discharge) and the CXR. It lacked earlier vital signs showing fevers/hypotension, lab values (lactate, WBC, albumin, electrolytes), vancomycin levels, and the HCUP CCS phenotype vocabulary. It defaulted to radiographic findings only.",
+    "missed_evidence": "Earlier fevers (40\u00b0C), persistent MAP<65, vancomycin treatment, lab values (lactate, electrolytes, albumin), ostomy/surgical history, and the 25 HCUP CCS phenotype category names were all absent from the curated prompt.",
+    "pull_quote": "Tachycardia: Multiple episodes of sinus tachycardia (HR >100) ... Central line (multi-lumen): In place, confirmed by X-ray ... Gastric tube: Significant output (600 mL x2)"
+  }
+}

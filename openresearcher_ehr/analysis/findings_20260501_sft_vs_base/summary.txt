@@ -1,0 +1,13 @@
+Aligned Qwen3.5-35B-A3B baseline vs SFT (distilled from strong proprietary model)
+baseline run : upload/subsets_600_qwen3_5_35b_a3b/per_question.jsonl
+sft      run : upload/subset_500_qwen3_5_35b_a3b_deepmed_6task_sft_epoch2_nothinking/per_question.jsonl
+common qids  : 500 across 5 tasks (100 each)
+dropped      : baseline-only 0, sft-only 0
+
+task                      n   base F1    sft F1     Δ F1   sft wins   ties   sft loss
+diagnoses_ccs           100     36.63     55.37   +18.74         75      4         21
+labevents               100     17.74     38.50   +20.76         78      2         20
+microbiologyevents      100     16.18     27.62   +11.44         55     31         14
+procedures_ccs          100     21.91     31.73    +9.82         62     12         26
+transfers               100     18.05     16.67    -1.38         23     47         30
+__overall__             500     22.10     33.98   +11.87        293     96        111
