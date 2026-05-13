@@ -49,7 +49,7 @@ if [[ -n "${BEDROCK_API_KEY}" ]]; then
     BEDROCK_KEY_FLAG+=(--bedrock_api_key "$BEDROCK_API_KEY")
 fi
 
-"$SCRIPT_DIR/.venv/bin/python" "$SCRIPT_DIR/deploy_agent.py" \
+"$SCRIPT_DIR/.venv312/bin/python" "$SCRIPT_DIR/deploy_agent.py" \
     --backend bedrock \
     --bedrock_model_id "$BEDROCK_MODEL_ID" \
     --bedrock_region "$BEDROCK_REGION" \

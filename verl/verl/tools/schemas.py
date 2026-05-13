@@ -15,19 +15,25 @@
 import json
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class OpenAIFunctionPropertySchema(BaseModel):
     """The schema of a parameter in OpenAI format."""
 
-    type: str
+    model_config = ConfigDict(extra="allow")
+
+    # `type` may be either a single JSON-schema type string (e.g. "string") or a
+    # list of types for union-typed properties (e.g. ["integer", "string"]).
+    type: str | list[str]
     description: str | None = None
     enum: list[str] | None = None
 
 
 class OpenAIFunctionParametersSchema(BaseModel):
     """The schema of parameters in OpenAI format."""
+
+    model_config = ConfigDict(extra="allow")
 
     type: str
     properties: dict[str, OpenAIFunctionPropertySchema]
@@ -36,6 +42,8 @@ class OpenAIFunctionParametersSchema(BaseModel):
 
 class OpenAIFunctionSchema(BaseModel):
     """The schema of a function in OpenAI format."""
+
+    model_config = ConfigDict(extra="allow")
 
     name: str
     description: str

@@ -1,18 +1,34 @@
 """Score a multimodal-pipeline results.jsonl against ground-truth labels.
 
-Routing by gold label shape:
-  - len(gold) == 1  →  LLM judge (Claude Sonnet 4.6 on Bedrock). Picks one of
-                       six templates based on gold content + task: yesno,
-                       count, date_time, id, label_name, generic_string.
-  - len(gold) >= 2  →  Rule-based set F1 / precision / recall / subset
-                       accuracy over the normalized `name` strings.
+End-to-end scorer for the multimodal EHR benchmark. Handles:
+
+  1. Routing by gold label shape:
+       - len(gold) == 1  →  LLM judge (Claude Sonnet 4.6 on Bedrock).
+                            Picks one of six templates based on gold content
+                            + task: yesno, count, date_time, id, label_name,
+                            generic_string.
+       - len(gold) >= 2  →  Rule-based set F1 / precision / recall / subset
+                            accuracy over the normalized `name` strings.
+
+  2. (Optional, default ON for len>=2 rows) Vocabulary normalization:
+       For tasks that draw gold labels from a closed vocabulary (CheXpert
+       findings, HCUP phenotypes, …), each predicted string is mapped to
+       the nearest gold-vocab entry via sentence-transformer cosine
+       similarity before the set-overlap metric runs. Below
+       `--vocab-threshold`, the raw prediction is kept.
+
+  3. Unified F1: the final summary reports a single per-task F1 that folds
+       len=1 judge verdicts (correct → F1=1, else F1=0) into the same
+       aggregator as len>=2 set metrics.
 
 Outputs:
   <output_dir>/scored.jsonl     One record per sample with fields:
       qid, task, scope, len_gold, judge_subtype (if len=1),
       prediction, gold_names, correct (bool for len=1),
-      precision, recall, f1, subset_match (for len>=2), status.
-  <output_dir>/summary.json     Aggregate stats per task + overall.
+      precision, recall, f1, accuracy, subset_match,
+      prediction_strs_mapped + mapping_similarity (len>=2, if vocab on).
+  <output_dir>/summary.json     Aggregate stats per task + overall +
+                                per_task_unified (len1+len2plus folded).
   <output_dir>/summary.md       Human-readable companion.
 
 The scorer is driven by Bedrock creds (same auth as deploy_agent_mm.py):
@@ -33,8 +49,11 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-if str(SCRIPT_DIR) not in sys.path:
-    sys.path.insert(0, str(SCRIPT_DIR))
+# Look in this dir + parent so the scorer can live at
+# `openresearcher_ehr/scorer_mm.py` or `openresearcher_ehr/helper/scorer_mm.py`.
+for _candidate in (SCRIPT_DIR, SCRIPT_DIR.parent):
+    if str(_candidate) not in sys.path:
+        sys.path.insert(0, str(_candidate))
 
 import bedrock_generator as _bgen
 # Runtime shim: bedrock_generator._chat_completion_anthropic references a
@@ -95,9 +114,25 @@ def extract_prediction(row: Dict[str, Any]) -> Tuple[Optional[Any], str]:
 
 
 def _normalize_name(s: Any) -> str:
+    """Raw normalization — strip + lowercase only.
+
+    Used by the raw set-F1 path. Historically this was the only normalizer;
+    kept identical so raw metrics stay byte-comparable with older runs.
+    """
     if s is None:
         return ""
     return str(s).strip().lower()
+
+
+def _normalize_name_collapse(s: Any) -> str:
+    """Same as `_normalize_name` but also collapses internal whitespace.
+
+    Used after vocabulary mapping so e.g. "sodium chloride 0.9%  flush"
+    (double space in gold) matches the embedder-mapped entry.
+    """
+    if s is None:
+        return ""
+    return re.sub(r"\s+", " ", str(s).strip().lower())
 
 
 def pred_to_strings(pred: Any) -> List[str]:
@@ -334,9 +369,83 @@ async def judge_once(
 # Set-F1 scoring
 # ---------------------------------------------------------------------------
 
-def set_f1(pred: List[str], gold: List[str]) -> Dict[str, float]:
-    pred_set = {_normalize_name(x) for x in pred if _normalize_name(x)}
-    gold_set = {_normalize_name(x) for x in gold if _normalize_name(x)}
+# ---------------------------------------------------------------------------
+# Vocabulary normalization (optional, for len>=2 set-F1 rows)
+# ---------------------------------------------------------------------------
+
+class VocabMatcher:
+    """Map predicted free-text strings to the closest gold-vocab entry.
+
+    Vocabulary is the set of gold `name` strings observed per task. Each
+    predicted string is replaced by the nearest vocab entry by sentence-
+    embedding cosine similarity, subject to `threshold`; below threshold,
+    the raw prediction is kept so out-of-vocabulary guesses still score
+    via the exact-string path.
+    """
+
+    def __init__(self, model_name: str = "all-MiniLM-L6-v2",
+                 threshold: float = 0.55, device: str = "cpu"):
+        from sentence_transformers import SentenceTransformer
+        import numpy as np
+        self._np = np
+        self.model_name = model_name
+        self.model = SentenceTransformer(model_name, device=device)
+        self.threshold = threshold
+        self._cache: Dict[str, Tuple[List[str], Any]] = {}  # task -> (vocab, embs)
+
+    def _embed(self, texts: List[str]):
+        return self.model.encode(
+            texts,
+            batch_size=64,
+            show_progress_bar=False,
+            normalize_embeddings=True,   # L2 → dot == cosine
+            convert_to_numpy=True,
+        )
+
+    def set_vocab(self, task: str, vocab: List[str]) -> None:
+        if not vocab:
+            return
+        self._cache[task] = (list(vocab), self._embed(list(vocab)))
+
+    def has_vocab(self, task: str) -> bool:
+        return task in self._cache
+
+    def map_many(self, preds: List[str], task: str) -> List[Tuple[str, float]]:
+        if not preds:
+            return []
+        if task not in self._cache:
+            return [(p, 0.0) for p in preds]
+        vocab, embs = self._cache[task]
+        pred_embs = self._embed(preds)
+        sims = pred_embs @ embs.T
+        out: List[Tuple[str, float]] = []
+        for i, p in enumerate(preds):
+            j = int(self._np.argmax(sims[i]))
+            s = float(sims[i][j])
+            out.append((vocab[j] if s >= self.threshold else p, s))
+        return out
+
+
+def build_task_vocabularies(rows: Iterable[Dict[str, Any]]) -> Dict[str, List[str]]:
+    """Collect the union of gold `name` strings per task from a results or
+    gold-label JSONL. Accepts the raw results.jsonl (each row has `label`)
+    or a separate prepared-gold JSONL with the same shape.
+    """
+    buckets: Dict[str, set] = defaultdict(set)
+    for row in rows:
+        task = row.get("task", "?")
+        for item in row.get("label") or []:
+            name = item.get("name") if isinstance(item, dict) else item
+            if isinstance(name, str) and name.strip():
+                buckets[task].add(name.strip())
+    return {t: sorted(v) for t, v in buckets.items()}
+
+
+def set_f1(pred: List[str], gold: List[str],
+           collapse_whitespace: bool = False) -> Dict[str, float]:
+    norm = _normalize_name_collapse if collapse_whitespace else _normalize_name
+    pred_set = {norm(x) for x in pred if norm(x)}
+    gold_set = {norm(x) for x in gold if norm(x)}
     tp = len(pred_set & gold_set)
     precision = tp / len(pred_set) if pred_set else 0.0
     recall = tp / len(gold_set) if gold_set else 0.0
@@ -425,6 +534,9 @@ async def score_file(
     concurrency: int,
     max_rows: Optional[int],
     resume: bool,
+    vocab_matcher: Optional[VocabMatcher] = None,
+    vocab_skip_tasks: Optional[Iterable[str]] = None,
+    vocab_gold_path: Optional[Path] = None,
 ) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     scored_path = out_dir / "scored.jsonl"
@@ -450,6 +562,32 @@ async def score_file(
     if max_rows:
         rows = rows[:max_rows]
     print(f"[scorer] {len(rows)} rows from {results_path}", flush=True)
+
+    # ---- Build per-task vocabularies (if vocab mapping enabled) -----------
+    # Vocab source defaults to the results file itself (rows carry `label`).
+    # If a separate gold JSONL is provided, use it instead — useful when the
+    # results file was subsampled or contains multiple runs per qid.
+    vocab_skip = set(vocab_skip_tasks or ())
+    if vocab_matcher is not None:
+        if vocab_gold_path is not None and vocab_gold_path.exists():
+            with vocab_gold_path.open() as f:
+                gold_rows = []
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        gold_rows.append(json.loads(line))
+        else:
+            gold_rows = rows
+        vocabs = build_task_vocabularies(gold_rows)
+        print("[vocab] per-task vocabulary sizes:", flush=True)
+        for t in sorted(vocabs):
+            size = len(vocabs[t])
+            tag = " (skipped)" if t in vocab_skip else ""
+            print(f"  {t:32s} {size:>4} labels{tag}", flush=True)
+        for t, v in vocabs.items():
+            if t in vocab_skip:
+                continue
+            vocab_matcher.set_vocab(t, v)
 
     # ---- First pass: extract prediction + route ---------------------------
     judge_tasks: List[Tuple[int, Dict[str, Any], str, str, str]] = []  # idx, row, subtype, gold_name, pred_str
@@ -502,7 +640,35 @@ async def score_file(
 
         if len(gold_names) >= 2:
             base["route"] = "set_f1"
-            base.update(set_f1(pred_strs, gold_names))
+            task = row.get("task") or "?"
+            # Always record the raw-string metrics under *_raw.
+            raw_metrics = set_f1(pred_strs, gold_names)
+            for k, v in raw_metrics.items():
+                base[f"{k}_raw"] = v
+            if vocab_matcher is not None:
+                if vocab_matcher.has_vocab(task):
+                    mapped = vocab_matcher.map_many(pred_strs, task)
+                    mapped_preds = [m for m, _ in mapped]
+                    sims = [s for _, s in mapped]
+                    base["prediction_strs_mapped"] = mapped_preds
+                    base["mapping_similarity"] = sims
+                    base["vocab_mapped"] = True
+                else:
+                    # Task excluded from vocab mapping — keep the raw
+                    # prediction strings but still use the lenient
+                    # (whitespace-collapsing) normalizer for the primary
+                    # metrics, so mapped-track numbers are comparable.
+                    mapped_preds = pred_strs
+                    base["vocab_mapped"] = False
+                # Primary metrics come from the mapped path. Uses whitespace-
+                # collapsing normalization (matches the old rescorer) so gold
+                # labels like "a  b" and preds like "a b" agree.
+                base.update(set_f1(mapped_preds, gold_names,
+                                   collapse_whitespace=True))
+            else:
+                # Vocab disabled globally — primary == raw.
+                base.update(raw_metrics)
+                base["vocab_mapped"] = False
             prepared.append(base)
             continue
 
@@ -608,6 +774,10 @@ async def score_file(
     print(f"[scorer] wrote {scored_path}", flush=True)
 
     summary = aggregate(prepared)
+    if vocab_matcher is not None:
+        summary["vocab_model"] = vocab_matcher.model_name
+        summary["vocab_threshold"] = vocab_matcher.threshold
+        summary["vocab_skip_tasks"] = sorted(vocab_skip)
     with summary_path.open("w") as f:
         json.dump(summary, f, indent=2)
     summary_md.write_text(render_markdown(summary, results_path))
@@ -631,13 +801,17 @@ def aggregate(scored: List[Dict[str, Any]]) -> Dict[str, Any]:
     per_task_multi: Dict[str, Dict[str, Any]] = defaultdict(lambda: {
         "count": 0, "incomplete": 0,
         "precision": [], "recall": [], "f1": [], "accuracy": [], "subset_match": [],
+        "precision_raw": [], "recall_raw": [], "f1_raw": [],
+        "accuracy_raw": [], "subset_match_raw": [],
     })
     overall = {
         "total": len(scored),
         "incomplete": 0,
         "len1": {"count": 0, "correct": 0},
         "len2plus": {"count": 0, "precision": [], "recall": [], "f1": [],
-                      "accuracy": [], "subset_match": []},
+                      "accuracy": [], "subset_match": [],
+                      "precision_raw": [], "recall_raw": [], "f1_raw": [],
+                      "accuracy_raw": [], "subset_match_raw": []},
     }
 
     for r in scored:
@@ -648,14 +822,13 @@ def aggregate(scored: List[Dict[str, Any]]) -> Dict[str, Any]:
             if r.get("len_gold", 0) >= 2:
                 per_task_multi[task]["count"] += 1
                 per_task_multi[task]["incomplete"] += 1
-                per_task_multi[task]["precision"].append(0.0)
-                per_task_multi[task]["recall"].append(0.0)
-                per_task_multi[task]["f1"].append(0.0)
-                per_task_multi[task]["accuracy"].append(0.0)
-                per_task_multi[task]["subset_match"].append(0.0)
+                for k in ("precision", "recall", "f1", "accuracy", "subset_match"):
+                    per_task_multi[task][k].append(0.0)
+                    per_task_multi[task][f"{k}_raw"].append(0.0)
                 overall["len2plus"]["count"] += 1
                 for k in ("precision", "recall", "f1", "accuracy", "subset_match"):
                     overall["len2plus"][k].append(0.0)
+                    overall["len2plus"][f"{k}_raw"].append(0.0)
             else:
                 per_task_single[task]["count"] += 1
                 per_task_single[task]["incomplete"] += 1
@@ -677,6 +850,11 @@ def aggregate(scored: List[Dict[str, Any]]) -> Dict[str, Any]:
             for k in ("precision", "recall", "f1", "accuracy", "subset_match"):
                 per_task_multi[task][k].append(float(r.get(k, 0.0)))
                 overall["len2plus"][k].append(float(r.get(k, 0.0)))
+                # Raw (pre-vocab-mapping) metrics — fall back to primary
+                # when the row didn't go through vocab mapping.
+                raw = float(r.get(f"{k}_raw", r.get(k, 0.0)))
+                per_task_multi[task][f"{k}_raw"].append(raw)
+                overall["len2plus"][f"{k}_raw"].append(raw)
             overall["len2plus"]["count"] += 1
 
     # Finalize.
@@ -706,6 +884,12 @@ def aggregate(scored: List[Dict[str, Any]]) -> Dict[str, Any]:
             "f1": _avg(d["f1"]),
             "accuracy": _avg(d["accuracy"]),
             "subset_match": _avg(d["subset_match"]),
+            # Raw (pre-vocab-mapping) averages, parallel to the mapped ones.
+            "precision_raw": _avg(d["precision_raw"]),
+            "recall_raw": _avg(d["recall_raw"]),
+            "f1_raw": _avg(d["f1_raw"]),
+            "accuracy_raw": _avg(d["accuracy_raw"]),
+            "subset_match_raw": _avg(d["subset_match_raw"]),
         }
 
     overall["len1"]["accuracy"] = (
@@ -714,6 +898,49 @@ def aggregate(scored: List[Dict[str, Any]]) -> Dict[str, Any]:
     )
     for k in ("precision", "recall", "f1", "accuracy", "subset_match"):
         overall["len2plus"][k] = _avg(overall["len2plus"][k])
+        overall["len2plus"][f"{k}_raw"] = _avg(overall["len2plus"][f"{k}_raw"])
+
+    # ------------------------------------------------------------------
+    # Unified F1: per-task and overall. Folds len=1 judge verdicts into
+    # the same aggregator as len>=2 set metrics — a correct len=1
+    # verdict counts as F1=1 (precision=recall=1); incorrect/incomplete
+    # counts as F1=0.
+    # ------------------------------------------------------------------
+    _METRIC_KEYS = ("precision", "recall", "f1", "accuracy", "subset_match")
+    _METRIC_KEYS_ALL = _METRIC_KEYS + tuple(f"{k}_raw" for k in _METRIC_KEYS)
+
+    per_task_unified: Dict[str, Dict[str, List[float]]] = defaultdict(
+        lambda: {k: [] for k in _METRIC_KEYS_ALL}
+    )
+    unified_totals: Dict[str, List[float]] = {k: [] for k in _METRIC_KEYS_ALL}
+
+    for r in scored:
+        task = r.get("task") or "?"
+        route = r.get("route")
+        if route == "set_f1":
+            vals = {k: float(r.get(k, 0.0)) for k in _METRIC_KEYS}
+            vals.update({f"{k}_raw": float(r.get(f"{k}_raw", r.get(k, 0.0)))
+                         for k in _METRIC_KEYS})
+        elif route == "llm_judge":
+            v = 1.0 if r.get("correct") else 0.0
+            vals = {k: v for k in _METRIC_KEYS}
+            # Judge verdicts have no vocab-mapping distinction — raw == mapped.
+            vals.update({f"{k}_raw": v for k in _METRIC_KEYS})
+        elif route == "incomplete":
+            vals = {k: 0.0 for k in _METRIC_KEYS_ALL}
+        else:
+            continue
+        for k, x in vals.items():
+            per_task_unified[task][k].append(x)
+            unified_totals[k].append(x)
+
+    per_task_unified_final = {
+        task: {
+            "count": len(d["f1"]),
+            **{k: _avg(d[k]) for k in _METRIC_KEYS_ALL},
+        }
+        for task, d in per_task_unified.items()
+    }
 
     return {
         "total": overall["total"],
@@ -726,23 +953,66 @@ def aggregate(scored: List[Dict[str, Any]]) -> Dict[str, Any]:
         "len2plus_accuracy": overall["len2plus"]["accuracy"],
         "len2plus_subset_match": overall["len2plus"]["subset_match"],
         "len2plus_count": overall["len2plus"]["count"],
+        # Raw (pre-vocab-mapping) overall len2plus metrics.
+        "len2plus_f1_raw": overall["len2plus"]["f1_raw"],
+        "len2plus_precision_raw": overall["len2plus"]["precision_raw"],
+        "len2plus_recall_raw": overall["len2plus"]["recall_raw"],
+        "len2plus_accuracy_raw": overall["len2plus"]["accuracy_raw"],
+        "len2plus_subset_match_raw": overall["len2plus"]["subset_match_raw"],
         "per_task_len1": per_task_single_final,
         "per_task_len2plus": per_task_multi_final,
+        # Unified (judge + set metrics folded together).
+        "unified_count": len(unified_totals["f1"]),
+        "unified_precision": _avg(unified_totals["precision"]),
+        "unified_recall": _avg(unified_totals["recall"]),
+        "unified_f1": _avg(unified_totals["f1"]),
+        "unified_accuracy": _avg(unified_totals["accuracy"]),
+        "unified_subset_match": _avg(unified_totals["subset_match"]),
+        # Raw unified (no vocab mapping on the set-F1 leg).
+        "unified_precision_raw": _avg(unified_totals["precision_raw"]),
+        "unified_recall_raw": _avg(unified_totals["recall_raw"]),
+        "unified_f1_raw": _avg(unified_totals["f1_raw"]),
+        "unified_accuracy_raw": _avg(unified_totals["accuracy_raw"]),
+        "unified_subset_match_raw": _avg(unified_totals["subset_match_raw"]),
+        "per_task_unified": per_task_unified_final,
     }
 
 
 def render_markdown(summary: Dict[str, Any], results_path: Path) -> str:
     lines: List[str] = []
+    has_vocab = "vocab_model" in summary
     lines.append(f"# Scoring summary — `{results_path.name}`\n")
     lines.append(f"- total rows: **{summary['total']}**")
-    lines.append(f"- incomplete (no finish): **{summary['incomplete']}**\n")
+    lines.append(f"- incomplete (no finish): **{summary['incomplete']}**")
+    if has_vocab:
+        lines.append(
+            f"- vocab normalization: model=`{summary['vocab_model']}`, "
+            f"threshold={summary['vocab_threshold']:.2f}, "
+            f"skipped tasks={summary.get('vocab_skip_tasks') or '—'}"
+        )
+    lines.append("")
     lines.append(f"- len=1 (judge) accuracy: **{summary['len1_accuracy']:.4f}** "
                  f"(n={summary['len1_count']})")
-    lines.append(f"- len>=2 F1: **{summary['len2plus_f1']:.4f}** "
-                 f"| P: {summary['len2plus_precision']:.4f} "
-                 f"| R: {summary['len2plus_recall']:.4f} "
-                 f"| subset_match: {summary['len2plus_subset_match']:.4f} "
-                 f"(n={summary['len2plus_count']})\n")
+    if has_vocab:
+        lines.append(
+            f"- len>=2 F1 (mapped): **{summary['len2plus_f1']:.4f}** "
+            f"| raw: {summary['len2plus_f1_raw']:.4f} "
+            f"| ΔF1: {(summary['len2plus_f1']-summary['len2plus_f1_raw'])*100:+.2f} pp "
+            f"(n={summary['len2plus_count']})"
+        )
+        lines.append(
+            f"- **unified F1 (mapped): {summary['unified_f1']:.4f}** "
+            f"| raw: {summary['unified_f1_raw']:.4f} "
+            f"(n={summary['unified_count']})\n"
+        )
+    else:
+        lines.append(f"- len>=2 F1: **{summary['len2plus_f1']:.4f}** "
+                     f"| P: {summary['len2plus_precision']:.4f} "
+                     f"| R: {summary['len2plus_recall']:.4f} "
+                     f"| subset_match: {summary['len2plus_subset_match']:.4f} "
+                     f"(n={summary['len2plus_count']})")
+        lines.append(f"- **unified F1: {summary['unified_f1']:.4f}** "
+                     f"(n={summary['unified_count']})\n")
 
     lines.append("## Per-task (len=1, judge accuracy)\n")
     lines.append("| task | n | accuracy | incomplete | subtype breakdown |")
@@ -759,15 +1029,69 @@ def render_markdown(summary: Dict[str, Any], results_path: Path) -> str:
         )
 
     lines.append("\n## Per-task (len>=2, set metrics)\n")
-    lines.append("| task | n | precision | recall | F1 | jaccard-acc | subset_match | incomplete |")
-    lines.append("|---|---:|---:|---:|---:|---:|---:|---:|")
-    for task in sorted(summary["per_task_len2plus"]):
-        d = summary["per_task_len2plus"][task]
+    if has_vocab:
         lines.append(
-            f"| {task} | {d['count']} | {d['precision']:.4f} | {d['recall']:.4f} "
-            f"| {d['f1']:.4f} | {d['accuracy']:.4f} | {d['subset_match']:.4f} "
-            f"| {d['incomplete']} |"
+            "| task | n | F1 (raw → mapped) | P (raw → mapped) | R (raw → mapped) "
+            "| jaccard (raw → mapped) | subset (raw → mapped) | incomplete |"
         )
+        lines.append("|---|---:|---|---|---|---|---|---:|")
+        for task in sorted(summary["per_task_len2plus"]):
+            d = summary["per_task_len2plus"][task]
+            def _pair(a: float, b: float) -> str:
+                return f"{a:.4f} → {b:.4f}"
+            lines.append(
+                f"| {task} | {d['count']} "
+                f"| {_pair(d['f1_raw'], d['f1'])} "
+                f"| {_pair(d['precision_raw'], d['precision'])} "
+                f"| {_pair(d['recall_raw'], d['recall'])} "
+                f"| {_pair(d['accuracy_raw'], d['accuracy'])} "
+                f"| {_pair(d['subset_match_raw'], d['subset_match'])} "
+                f"| {d['incomplete']} |"
+            )
+    else:
+        lines.append(
+            "| task | n | precision | recall | F1 | jaccard-acc | subset_match | incomplete |"
+        )
+        lines.append("|---|---:|---:|---:|---:|---:|---:|---:|")
+        for task in sorted(summary["per_task_len2plus"]):
+            d = summary["per_task_len2plus"][task]
+            lines.append(
+                f"| {task} | {d['count']} | {d['precision']:.4f} | {d['recall']:.4f} "
+                f"| {d['f1']:.4f} | {d['accuracy']:.4f} | {d['subset_match']:.4f} "
+                f"| {d['incomplete']} |"
+            )
+
+    lines.append("\n## Per-task unified F1 (len=1 judge + len>=2 set metrics)\n")
+    lines.append(
+        "Unification: a correct len=1 judge verdict counts as F1=1 "
+        "(precision=recall=1); incorrect/incomplete counts as F1=0. "
+        "Reduces to accuracy when |gold|=1, shares the aggregator with "
+        "len>=2 rows.\n"
+    )
+    if has_vocab:
+        lines.append("| task | n | F1 (raw → mapped) | P (raw → mapped) "
+                     "| R (raw → mapped) | jaccard (raw → mapped) |")
+        lines.append("|---|---:|---|---|---|---|")
+        for task in sorted(summary.get("per_task_unified", {})):
+            d = summary["per_task_unified"][task]
+            def _pair(a: float, b: float) -> str:
+                return f"{a:.4f} → {b:.4f}"
+            lines.append(
+                f"| {task} | {d['count']} "
+                f"| {_pair(d['f1_raw'], d['f1'])} "
+                f"| {_pair(d['precision_raw'], d['precision'])} "
+                f"| {_pair(d['recall_raw'], d['recall'])} "
+                f"| {_pair(d['accuracy_raw'], d['accuracy'])} |"
+            )
+    else:
+        lines.append("| task | n | precision | recall | F1 | jaccard |")
+        lines.append("|---|---:|---:|---:|---:|---:|")
+        for task in sorted(summary.get("per_task_unified", {})):
+            d = summary["per_task_unified"][task]
+            lines.append(
+                f"| {task} | {d['count']} | {d['precision']:.4f} "
+                f"| {d['recall']:.4f} | {d['f1']:.4f} | {d['accuracy']:.4f} |"
+            )
     return "\n".join(lines) + "\n"
 
 
@@ -800,6 +1124,41 @@ def parse_args() -> argparse.Namespace:
                         "concurrency × len(regions).")
     p.add_argument("--max-rows", type=int, default=0)
     p.add_argument("--no-resume", action="store_true")
+
+    # --- vocabulary normalization (len>=2 rows only) ----------------------
+    p.add_argument(
+        "--vocab", dest="vocab", action="store_true", default=True,
+        help="Enable vocabulary normalization for len>=2 rows (default on).",
+    )
+    p.add_argument(
+        "--no-vocab", dest="vocab", action="store_false",
+        help="Disable vocabulary normalization — only raw string set-F1.",
+    )
+    p.add_argument(
+        "--vocab-model", type=str, default="all-MiniLM-L6-v2",
+        help="sentence-transformers model id for vocab matching (CPU).",
+    )
+    p.add_argument(
+        "--vocab-threshold", type=float, default=0.55,
+        help="Min cosine similarity to replace a prediction with the "
+             "nearest vocab entry. Below threshold → keep raw.",
+    )
+    p.add_argument(
+        "--vocab-device", type=str, default="cpu",
+        help="Torch device for the embedder (`cpu`, `cuda`, `cuda:0`, ...).",
+    )
+    p.add_argument(
+        "--vocab-skip-tasks", nargs="*",
+        default=["ehrxqa_table"],
+        help="Tasks excluded from vocab mapping (defaults to ehrxqa_table: "
+             "its gold values are cohort ids / numbers / dates that cannot "
+             "meaningfully be normalized).",
+    )
+    p.add_argument(
+        "--vocab-gold", type=str, default=None,
+        help="Optional separate JSONL whose `label` field provides the "
+             "per-task vocabulary. Defaults to reading gold from --results.",
+    )
     return p.parse_args()
 
 
@@ -810,6 +1169,18 @@ async def _main() -> None:
 
     os.environ.setdefault("BEDROCK_REGION", args.region)
     os.environ.setdefault("AWS_DEFAULT_REGION", args.region)
+
+    vocab_matcher: Optional[VocabMatcher] = None
+    if args.vocab:
+        print(f"[vocab] loading embedder {args.vocab_model} on {args.vocab_device}, "
+              f"threshold={args.vocab_threshold}", flush=True)
+        vocab_matcher = VocabMatcher(
+            model_name=args.vocab_model,
+            threshold=args.vocab_threshold,
+            device=args.vocab_device,
+        )
+
+    vocab_gold = Path(args.vocab_gold).resolve() if args.vocab_gold else None
 
     for raw in args.results:
         p = Path(raw).resolve()
@@ -827,6 +1198,9 @@ async def _main() -> None:
             concurrency=args.concurrency,
             max_rows=args.max_rows or None,
             resume=not args.no_resume,
+            vocab_matcher=vocab_matcher,
+            vocab_skip_tasks=args.vocab_skip_tasks,
+            vocab_gold_path=vocab_gold,
         )
 
 

@@ -5,7 +5,7 @@ evaluation pipeline on your own machine.
 
 **Scope.** This doc targets the pipeline as it ships today:
 `openresearcher_ehr/deploy_agent_mm.py` + `src/mcp_image/` +
-`scorer_mm.py`, driven by AWS **Bedrock** (Anthropic Messages API). A
+`helper/scorer_mm.py`, driven by AWS **Bedrock** (Anthropic Messages API). A
 vLLM-only porting appendix (§9) lists the code touchpoints required to swap
 Bedrock out for a local vLLM server.
 
@@ -53,19 +53,21 @@ The benchmark has four stages. Each box below is a separate process.
 │         ehr.*  → port by source_benchmark (ehrxqa → :5103, medmod →5104)│
 │         image.*→ :5203                                                  │
 │         browser.* → local or Serper                                     │
-│   run in venv deploy_agent                                              │
+│   run in venv bedrock_agent                                              │
 └─────────────────────────────────────────────────────────────────────────┘
                                │ one JSON per sample
                                ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                      (3)  SCORER                                        │
-│   scorer_mm.py                                                          │
+│   helper/scorer_mm.py                                                   │
 │     ├─ extracts prediction from the last ehr.finish tool call           │
 │     ├─ if len(gold)==1: LLM-judge (Claude Sonnet 4.6 on Bedrock)        │
 │     │       sub-routed by yesno / count / date_time / id / label_name / │
 │     │       generic_string templates                                    │
-│     └─ if len(gold)>=2: rule-based set F1 / precision / recall /        │
-│                         subset_accuracy over normalized names           │
+│     ├─ if len(gold)>=2: rule-based set F1 / precision / recall /        │
+│     │                    subset_accuracy, computed raw + vocab-mapped   │
+│     │                    (MiniLM cosine to nearest gold vocab entry)    │
+│     └─ unified per-task F1 folds both routes                            │
 │   → scored.jsonl, summary.json, summary.md                              │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -235,7 +237,7 @@ of records) into a per-task JSONL suitable for feeding to
 **Examples.**
 
 ```bash
-PY=$REPO/venvs/deploy_agent/bin/python
+PY=$REPO/venvs/bedrock_agent/bin/python
 
 # 1) EHRXQA image-only test set, keep everything usable by the image path
 $PY $REPO/openresearcher_ehr/prepare_mm_data.py \
@@ -326,7 +328,7 @@ Three venvs, split by purpose. Requirements files live in
 
 | Venv | Requirements file | Purpose |
 |------|-------------------|---------|
-| `deploy_agent` | `deploy_agent.txt` | agent driver + scorer (CPU-only, talks to MCPs via HTTP) |
+| `bedrock_agent` | `bedrock_agent.txt` | agent driver + scorer (CPU-only, talks to MCPs via HTTP) |
 | `mcp_ehr` | `mcp_ehr.txt` | EHR MCP server; needs GPU for BioLORD-2023 |
 | `mcp_image` | `mcp_image.txt` | Image MCP server; needs GPU(s); **pins `transformers==4.46.3`** |
 
@@ -336,10 +338,10 @@ Three venvs, split by purpose. Requirements files live in
 cd $REPO/venvs
 mkdir -p requirements
 
-# ---- A) deploy_agent ------------------------------------------------------
-uv venv deploy_agent --python 3.12
-uv pip install --python deploy_agent/bin/python \
-    -r requirements/deploy_agent.txt
+# ---- A) bedrock_agent ------------------------------------------------------
+uv venv bedrock_agent --python 3.12
+uv pip install --python bedrock_agent/bin/python \
+    -r requirements/bedrock_agent.txt
 
 # ---- B) EHR MCP -----------------------------------------------------------
 uv venv mcp_ehr --python 3.12
@@ -366,8 +368,8 @@ If you don't use `uv`, swap `uv venv` / `uv pip install` for
 ### 2.2 Verify each venv
 
 ```bash
-# deploy_agent
-$REPO/venvs/deploy_agent/bin/python -c "import boto3, httpx, aiohttp, PIL, dotenv; print('deploy_agent OK')"
+# bedrock_agent
+$REPO/venvs/bedrock_agent/bin/python -c "import boto3, httpx, aiohttp, PIL, dotenv; print('bedrock_agent OK')"
 
 # EHR MCP
 $REPO/venvs/mcp_ehr/bin/python -c "import fastmcp, pandas, sentence_transformers, thefuzz, torch; print('mcp_ehr OK, cuda=', torch.cuda.is_available())"
@@ -388,7 +390,7 @@ Needed at runtime (first call to each tool lazy-downloads weights into
 | **microsoft/maira-2** (~4 GB, **gated**) | `image.xray_phrase_grounding` | HF cache; requires accepted license + `HF_TOKEN` |
 | **IAMJB/chexpert-mimic-cxr-findings** (~1 GB) | `image.chest_xray_report_generator` | HF cache |
 | **torchxrayvision DenseNet121 + PSPNet** (~500 MB) | `image.chest_xray_classifier`, `image.chest_xray_segmentation` | torchxrayvision auto-downloads |
-| **AWS Bedrock creds** | `deploy_agent_mm.py`, `scorer_mm.py` | env vars (below) |
+| **AWS Bedrock creds** | `deploy_agent_mm.py`, `helper/scorer_mm.py` | env vars (below) |
 
 HuggingFace token (must have accepted the MAIRA-2 license at
 <https://huggingface.co/microsoft/maira-2>):
@@ -418,7 +420,7 @@ Sanity-check Bedrock auth:
 
 ```bash
 aws sts get-caller-identity
-$REPO/venvs/deploy_agent/bin/python -c "
+$REPO/venvs/bedrock_agent/bin/python -c "
 import boto3, json
 c = boto3.client('bedrock-runtime', region_name='us-east-1')
 resp = c.invoke_model(
@@ -575,7 +577,7 @@ MAX_TOOL_RESULT_CHARS=100000
 IMAGE_MAX_EDGE=1568              # Anthropic-recommended max (longest edge)
 ENABLE_THINKING=0                # 1 = Opus extended thinking
 
-PYBIN=$REPO/venvs/deploy_agent/bin/python
+PYBIN=$REPO/venvs/bedrock_agent/bin/python
 IMAGE_PYBIN=$REPO/venvs/mcp_image/bin/python
 IMAGE_CUDA_VISIBLE_DEVICES=0,1,2,3,4,5
 HF_TOKEN=...                     # default: ~/.cache/huggingface/token
@@ -587,7 +589,7 @@ IMAGE_PORT=5203
 
 > **Important** — the upstream script has `PYBIN` defaulting to
 > `/fsx-shared/juncheng/OpenResearcher/.venv/bin/python`. On your host
-> override it to point at `$REPO/venvs/deploy_agent/bin/python`, or edit
+> override it to point at `$REPO/venvs/bedrock_agent/bin/python`, or edit
 > `run_mm_pipeline.sh`.
 
 ### 4.2 All `deploy_agent_mm.py` flags
@@ -700,7 +702,7 @@ None are open bugs — they are environment pitfalls.
 
 1. **`NameError: use_reasoning_content`** — a pre-existing latent bug in
    `bedrock_generator._chat_completion_anthropic`. `deploy_agent_mm.py` and
-   `scorer_mm.py` both patch it with a runtime shim; if you ever call
+   `helper/scorer_mm.py` both patch it with a runtime shim; if you ever call
    `bedrock_generator` from new code, make sure you set
    `bedrock_generator.__dict__.setdefault("use_reasoning_content", True)`
    first.
@@ -733,7 +735,23 @@ None are open bugs — they are environment pitfalls.
 
 ---
 
-## 6. Scoring: `scorer_mm.py`
+## 6. Scoring: `helper/scorer_mm.py`
+
+End-to-end scorer. One script covers: prediction extraction, routing,
+LLM-judge for len=1 rows, rule-based set metrics for len≥2 rows,
+(optional) vocabulary normalization of set-metric predictions, and
+per-task unified F1 that folds both routes into a single aggregator.
+Both **raw** and **vocab-mapped** metrics are retained in every output —
+no second re-score pass.
+
+> **Validation.** The integrated raw and mapped set-F1 tracks reproduce
+> the outputs of the old two-stage pipeline (`scored.jsonl` +
+> `rescored.jsonl`) bit-for-bit on all 635 len≥2 `set_f1` rows of the
+> Claude Sonnet 4.6 run at
+> `openresearcher_ehr/results/multi_eval/full5_20260421T091517Z/`. Raw
+> normalization (strip + lower) and mapped normalization (strip + lower
+> + whitespace-collapse) are preserved as distinct paths so you can
+> compare strict set-overlap against lenient vocab-aligned set-overlap.
 
 ### 6.1 What it does (overview)
 
@@ -746,14 +764,24 @@ None are open bugs — they are environment pitfalls.
   │  tool_call whose name is in                │
   │  {"ehr.finish","finish"}; JSON-parse args; │
   │  return args["response"].                  │
-  └──────────────────────────────────────────────┘
+  └─────────────────────────────────────────────┘
     │ flatten to list[str] (list-of-dicts → `name`/`value`)
     ▼
   ┌─── route by gold-label shape ──────────────┐
-  │  len(gold) >= 2  → rule-based set metrics │
+  │  len(gold) >= 2  → rule-based set metrics  │
+  │                    (raw + vocab-mapped)    │
   │  len(gold) == 1  → LLM judge               │
-  │  empty/no-finish → incomplete (all zeros) │
-  └──────────────────────────────────────────────┘
+  │  empty/no-finish → incomplete (all zeros)  │
+  └─────────────────────────────────────────────┘
+    │
+    ▼
+  ┌──── aggregate ─────────────────────────────┐
+  │  per-task len=1 accuracy                   │
+  │  per-task len≥2 {f1, p, r, jac, subset}    │
+  │                    × {raw, mapped}         │
+  │  per-task unified F1 (judge folded in)     │
+  │                    × {raw, mapped}         │
+  └─────────────────────────────────────────────┘
     │
     ▼
   scored.jsonl + summary.json + summary.md
@@ -770,17 +798,53 @@ normalized (lowercased, stripped) `name` strings:
 - **accuracy** (Jaccard-style) = |pred ∩ gold| / |pred ∪ gold|
 - **subset_match** = 1.0 if pred set == gold set, else 0.0
 
+All five are computed **twice** for each set-F1 row:
+
+- **raw** — over the model's free-text predictions as returned.
+- **vocab-mapped** — each predicted string first replaced by the nearest
+  gold-vocabulary entry whose cosine similarity ≥ `--vocab-threshold`
+  (default 0.55). Below threshold, the raw string is kept so OOV guesses
+  still have a chance via the exact-string path.
+
 **LLM judge (for `len(gold) == 1`)** — Claude Sonnet 4.6 on Bedrock returns
 `{"match": true|false, "reason": "<= 25 words"}`. The scorer fills
 precision/recall/F1/accuracy/subset_match all as 1.0 on match, 0.0 on
-mismatch, so aggregates are uniform across routes.
+mismatch. Judge verdicts don't depend on vocab mapping — raw == mapped
+for these rows.
 
 **Incomplete rows** (no `ehr.finish`, bad JSON args, or no gold label) are
-counted and scored as 0 across the board.
+counted and scored as 0 across the board (raw and mapped).
 
-### 6.3 Prediction extraction + answer mapping
+**Unified F1** — a per-task F1 that averages together len=1 judge
+verdicts (correct → F1=1, else F1=0) and len≥2 set F1s. Also reported
+in both raw and mapped variants so you can compare.
 
-Implemented in `scorer_mm.py`:
+### 6.3 Vocabulary normalization
+
+Motivation: phenotyping, radiology, and mortality tasks draw gold labels
+from a closed vocabulary. Models that paraphrase ("enlarged cardiac
+silhouette" vs. "Cardiomegaly") score 0 under exact set overlap even
+when they name the right concept. The mapping step normalizes both
+sides.
+
+How it works:
+
+1. Build a per-task vocabulary = union of all gold `name` strings seen
+   in the dataset.
+2. Embed the vocabulary once per task with `all-MiniLM-L6-v2`
+   (sentence-transformers, L2-normalized → dot = cosine).
+3. For each `len(gold)>=2` sample, embed its predictions and replace each
+   with the nearest vocab entry when cosine ≥ threshold.
+4. Compute set metrics over the mapped predictions; keep the raw metrics
+   side-by-side.
+
+Default skip list: `ehrxqa_table` — its "vocabulary" is cohort IDs /
+numbers / dates, which don't meaningfully embed. Override with
+`--vocab-skip-tasks`.
+
+### 6.4 Prediction extraction + answer mapping
+
+Implemented in `helper/scorer_mm.py`:
 
 1. **`extract_prediction(row)`** — walks `row["messages"]` in reverse;
    finds the last `tool_call` whose name is in `{"ehr.finish","finish"}`;
@@ -797,10 +861,14 @@ Implemented in `scorer_mm.py`:
 3. **`gold_to_strings(gold)`** — the manifest always stores `label` as
    `list[dict]`; extracts `name` (fallback `value`) into `list[str]`.
 4. **`_normalize_name(s)`** — `str(s).strip().lower()` before set ops.
+5. **`VocabMatcher`** — for set-F1 rows, maps each predicted string to
+   its nearest task-vocabulary entry when cosine ≥ threshold.
+6. **`build_task_vocabularies(rows)`** — harvests the per-task gold
+   vocabulary from the results file (or a separate `--vocab-gold` JSONL).
 
-### 6.4 LLM-judge subtype router
+### 6.5 LLM-judge subtype router
 
-When `len(gold)==1`, the scorer pick one of six templates based on gold
+When `len(gold)==1`, the scorer picks one of six templates based on gold
 content + task:
 
 | Subtype | Heuristic | Prompt emphasis |
@@ -812,14 +880,14 @@ content + task:
 | `label_name` | polar question prefix with short gold, or task ∈ {`medmod_radiology`, `medmod_phenotyping`, `ehrxqa_image`} | synonym/abbrev tolerance; partial/adjacent concepts don't match |
 | `generic_string` | fallback | semantic equivalence; minor wording differences fine |
 
-See `classify_subtype()` in `scorer_mm.py` for the full branching.
+See `classify_subtype()` in `helper/scorer_mm.py` for the full branching.
 
-### 6.5 How to run it
+### 6.6 How to run it
 
 ```bash
-PY=$REPO/venvs/deploy_agent/bin/python
+PY=$REPO/venvs/bedrock_agent/bin/python
 
-$PY $REPO/openresearcher_ehr/scorer_mm.py \
+$PY $REPO/openresearcher_ehr/helper/scorer_mm.py \
     --results $REPO/openresearcher_ehr/results/mm_prepared_<UTC>/results.jsonl \
     --output-root $REPO/openresearcher_ehr/results/scored/
 ```
@@ -836,18 +904,34 @@ CLI flags:
 | `--concurrency N` | 10 | Per-region concurrency. Global = N × len(regions) |
 | `--max-rows N` | 0 (all) | Cap rows for smoke scoring |
 | `--no-resume` | off | Re-judge rows already in `scored.jsonl` |
+| `--vocab` / `--no-vocab` | on | Enable / disable vocabulary normalization for len≥2 rows |
+| `--vocab-model` | `all-MiniLM-L6-v2` | sentence-transformers embedder (CPU by default) |
+| `--vocab-threshold` | 0.55 | Min cosine similarity to replace a prediction with a vocab entry |
+| `--vocab-device` | `cpu` | Torch device for the embedder (`cuda:0`, etc.) |
+| `--vocab-skip-tasks` | `[ehrxqa_table]` | Tasks excluded from vocab mapping (cohort ids / numbers / dates) |
+| `--vocab-gold PATH` | None | Separate JSONL source for gold labels; default reads `label` from `--results` |
 
-Multi-region example (2× throughput):
+Multi-region example (2× throughput), vocab on:
 
 ```bash
-$PY $REPO/openresearcher_ehr/scorer_mm.py \
+$PY $REPO/openresearcher_ehr/helper/scorer_mm.py \
     --results path/to/results.jsonl \
     --output-root ./scored \
     --regions us-east-1 us-west-2 \
-    --concurrency 10
+    --concurrency 10 \
+    --vocab-threshold 0.55
 ```
 
-### 6.6 Output files
+Strict raw-metric-only run:
+
+```bash
+$PY $REPO/openresearcher_ehr/helper/scorer_mm.py \
+    --results path/to/results.jsonl \
+    --output-root ./scored_raw \
+    --no-vocab
+```
+
+### 6.7 Output files
 
 ```
 <output-root>/<run-dirname>/
@@ -855,16 +939,26 @@ $PY $REPO/openresearcher_ehr/scorer_mm.py \
 │                   # qid, task, scope, len_gold, judge_subtype (if len=1),
 │                   # prediction_strs, prediction_flat, gold_names,
 │                   # route ∈ {incomplete, set_f1, llm_judge},
-│                   # correct, precision, recall, f1, accuracy,
-│                   # subset_match, note, status,
-│                   # judge_match, judge_reason, judge_raw (judge route only)
+│                   # correct, precision, recall, f1, accuracy, subset_match,
+│                   # + precision_raw/recall_raw/f1_raw/accuracy_raw/
+│                   #   subset_match_raw (len≥2 rows),
+│                   # + prediction_strs_mapped, mapping_similarity,
+│                   #   vocab_mapped (len≥2 rows, when vocab on),
+│                   # judge_match, judge_reason, judge_raw (judge route only).
 ├── summary.json    # aggregate stats:
 │                   #   total, incomplete,
 │                   #   len1_accuracy / len1_count,
-│                   #   len2plus_{f1, precision, recall, accuracy, subset_match},
-│                   #   per_task_len1 (by task: accuracy + by_subtype breakdown),
-│                   #   per_task_len2plus (by task: avg precision/recall/F1/...)
-└── summary.md      # human-readable companion of summary.json
+│                   #   len2plus_{f1, precision, recall, accuracy,
+│                   #              subset_match} + *_raw counterparts,
+│                   #   per_task_len1 (accuracy + subtype breakdown),
+│                   #   per_task_len2plus (raw + mapped averages),
+│                   #   unified_{f1, precision, recall, accuracy,
+│                   #              subset_match} + *_raw counterparts,
+│                   #   per_task_unified (raw + mapped averages),
+│                   #   vocab_model, vocab_threshold, vocab_skip_tasks
+│                   #   (when vocab on)
+└── summary.md      # human-readable companion of summary.json,
+                    # with raw → mapped comparison per task.
 ```
 
 ---
@@ -889,8 +983,8 @@ mv $REPO/data/EHR_multimodal_bench/EHR_multimodal_bench_tests \
 
 # 2) venvs
 cd $REPO/venvs
-uv venv deploy_agent --python 3.12
-uv pip install --python deploy_agent/bin/python -r requirements/deploy_agent.txt
+uv venv bedrock_agent --python 3.12
+uv pip install --python bedrock_agent/bin/python -r requirements/bedrock_agent.txt
 
 uv venv mcp_ehr --python 3.12
 uv pip install --python mcp_ehr/bin/python torch==2.8.0 torchvision \
@@ -909,12 +1003,12 @@ huggingface-cli login           # for MAIRA-2 (gated)
 
 # 4) smoke run (5 rows, no image MCP) — fastest sanity check
 cd $REPO/openresearcher_ehr
-PYBIN=$REPO/venvs/deploy_agent/bin/python \
+PYBIN=$REPO/venvs/bedrock_agent/bin/python \
 IMAGE_PYBIN=$REPO/venvs/mcp_image/bin/python \
 bash run_mm_pipeline.sh --mode prepared --limit 5
 
-# 5) score
-$REPO/venvs/deploy_agent/bin/python scorer_mm.py \
+# 5) score (single end-to-end pass; vocab normalization on by default)
+$REPO/venvs/bedrock_agent/bin/python helper/scorer_mm.py \
     --results $REPO/openresearcher_ehr/results/mm_prepared_*/results.jsonl \
     --output-root $REPO/openresearcher_ehr/results/scored/
 ```
@@ -935,11 +1029,11 @@ $REPO/
 ├── data/EHR_multimodal_bench_tests/
 │   └── combined_test_set.jsonl                    (prepared 2,703-row set)
 ├── venvs/
-│   ├── deploy_agent/                              (venv A)
+│   ├── bedrock_agent/                             (venv A)
 │   ├── mcp_ehr/                                   (venv B)
 │   ├── mcp_image/                                 (venv C)
 │   └── requirements/
-│       ├── deploy_agent.txt
+│       ├── bedrock_agent.txt
 │       ├── mcp_ehr.txt
 │       └── mcp_image.txt
 ├── src/
@@ -958,7 +1052,7 @@ $REPO/
 │   ├── prepare_mm_data.py
 │   ├── run_mm_pipeline.sh                         (unified launcher)
 │   ├── run_mm.sh                                  (earlier minimal launcher)
-│   ├── scorer_mm.py
+│   ├── helper/scorer_mm.py   (end-to-end scorer; vocab + unified F1)
 │   └── data_mm/                                   (filtered JSONL inputs)
 └── docs/
     ├── debug_logs/
@@ -979,7 +1073,7 @@ Specifically:
   `BedrockAsyncGenerator`.
 - `vllm_generator.py` has **no image content handling** — it builds
   text-only user messages and will error on multimodal content blocks.
-- `scorer_mm.py` uses `BedrockAsyncGenerator` for the LLM judge.
+- `helper/scorer_mm.py` uses `BedrockAsyncGenerator` for the LLM judge.
 
 To run end-to-end against a local vLLM server with a multimodal model
 (e.g. `Qwen/Qwen2.5-VL-7B-Instruct`, `llava-hf/llava-1.5-*`,
@@ -1034,7 +1128,7 @@ CUDA_VISIBLE_DEVICES=6,7 vllm serve Qwen/Qwen2.5-VL-7B-Instruct \
 Then run:
 
 ```bash
-$REPO/venvs/deploy_agent/bin/python $REPO/openresearcher_ehr/deploy_agent_mm.py \
+$REPO/venvs/bedrock_agent/bin/python $REPO/openresearcher_ehr/deploy_agent_mm.py \
     --backend vllm \
     --api_base_url http://127.0.0.1:4000/v1 \
     --api_key EMPTY \
@@ -1050,10 +1144,10 @@ $REPO/venvs/deploy_agent/bin/python $REPO/openresearcher_ehr/deploy_agent_mm.py 
 
 ### 9.4 Scorer: swap the judge backend
 
-- `openresearcher_ehr/scorer_mm.py:46` replaces
+- `openresearcher_ehr/helper/scorer_mm.py` (around the `bedrock_generator` import block) replaces
   `BedrockAsyncGenerator` with the vLLM generator class (same
   `chat_completion` surface).
-- `scorer_mm.py:524` the `_anthropic_id_for_region` region-swap logic
+- `helper/scorer_mm.py` — the `_anthropic_id_for_region` region-swap logic
   becomes a no-op; pass through the local model id.
 - The `--regions` flag is meaningless locally — use plain
   `--concurrency` with one server. (Multi-server round-robin is trivial
@@ -1070,7 +1164,7 @@ $REPO/venvs/deploy_agent/bin/python $REPO/openresearcher_ehr/deploy_agent_mm.py 
 |------|----------------|
 | `openresearcher_ehr/deploy_agent_mm.py:788, 790–794` | Expand `--backend` to accept `vllm`; wire vLLM generator |
 | `openresearcher_ehr/vllm_generator.py` | Add OpenAI-style multimodal content helper; accept image blocks in `chat_completion` |
-| `openresearcher_ehr/scorer_mm.py:39–47, 521–540` | Swap `BedrockAsyncGenerator` for vLLM generator; make region remap a no-op |
+| `openresearcher_ehr/helper/scorer_mm.py` | Swap `BedrockAsyncGenerator` for vLLM generator; make region remap a no-op |
 | `openresearcher_ehr/run_mm_pipeline.sh` | Add `VLLM_*` env vars + a `--backend vllm` pass-through |
 
 All MCP servers (EHR + image) and the scorer's routing/metric logic are

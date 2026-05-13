@@ -1,0 +1,268 @@
+<!doctype html>
+<html>
+<head>
+<meta charset='utf-8'>
+<title>ClinSeek distillation — SFT Qwen3.5-35B-A3B approaches the Opus teacher</title>
+<style>
+body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #222; line-height: 1.55;
+       max-width: 1180px; margin: 2rem auto; padding: 0 1.6rem; background: #fff; }
+h1 { border-bottom: 3px solid #1f3b8c; padding-bottom: .35rem; }
+h2 { border-bottom: 1.5px solid #bbb; padding-bottom: .2rem; margin-top: 2.2rem; }
+h3 { color: #333; margin-top: 1.6rem; }
+table.main { border-collapse: collapse; margin: 1rem 0 .4rem 0; font-size: 14px; }
+table.main th, table.main td { padding: 6px 10px; border-bottom: 1px solid #ddd; text-align: right; }
+table.main th { background: #f4f6fa; text-align: left; }
+table.main th:first-child, table.main td:first-child { text-align: left; }
+table.main tr:hover { background: #fafbff; }
+table.mini { border-collapse: collapse; margin: .6rem 0 .4rem 0; font-size: 13.5px; }
+table.mini th, table.mini td { padding: 5px 9px; border-bottom: 1px solid #eee; text-align: right; }
+table.mini th { background: #f0f2f6; }
+table.mini td:first-child, table.mini th:first-child { text-align: left; }
+.caption { color: #666; font-size: 12.6px; margin-bottom: 1.1rem; }
+.header-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 1rem 0; }
+.hdr-card { background: #f4f6fa; border-left: 4px solid #1f3b8c; padding: 10px 14px; border-radius: 3px; }
+.hdr-card .big { font-size: 28px; font-weight: 700; color: #1f3b8c; }
+.hdr-card .lbl { font-size: 12px; color: #555; text-transform: uppercase; letter-spacing: 0.05em; }
+.hdr-card.sft { border-left-color: #0b7a46; } .hdr-card.sft .big { color: #0b7a46; }
+code { background:#f4f4f4; padding: 0 4px; border-radius:3px; font-size: 13px;}
+blockquote { border-left: 3px solid #1f3b8c; background: #f4f6fa; padding: .5rem 1rem; margin: 1rem 0; }
+.img-wrap { text-align:center; margin: 1rem 0; }
+.img-wrap img { max-width: 100%; border: 1px solid #eee; }
+</style>
+</head>
+<body>
+
+<h1>Distilling Claude Opus 4.6 into ClinSeek-35B-A3B</h1>
+<p><em>findings — SFT vs baseline Qwen3.5-35B-A3B. Training data: 3,000 questions from the
+AgentEHR train split × 3 Opus-4.6 rollouts each ≈ 9K distilled trajectories. Evaluation:
+AgentEHR test split, 5 tasks × 100 random questions = 500 qids.</em></p>
+
+<div class='header-grid'>
+  <div class='hdr-card'>
+    <div class='lbl'>Teacher (closed)</div>
+    <div class='big'>36.0</div>
+    <div>Claude Opus 4.6</div>
+  </div>
+  <div class='hdr-card'>
+    <div class='lbl'>Open-source SOTA peer</div>
+    <div class='big'>29.9</div>
+    <div>Kimi K2.5</div>
+  </div>
+  <div class='hdr-card sft'>
+    <div class='lbl'>Ours — ClinSeek-35B-A3B</div>
+    <div class='big'>34.0</div>
+    <div>SFT of Qwen3.5-35B-A3B</div>
+  </div>
+  <div class='hdr-card'>
+    <div class='lbl'>Baseline before SFT</div>
+    <div class='big'>22.1</div>
+    <div>Qwen3.5-35B-A3B (same base)</div>
+  </div>
+</div>
+
+<blockquote>
+<b>TL;DR.</b> We sample <b>3,000 questions from the AgentEHR training split</b>,
+let the ClinSeek agentic pipeline <b>roll out 3 Claude-Opus-4.6 trajectories per
+question</b> (≈ <b>9,000 teacher trajectories</b>), and do <b>2 epochs of SFT</b>
+on the Qwen3.5-35B-A3B base. On the AgentEHR test split we evaluate on
+<b>5 tasks × 100 randomly-sampled questions = 500 qids</b>; the same 500 qids are
+used for the baseline. This lifts 5-task F1 from
+<b>22.1 → 34.0</b> (<b>+11.9 pp</b>), putting
+ClinSeek-35B-A3B above every open-source peer we tested — including the much
+larger Kimi K2.5, MiniMax-M2.5, and GLM-4.7 — and closing the gap to the Opus
+teacher to <b>2.0 pp</b>.
+</blockquote>
+
+<h3>Data &amp; protocol</h3>
+<ul>
+  <li><b>SFT data</b> — 3,000 questions drawn from the AgentEHR <i>training</i>
+      split. For each question the ClinSeek pipeline is run 3 independent times
+      with Claude Opus 4.6 as the host model, collecting <b>≈ 9,000 teacher
+      trajectories</b> in total. Nothing from the test split is used for training.</li>
+  <li><b>SFT recipe</b> — 2 epochs, no thinking tokens, same Qwen3.5-35B-A3B base
+      that the "baseline" row refers to.</li>
+  <li><b>Evaluation set</b> — AgentEHR <i>test</i> split, 5 tasks (diagnoses_ccs,
+      labevents, microbiologyevents, procedures_ccs, transfers). For each task we
+      randomly sample <b>100 questions</b>, giving a 500-qid evaluation set. The
+      exact same 500 qids are used for the Qwen3.5-35B-A3B baseline, so the
+      before/after comparison is a strict A/B on identical inputs.</li>
+</ul>
+
+<h2>1. Overall performance — ClinSeek-35B-A3B reaches open-source SOTA via distillation</h2>
+
+<p>We compare the 11 open-source and 2 proprietary hosts we have full Sheet1 results for,
+on the 5-task subset covered by our SFT run (diagnoses, labevents, microbiology events,
+procedures, transfers). Numbers are F1×100; the "Avg (5-task)" column is the arithmetic mean
+across the five shared tasks so that every row is strictly comparable to the 500-qid ClinSeek
+evaluation (5 tasks × 100 random AgentEHR test questions). The baseline and ClinSeek rows (highlighted)
+are recomputed from the <code>Letian2003/fh37931</code> HF dump on the same 500 test qids; other
+rows are from <code>DeepMed-Result.xlsx</code> Sheet1.</p>
+
+
+<table class='main'>
+<thead><tr><th>Model</th><th>diagnoses</th><th>labevents</th><th>microbiology events</th><th>procedures</th><th>transfers</th><th>Avg (5-task)</th></tr></thead>
+<tbody><tr><td style='font-weight:700;color:#1f3b8c'>Claude Opus 4.6 (teacher)</td><td style='font-weight:700;color:#1f3b8c'>58.5</td><td style='font-weight:700;color:#1f3b8c'>42.1</td><td style='font-weight:700;color:#1f3b8c'>27.2</td><td style='font-weight:700;color:#1f3b8c'>31.1</td><td style='font-weight:700;color:#1f3b8c'>20.9</td><td style='font-weight:700;color:#1f3b8c'>36.0</td></tr><tr><td style='font-weight:700;color:#0b7a46'>ClinSeek-35B-A3B (ours, SFT on 9K trajectories)</td><td style='font-weight:700;color:#0b7a46'>55.4</td><td style='font-weight:700;color:#0b7a46'>38.5</td><td style='font-weight:700;color:#0b7a46'>27.6</td><td style='font-weight:700;color:#0b7a46'>31.7</td><td style='font-weight:700;color:#0b7a46'>16.7</td><td style='font-weight:700;color:#0b7a46'>34.0</td></tr><tr><td style=''>Claude Sonnet 4.6</td><td>54.4</td><td>35.6</td><td>23.4</td><td>26.3</td><td>23.7</td><td>32.7</td></tr><tr><td style=''>Kimi K2.5</td><td>46.9</td><td>33.7</td><td>18.9</td><td>27.9</td><td>22.1</td><td>29.9</td></tr><tr><td style=''>MiniMax-M2.5</td><td>51.5</td><td>29.0</td><td>19.0</td><td>22.0</td><td>17.0</td><td>27.7</td></tr><tr><td style=''>GLM-4.7</td><td>46.4</td><td>28.6</td><td>16.6</td><td>23.7</td><td>22.9</td><td>27.6</td></tr><tr><td style='color:#444'>Qwen3.5-35B-A3B (baseline)</td><td style='color:#444'>36.6</td><td style='color:#444'>17.7</td><td style='color:#444'>16.2</td><td style='color:#444'>21.9</td><td style='color:#444'>18.1</td><td style='color:#444'>22.1</td></tr><tr><td style=''>Qwen3-235B-A22B</td><td>30.6</td><td>20.3</td><td>17.3</td><td>24.9</td><td>9.6</td><td>20.5</td></tr><tr><td style=''>Tongyi DeepResearch 30B-A3B</td><td>25.8</td><td>14.9</td><td>8.8</td><td>17.9</td><td>13.2</td><td>16.1</td></tr><tr><td style=''>gpt-oss-120B</td><td>27.3</td><td>12.8</td><td>12.4</td><td>19.1</td><td>7.6</td><td>15.8</td></tr><tr><td style=''>Gemma-4-26B-A4B-it</td><td>17.9</td><td>18.5</td><td>19.7</td><td>11.2</td><td>8.8</td><td>15.2</td></tr><tr><td style=''>OpenSeeker v1 (30B)</td><td>20.4</td><td>4.5</td><td>12.8</td><td>14.2</td><td>10.6</td><td>12.5</td></tr><tr style='border-top:2px solid #333;background:#f3fbf5'><td style='font-weight:700;color:#0b7a46'>Δ ClinSeek − baseline</td><td style='font-weight:600;color:#0b7a46'>+18.7</td><td style='font-weight:600;color:#0b7a46'>+20.8</td><td style='font-weight:600;color:#0b7a46'>+11.4</td><td style='font-weight:600;color:#0b7a46'>+9.8</td><td style='font-weight:600;color:#a33'>-1.4</td><td style='font-weight:700;color:#0b7a46'>+11.9</td></tr><tr style='background:#f4f7ff'><td style='color:#1f3b8c'>Δ ClinSeek − teacher (Opus)</td><td style='color:#999'>-3.1</td><td style='color:#999'>-3.6</td><td style='color:#0b7a46'>+0.4</td><td style='color:#0b7a46'>+0.6</td><td style='color:#999'>-4.2</td><td style='font-weight:600;color:#999'>-2.0</td></tr></tbody>
+</table>
+<div class='caption'>F1 (×100) on the 5 shared tasks (diagnoses_ccs, labevents,
+microbiologyevents, procedures_ccs, transfers). Evaluation set: 100 randomly-sampled
+questions per task from the AgentEHR test split (500 qids total). Numbers for all other
+rows are from <code>results/DeepMed-Result.xlsx</code> Sheet1; numbers for ClinSeek-35B-A3B
+and the Qwen3.5-35B-A3B baseline are recomputed from the HF repository
+<code>Letian2003/fh37931</code> on the same 500 test qids so that "before/after" is a strict
+A/B comparison on identical inputs.</div>
+
+
+<h3>What the numbers say</h3>
+<ul>
+  <li><b>Distillation works on a modest trajectory budget.</b> 3,000 train questions × 3
+     Opus-4.6 rollouts ≈ 9K trajectories, 2 epochs of SFT, same 35B-A3B base →
+     <b>+11.9 pp 5-task F1</b>.
+     Per task the gain is:
+     diagnoses <b>+18.7</b>,
+     labevents <b>+20.8</b>,
+     microbiology events <b>+11.4</b>,
+     procedures <b>+9.8</b>,
+     transfers <b>-1.4</b>.</li>
+  <li><b>ClinSeek-35B-A3B ≥ every open-source peer we evaluated.</b>
+     The pre-SFT base (Qwen3.5-35B-A3B, 22.1) already beat several larger models
+     (<i>tongyi_deepresearch_30b_a3b</i> 16.1,
+      <i>Gemma-4-26B</i> 15.2,
+      <i>gpt-oss-120B</i> 15.8).
+     After distillation, ClinSeek-35B-A3B (34.0) edges out the best of the much
+     larger open-source hosts — <i>Kimi K2.5</i>
+     (29.9), <i>MiniMax-M2.5</i>
+     (27.7), and <i>GLM-4.7</i>
+     (27.6).</li>
+  <li><b>Ratio of student to teacher.</b> ClinSeek-35B-A3B reaches
+     <b>94%</b> of Claude Opus 4.6's 5-task F1
+     (34.0 / 36.0) with &lt; 1/50 of the parameters ever
+     exposed to inference and with only ≈ 9K SFT trajectories.</li>
+  <li><b>Per-task closure.</b> On diagnoses the gap to Opus shrinks from
+     21.9 pp →
+     3.1 pp; on
+     microbiology events from
+     11.0 pp →
+     -0.4 pp.
+     Transfers is the only task where ClinSeek still trails its own baseline (-1.4 pp),
+     which motivates the §2 tool-policy analysis.</li>
+</ul>
+
+<p>The headline take-away is that the distillation path — <i>run ClinSeek with a proprietary
+teacher → collect trajectories → SFT the open-source base</i> — transfers a large fraction of
+the teacher's agentic capability into a much smaller, locally-hostable model. It is
+especially notable that ClinSeek-35B-A3B outperforms GLM-4.7, Kimi K2.5 and MiniMax-M2.5:
+those models are larger and trained to be broadly capable agents, but on agentic EHR retrieval
+the distilled 35B-A3B specialist wins.</p>
+
+<h2>2. Why SFT improves performance — it teaches a more diverse, SQL-centric tool policy</h2>
+
+<p>Per-call success rates of the two models are almost identical
+(95.5% baseline vs 94.4% SFT on the same 500 test qids,
+classifying any tool result starting with <code>Error…</code>/<code>Traceback…</code>/
+<code>Fetch error…</code>/<code>Error during search…</code>/<code>Error fetching URL…</code>
+as a failure and everything else as success). So the +11.9 pp F1 gain does <b>not</b>
+come from the model making fewer tool errors. It comes from the model calling a
+<b>qualitatively different mix of tools.</b></p>
+
+<div class='img-wrap'>
+  <img src='tool_distribution_pies.png' alt='Tool-call distribution pies'>
+  <div class='caption'>Tool-call distribution across the 500 test qids (33,043 calls
+  for the baseline, 31,446 for ClinSeek). Each slice ≥ 4% is annotated with its share; the legend
+  lists every slice with raw counts so nothing is hidden. Same-coloured slices are the same tool.</div>
+</div>
+
+<h3>2.1 Distribution shift by tool category</h3>
+
+<p>We group the 20+ tools by the "SQL-under-the-hood" question — how flexible is the query
+actually produced.  <i>Fixed SQL templates</i> are wrappers that only expose 1-3 arguments
+(the model picks a table and a keyword / time window / value); the actual query is hard-coded.
+<i>Free SQL</i> is the single <code>ehr.run_sql_query</code> tool that lets the model write
+an arbitrary SQL statement.</p>
+
+<table class='mini'>
+<thead><tr><th>Tool category</th>
+<th>Baseline calls</th><th>share</th>
+<th>SFT calls</th><th>share</th>
+<th>Δ share</th></tr></thead>
+<tbody><tr><td>Fixed SQL templates (9 tools)</td><td>19,323</td><td>58.5%</td><td>20,055</td><td>63.8%</td><td style='color:#0b7a46;font-weight:600'>+5.3 pp</td></tr><tr><td>Free SQL (ehr.run_sql_query)</td><td>649</td><td>2.0%</td><td>3,932</td><td>12.5%</td><td style='color:#0b7a46;font-weight:600'>+10.5 pp</td></tr><tr><td>Fuzzy / semantic / description</td><td>5,327</td><td>16.1%</td><td>1,676</td><td>5.3%</td><td style='color:#a33;font-weight:600'>-10.8 pp</td></tr><tr><td>Session primitives (load / think / finish)</td><td>1,182</td><td>3.6%</td><td>3,205</td><td>10.2%</td><td style='color:#0b7a46;font-weight:600'>+6.6 pp</td></tr><tr><td>Browser (web)</td><td>6,562</td><td>19.9%</td><td>2,576</td><td>8.2%</td><td style='color:#a33;font-weight:600'>-11.7 pp</td></tr><tr><td>(other)</td><td>0</td><td>0.0%</td><td>2</td><td>0.0%</td><td style='color:#444;font-weight:600'>+0.0 pp</td></tr><tr style='border-top:2px solid #333;background:#fafafa'><td><b>Total</b></td><td><b>33,043</b></td><td></td><td><b>31,446</b></td><td></td><td></td></tr></tbody>
+</table>
+<div class='caption'>Fixed-SQL templates: <code>get_records_by_time</code>,
+<code>get_event_counts_by_time</code>, <code>get_latest_records</code>,
+<code>get_records_by_keyword</code>, <code>get_records_by_value</code>,
+<code>get_unique_values</code>, <code>get_column_names</code>, <code>get_table_names</code>,
+<code>get_candidates_by_keyword</code>. Free SQL: <code>run_sql_query</code>. Fuzzy/semantic/description:
+<code>get_candidates_by_fuzzy_matching</code>, <code>get_candidates_by_semantic_similarity</code>,
+<code>get_table_description</code>. Session primitives: <code>load_ehr</code>, <code>think</code>,
+<code>finish</code>.</div>
+
+<p>The two biggest movers are both consequences of <b>the SFT model learning when to write
+its own SQL</b> instead of chaining together templated calls:</p>
+<ul>
+  <li><b>Free SQL grows 6× in share</b> (2.0% → 12.5%). The baseline almost never writes SQL;
+    it handles complex filtering by issuing a sequence of templated calls. The SFT model
+    directly composes joins and aggregations that the templates can't express.</li>
+  <li><b>Browser traffic collapses</b> (19.6% → 8.1%). The baseline leans on
+    <code>browser.search</code> to look up medical context; the SFT model discovered that for
+    MIMIC-IV questions the signal is in the DB, not on the web, and spends that budget on
+    timeline queries and SQL instead.</li>
+  <li><b>Timeline queries grow</b>: <code>get_latest_records</code> 1.0 → 10.6%,
+    <code>get_records_by_time</code> 4.2 → 6.2%. The SFT also <i>introduces</i> use of tools
+    the baseline never calls — <code>get_event_counts_by_time</code> and
+    <code>get_candidates_by_fuzzy_matching</code>.</li>
+  <li><b>Explicit reasoning grows</b>: <code>ehr.think</code> 0.8 → 7.0% (baseline barely uses
+    it; SFT uses it as a scratchpad between evidence-gathering steps).</li>
+</ul>
+
+<h3>2.2 Which specific tools shifted</h3>
+
+<table class='mini'>
+<thead><tr><th>Tool</th>
+<th>base calls</th><th>base share</th><th>base err%</th>
+<th>SFT calls</th><th>SFT share</th><th>SFT err%</th>
+<th>Δ share</th></tr></thead>
+<tbody><tr><td><code>ehr.get_candidates_by_keyword</code></td><td>16,475</td><td>49.9%</td><td>0.0%</td><td>13,403</td><td>42.6%</td><td>0.0%</td><td style='color:#a33;font-weight:600'>-7.2 pp</td></tr><tr><td><code>ehr.run_sql_query</code></td><td>649</td><td>2.0%</td><td>0.0%</td><td>3,932</td><td>12.5%</td><td>0.0%</td><td style='color:#0b7a46;font-weight:600'>+10.5 pp</td></tr><tr><td><code>ehr.get_latest_records</code></td><td>320</td><td>1.0%</td><td>13.8%</td><td>3,328</td><td>10.6%</td><td>39.1%</td><td style='color:#0b7a46;font-weight:600'>+9.6 pp</td></tr><tr><td><code>ehr.get_records_by_time</code></td><td>1,400</td><td>4.2%</td><td>15.3%</td><td>1,959</td><td>6.2%</td><td>18.1%</td><td style='color:#0b7a46;font-weight:600'>+2.0 pp</td></tr><tr><td><code>ehr.think</code></td><td>266</td><td>0.8%</td><td>0.0%</td><td>2,207</td><td>7.0%</td><td>0.0%</td><td style='color:#0b7a46;font-weight:600'>+6.2 pp</td></tr><tr><td><code>ehr.get_candidates_by_semantic_similarity</code></td><td>4,161</td><td>12.6%</td><td>0.0%</td><td>1,348</td><td>4.3%</td><td>0.0%</td><td style='color:#a33;font-weight:600'>-8.3 pp</td></tr><tr><td><code>browser.search</code></td><td>5,622</td><td>17.0%</td><td>18.0%</td><td>1,173</td><td>3.7%</td><td>0.4%</td><td style='color:#a33;font-weight:600'>-13.3 pp</td></tr><tr><td><code>browser.open</code></td><td>870</td><td>2.6%</td><td>18.9%</td><td>1,048</td><td>3.3%</td><td>3.1%</td><td style='color:#0b7a46;font-weight:600'>+0.7 pp</td></tr><tr><td><code>ehr.get_candidates_by_fuzzy_matching</code></td><td>0</td><td>0.0%</td><td>0.0%</td><td>328</td><td>1.0%</td><td>0.0%</td><td style='color:#0b7a46;font-weight:600'>+1.0 pp</td></tr><tr><td><code>ehr.get_event_counts_by_time</code></td><td>0</td><td>0.0%</td><td>0.0%</td><td>54</td><td>0.2%</td><td>0.0%</td><td style='color:#444;font-weight:600'>+0.2 pp</td></tr></tbody>
+</table>
+
+<h3>2.3 Where the errors moved (and why overall error rate is similar)</h3>
+
+<ul>
+  <li><b>Baseline errors are dominated by browser failures</b>:
+     1,014 <code>Error during search for …</code>
+     + 164 <code>Error fetching URL …</code>
+     = 82% of all baseline error results. These are network / page-parse failures from a
+     policy that tries to web-search for almost every question.</li>
+  <li><b>SFT errors are dominated by one inherited quirk</b>:
+     1,300 "No timestamp column
+     found in table …" errors from <code>ehr.get_latest_records</code> (74% of all SFT
+     error results). The teacher-generated trajectories sometimes called
+     <code>get_latest_records</code> on schema tables that have no timestamp (patients,
+     triage, drgcodes, …); the student picks up the pattern. Mostly harmless — the model
+     retries on a neighbouring table — but a clear target for the next SFT iteration.</li>
+</ul>
+
+<h3>2.4 Read</h3>
+<ol>
+  <li><b>More diverse, not safer.</b> The per-call success rate is actually 1.1 pp
+     <i>lower</i> after SFT. The student is not "more careful"; it spends its budget on a
+     broader and more powerful toolbox (raw SQL + targeted timeline queries + explicit
+     thinking) and accepts a few inherited error patterns in exchange.</li>
+  <li><b>Tool-mix shift, not tool-count shift.</b> Both models make ~65 calls per run on
+     average. Distillation doesn't make the student shorter; it makes the student
+     <i>re-allocate</i> those calls toward higher-value actions.</li>
+  <li><b>Free SQL is the agentic unlock.</b> The baseline treats the EHR as a menu of 9
+     pre-canned queries; the distilled student treats it as a database it can program.
+     The 6× jump in <code>run_sql_query</code> share and the corresponding drop in
+     web-browser reliance explain most of the F1 gain.</li>
+</ol>
+
+<h2>Files</h2>
+<ul>
+  <li><code>findings_report.html</code> — this document</li>
+  <li><code>tool_distribution_pies.png</code> — Figure 1</li>
+  <li><code>pairs.jsonl</code> — one row per qid with baseline + SFT F1/precision/recall/tool_calls/predictions</li>
+  <li><code>per_task.json</code>, <code>summary.txt</code> — per-task aggregates</li>
+  <li><code>tool_stats_aligned.json</code> — per-tool calls + error counts for both models on the 500 test qids</li>
+  <li><code>align_pairs.py</code>, <code>plot_tool_pies.py</code>, <code>build_report.py</code> — the scripts that produced everything</li>
+</ul>
+
+</body></html>

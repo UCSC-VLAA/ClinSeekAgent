@@ -166,31 +166,10 @@ class MultiTurnSFTDataset(Dataset):
         # Extract messages list from dataframe
         self.messages = self.dataframe[self.messages_key].apply(convert_nested_value_to_list_recursive).tolist()
 
-        # Post-process: convert tool_call.function.arguments back to a dict
-        # and strip null-filled placeholder fields so the chat template sees
-        # exactly the OpenAI shape it expects. Our parquet writer stores
-        # arguments as a JSON string with a uniform schema across rows (heterogeneous
-        # arg dicts otherwise break pyarrow); undo that here.
-        def _rehydrate(messages):
-            out = []
-            for m in messages:
-                if not isinstance(m, dict):
-                    out.append(m); continue
-                m = {k: v for k, v in m.items() if v is not None}
-                tcs = m.get("tool_calls")
-                if tcs:
-                    for tc in tcs:
-                        fn = tc.get("function") or {}
-                        args = fn.get("arguments")
-                        if isinstance(args, str):
-                            try:
-                                fn["arguments"] = json.loads(args) if args else {}
-                            except (TypeError, ValueError):
-                                fn["arguments"] = {}
-                        tc["function"] = fn
-                out.append(m)
-            return out
-        self.messages = [_rehydrate(ms) for ms in self.messages]
+        # NOTE: rehydration of OpenAI-native fields (json-string `arguments`,
+        # null-filled placeholder keys) happens inside `_build_messages` at
+        # __getitem__ time, because that path reads directly from `self.dataframe`
+        # and ignores any post-processing done on `self.messages` here.
 
         # Extract tools list from dataframe
         if self.tools_key in self.dataframe.columns:
@@ -311,6 +290,32 @@ class MultiTurnSFTDataset(Dataset):
             messages: List of messages with replaced placeholder.
         """
         messages: list = example[self.messages_key]
+
+        # OpenAI-native SFT data support: our parquet writer stores a uniform
+        # per-row schema where `tool_call.function.arguments` is a JSON string
+        # and missing fields (tool_calls / tool_call_id) are null-filled.
+        # Rehydrate:
+        #   - strip None-valued keys (so they don't leak into the chat template)
+        #   - json.loads tool_call.function.arguments back into a dict
+        # so Qwen3.5's chat_template.jinja (`arguments|items`) can iterate.
+        def _rehydrate_one(m):
+            if not isinstance(m, dict):
+                return m
+            m = {k: v for k, v in m.items() if v is not None}
+            tcs = m.get("tool_calls")
+            if tcs:
+                for tc in tcs:
+                    fn = tc.get("function") or {}
+                    args = fn.get("arguments")
+                    if isinstance(args, str):
+                        try:
+                            fn["arguments"] = json.loads(args) if args else {}
+                        except (TypeError, ValueError):
+                            fn["arguments"] = {}
+                    tc["function"] = fn
+            return m
+        messages = [_rehydrate_one(m) for m in messages]
+
         images = example[self.image_key] if self.image_key in example else []
         videos = example[self.video_key] if self.video_key in example else []
 

@@ -27,6 +27,7 @@ from verl.experimental.agent_loop.agent_loop import (
     AgentLoopOutput,
     register,
 )
+from verl.experimental.agent_loop.context_summarizer import ContextSummarizer
 from verl.experimental.agent_loop.tool_parser import FunctionCall, ToolParser
 from verl.experimental.agent_loop.utils import build_gpt_oss_tool_response_text
 from verl.interactions.base import BaseInteraction
@@ -88,6 +89,14 @@ class AgentData:
 
         self.routed_experts = None
 
+        # Context-reset state (ported from OpenResearcher researcher_v2). The vLLM
+        # generation prompt is derived from _get_generation_prompt(); prompt_ids
+        # always holds the full trajectory for training/reward use.
+        self._context_was_reset: bool = False
+        self._reset_generation_prefix: list[int] = []
+        self._post_reset_offset: int = 0
+        self._num_resets: int = 0
+
         # Extra fields for dynamic addition, e.g., tool session data
         self.extra_fields: dict[str, Any] = {}
 
@@ -112,6 +121,48 @@ class ToolAgentLoop(AgentLoopBase):
 
         self.prompt_length = self.rollout_config.prompt_length
         self.response_length = self.rollout_config.response_length
+
+        # Context-reset config (ported from OpenResearcher researcher_v2)
+        mt = self.rollout_config.multi_turn
+        self.context_reset_enabled = mt.context_reset_enabled
+        self.context_reset_threshold = mt.context_reset_threshold
+        self.context_reset_message = mt.context_reset_message
+        # Optional: Claude Haiku summarizer that condenses the full history
+        # into bullet points of findings before a reset fires. None when the
+        # summarizer is disabled or boto3 is unavailable — _maybe_reset_context
+        # falls back to the static reset message in that case.
+        try:
+            self.context_summarizer = ContextSummarizer.from_config(mt)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("ContextSummarizer.from_config failed (%s); continuing without it", e)
+            self.context_summarizer = None
+
+        # Force-finish-tool variant (SFT-ed models that submit via ehr.finish
+        # tool call). When enabled, _maybe_force_answer injects a Qwen3-XML
+        # tool-call prefix instead of the text <answer> prefix. Defaults to
+        # False so the base/non-SFT <answer>-prefix path remains the default.
+        self.force_finish_tool_enabled = getattr(mt, "force_finish_tool_enabled", False)
+        self.force_finish_tool_name = getattr(mt, "force_finish_tool_name", "ehr.finish")
+        # SFT-ed Qwen3.5 models were trained to emit `response=...` as the
+        # finish-tool argument; default the forced path to match.
+        self.force_finish_tool_param = getattr(mt, "force_finish_tool_param", "response")
+
+        # Context reset body selection:
+        #   "summarizer"    → Claude-Haiku summary note (or static fallback) replaces
+        #                    the middle rounds; keeps rollouts submitting (v5h default).
+        #   "sliding_window" → keep system + user + last N×2 messages verbatim (v5m).
+        # Shared bounds: `context_reset_max_count` caps total resets per rollout.
+        self.context_reset_mode = getattr(mt, "context_reset_mode", "summarizer")
+        self.context_reset_keep_last_rounds = getattr(mt, "context_reset_keep_last_rounds", 4)
+        # Kept for backward-compat, no longer enforced inside _do_context_reset.
+        # Resets fire as many times as the trajectory needs — only the hard
+        # response_length cap + force-answer soft cap bound things.
+        self.context_reset_max_count = getattr(mt, "context_reset_max_count", 10)
+        # Soft cap: when response_mask crosses this length, the next turn-limit
+        # event force-injects a finish-tool prefix so the model spends its
+        # remaining budget on the answer rather than further exploration.
+        # 0 disables (fall back to response_length-exhaustion trigger only).
+        self.force_answer_token_threshold = int(getattr(mt, "force_answer_token_threshold", 0) or 0)
 
         # Initialize interactions from config file
         self.interaction_config_file = self.rollout_config.multi_turn.interaction_config_path
@@ -197,8 +248,359 @@ class ToolAgentLoop(AgentLoopBase):
             routed_experts=agent_data.routed_experts,
             extra_fields=agent_data.extra_fields,
         )
-        output.extra_fields.update({"turn_scores": agent_data.turn_scores, "tool_rewards": agent_data.tool_rewards})
+        # Seed defaults for fields that may-or-may-not be populated per
+        # rollout. DataProto.concat asserts all samples share the same keys,
+        # so we need every trajectory to carry these even when the tool that
+        # writes them (EHRFinishTool) was never called. Note: pydantic's
+        # AgentLoopOutput copies the dict on construction, so we mutate
+        # `output.extra_fields` (not `agent_data.extra_fields`).
+        output.extra_fields.setdefault("final_answer", None)
+        output.extra_fields.setdefault("final_answer_submitted", False)
+        output.extra_fields.update(
+            {
+                "turn_scores": agent_data.turn_scores,
+                "tool_rewards": agent_data.tool_rewards,
+                "num_context_resets": agent_data._num_resets,
+                "forced_answer_injected": bool(agent_data.metrics.get("forced_answer_injected", False)),
+                "turn_limit_rescued": bool(agent_data.metrics.get("turn_limit_rescued", False)),
+                "turn_limit_rescues": int(agent_data.metrics.get("turn_limit_rescues", 0)),
+            }
+        )
         return output
+
+    def _get_generation_prompt(self, agent_data: AgentData) -> list[int]:
+        """Return the token list to feed vLLM for generation.
+
+        Normally this is the full trajectory `prompt_ids`. After a context
+        reset, it is the reset prefix (system + original user task + reset
+        note, tokenized once) followed by only the tokens accumulated since
+        the last reset. This keeps vLLM under `max_model_len` while
+        `prompt_ids` (used for training / reward / response_mask alignment)
+        remains a complete rollout.
+        """
+        if not agent_data._context_was_reset:
+            return agent_data.prompt_ids
+        post_reset_tokens = agent_data.prompt_ids[agent_data._post_reset_offset :]
+        return agent_data._reset_generation_prefix + list(post_reset_tokens)
+
+    async def _maybe_reset_context(self, agent_data: AgentData) -> bool:
+        """Reset the vLLM generation prompt when it crosses the threshold.
+
+        Keeps the original system prompt + original user task + a reset note
+        in the generation prompt. `prompt_ids` / `response_mask` are not
+        modified; the reset only changes what vLLM sees on the next call.
+
+        Returns True iff a reset was performed this call.
+        """
+        if not self.context_reset_enabled or self.context_reset_threshold <= 0:
+            return False
+
+        gen_prompt = self._get_generation_prompt(agent_data)
+        if len(gen_prompt) < self.context_reset_threshold:
+            return False
+        return await self._do_context_reset(agent_data, reason="threshold")
+
+    async def _do_context_reset(self, agent_data: AgentData, reason: str = "threshold") -> bool:
+        """Context reset — truncates what sglang sees on the next generation
+        while leaving `prompt_ids` / `response_mask` untouched so GRPO still
+        trains on the full trajectory.
+
+        Two body styles, gated by `context_reset_mode`:
+          - "summarizer"    : [system, original_user, <summary note>] — note
+                              comes from Claude Haiku if ContextSummarizer
+                              is configured, else the static message. Best
+                              for keeping rollouts submitting.
+          - "sliding_window": [system, original_user, *last N×2 messages] —
+                              keeps recent tool/assistant turns verbatim.
+
+        Resets fire freely — there is no hard cap on `_num_resets`. The
+        trajectory is instead bounded by `response_length` (training-tensor
+        hard cap) and by the soft `force_answer_token_threshold` which the
+        caller uses to inject a finish-tool prefix before the hard cap.
+        """
+
+        # Find the first system message and first user message to anchor the
+        # reset prefix on the task framing.
+        system_msg = None
+        user_msg = None
+        first_user_idx = None
+        for idx, msg in enumerate(agent_data.messages):
+            role = msg.get("role")
+            if role == "system" and system_msg is None:
+                system_msg = msg
+            elif role == "user" and user_msg is None:
+                user_msg = msg
+                first_user_idx = idx
+            if system_msg is not None and user_msg is not None:
+                break
+        if user_msg is None:
+            return False
+
+        reset_messages: list[dict[str, Any]] = []
+        body_descr: str
+
+        if self.context_reset_mode == "sliding_window":
+            # Keep [system, user, last N×2 tail messages].
+            tail_start = (first_user_idx or 0) + 1
+            tail = agent_data.messages[tail_start:]
+            keep_n = max(0, self.context_reset_keep_last_rounds) * 2
+            if keep_n and len(tail) > keep_n:
+                tail = tail[-keep_n:]
+            if system_msg is not None:
+                reset_messages.append(system_msg)
+            reset_messages.append(user_msg)
+            reset_messages.extend(tail)
+            body_descr = f"sliding_window(keep={len(tail)} tail msgs)"
+        else:
+            # Default: summarizer — try Claude Haiku, fall back to static note.
+            summary: Optional[str] = None
+            if self.context_summarizer is not None:
+                try:
+                    summary = await self.context_summarizer.summarize(agent_data.messages)
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("context summarizer raised (%s); using static reset", e)
+                    summary = None
+
+            if summary:
+                reset_note = (
+                    "[CONTEXT RESET] Your previous research context has been condensed. "
+                    "Here is a summary of your research so far:\n\n"
+                    f"{summary}\n\n"
+                    "The original question is above. Continue your research based on these findings — "
+                    "you may search again for missing details or submit your answer."
+                )
+            else:
+                reset_note = self.context_reset_message
+
+            if system_msg is not None:
+                reset_messages.append(system_msg)
+            reset_messages.append(user_msg)
+            reset_messages.append({"role": "user", "content": reset_note})
+            body_descr = f"summarizer(used={'haiku' if summary else 'static'})"
+
+        try:
+            reset_prompt_ids = await self.apply_chat_template(
+                reset_messages,
+                tools=self.tool_schemas,
+                images=agent_data.image_data,
+                videos=agent_data.video_data,
+            )
+        except Exception as e:  # noqa: BLE001
+            # Some chat templates reject a conversation that starts a tool/
+            # user block without a preceding assistant turn. Fall back to a
+            # tighter keep (assistant-terminated tail or static note).
+            logger.warning("reset prefix tokenize failed (%s); retrying minimal", e)
+            trimmed = [system_msg, user_msg] if system_msg is not None else [user_msg]
+            if self.context_reset_mode == "sliding_window":
+                for m in reversed(reset_messages[2 if system_msg is not None else 1:]):
+                    if m.get("role") == "assistant":
+                        trimmed.append(m)
+                        break
+            else:
+                trimmed.append({"role": "user", "content": self.context_reset_message})
+            reset_prompt_ids = await self.apply_chat_template(
+                trimmed,
+                tools=self.tool_schemas,
+                images=agent_data.image_data,
+                videos=agent_data.video_data,
+            )
+
+        agent_data._context_was_reset = True
+        agent_data._reset_generation_prefix = reset_prompt_ids
+        agent_data._post_reset_offset = len(agent_data.prompt_ids)
+        agent_data._num_resets += 1
+
+        # Record the reason so downstream logic / metrics can differentiate
+        # threshold-triggered resets from turn-limit rescues.
+        last_reasons = agent_data.metrics.setdefault("context_reset_reasons", [])
+        last_reasons.append(reason)
+
+        logger.warning(
+            "[RESET] Context reset #%d/%d (reason=%s, mode=%s) for request %s: "
+            "%s; generation prompt %d tokens (threshold=%d, full prompt_ids=%d)",
+            agent_data._num_resets,
+            self.context_reset_max_count,
+            reason,
+            self.context_reset_mode,
+            agent_data.request_id,
+            body_descr,
+            len(reset_prompt_ids),
+            self.context_reset_threshold,
+            len(agent_data.prompt_ids),
+        )
+        return True
+
+    async def _turn_limit_rescue(self, agent_data: AgentData) -> bool:
+        """On turn-limit hit, do a context reset and extend the turn budget
+        so the model can keep rolling out. Bounded by the same
+        `context_reset_max_count` counter as threshold-triggered resets —
+        when the cap is hit, returns False and the caller falls through to
+        `_maybe_force_answer`.
+
+        Returns True iff the rescue fired; caller should then return
+        AgentState.GENERATING to continue the loop instead of terminating.
+        """
+        # The rescue is only useful if context reset is plumbed — otherwise
+        # extending turns without shortening the prompt just re-hits the same
+        # response-length limit immediately.
+        if not self.context_reset_enabled:
+            return False
+
+        reset_ok = await self._do_context_reset(agent_data, reason="turn_limit")
+        if not reset_ok:
+            return False
+
+        n_rescued = int(agent_data.metrics.get("turn_limit_rescues", 0))
+
+        # Extend turn budgets **per-agent-data** (self.max_* is shared across
+        # all rollouts in this loop instance — never mutate it). The effective
+        # caps stored on metrics override self.max_* at the call sites below.
+        # Extension size matches the original `max_assistant_turns` so each
+        # rescue effectively doubles the remaining budget.
+        extension = self.max_assistant_turns or 0
+        new_max_assistant = agent_data.assistant_turns + extension if self.max_assistant_turns else None
+        new_max_user = agent_data.user_turns + extension if self.max_user_turns else None
+        if new_max_assistant is not None:
+            agent_data.metrics["max_assistant_turns_effective"] = new_max_assistant
+        if new_max_user is not None:
+            agent_data.metrics["max_user_turns_effective"] = new_max_user
+
+        n_rescued += 1
+        agent_data.metrics["turn_limit_rescues"] = n_rescued
+        # Keep the legacy bool flag in sync for downstream consumers that
+        # just check "did rescue fire at all".
+        agent_data.metrics["turn_limit_rescued"] = True
+        # Use WARNING so the event is visible at default verl log level
+        # without bumping the whole logger to INFO (would flood with vLLM
+        # chatter). This is a per-rollout-once event so volume is bounded.
+        logger.warning(
+            "[RESCUE] Turn-limit rescue #%d for request %s: context reset done, "
+            "budget extended by %d turns (effective max_assistant=%s max_user=%s)",
+            n_rescued,
+            agent_data.request_id,
+            extension,
+            new_max_assistant,
+            new_max_user,
+        )
+        return True
+
+    async def _maybe_force_answer(self, agent_data: AgentData) -> bool:
+        """Inject a forced answer prefix into the trajectory on budget hit.
+
+        Two variants, gated by `multi_turn.force_finish_tool_enabled`:
+          - (default) `<answer>` text prefix — for base/non-SFT models that
+            learned a free-text <answer>…</answer> submission format.
+          - (SFT path) Qwen3-XML `<tool_call><function=ehr.finish>
+            <parameter=response>` prefix — for SFT-ed Qwen3.5 models that
+            learned to submit via the ehr.finish tool call with `response`
+            as the argument name.
+
+        In both cases the model has one last chance to emit an answer body
+        (plus the closing token) on its next generation step.
+
+        Returns True iff a forced prefix was injected this call.
+        """
+        if agent_data.metrics.get("forced_answer_injected"):
+            return False
+
+        # We intentionally do NOT repeat the semantic-alignment reminder in the
+        # force-answer <think> block here: at this point the model has no more
+        # tool turns to actually call `ehr.get_candidates_by_*`, so the
+        # reminder would be noise. Alignment is steered via the system-prompt
+        # nudge + the early-finish reward bonus instead.
+        if self.force_finish_tool_enabled:
+            tool_name = self.force_finish_tool_name
+            param = self.force_finish_tool_param
+            # Qwen3-XML tool-call prefix (matches what the SFT model was
+            # trained to emit). The model fills in the `response=[...]` body
+            # and closes the tool_call block.
+            prefix_text = (
+                "<|im_start|>assistant\n"
+                "<think>\n"
+                "I've reached my turn limit. Based on all my research so far, "
+                f"I need to submit my final answer now via {tool_name}.\n"
+                "</think>\n\n"
+                f"<tool_call>\n<function={tool_name}>\n<parameter={param}>\n"
+            )
+            tag = f"[FORCE_ANSWER] Forced {tool_name}({param}=…) tool-call prefix injected"
+        else:
+            prefix_text = (
+                "<|im_start|>assistant\n"
+                "<think>\n"
+                "I've reached my turn limit. Based on all my research so far, "
+                "I need to provide my final answer now.\n"
+                "</think>\n\n"
+                "<answer>"
+            )
+            tag = "[FORCE_ANSWER] Forced <answer> prefix injected"
+
+        prefix_ids = await self.loop.run_in_executor(
+            None,
+            lambda: self.tokenizer.encode(prefix_text, add_special_tokens=False),
+        )
+        # Only inject if there's still room for the prefix + at least a short
+        # completion; otherwise terminate cleanly.
+        if len(agent_data.response_mask) + len(prefix_ids) + 16 > self.response_length:
+            return False
+
+        agent_data.prompt_ids += prefix_ids
+        agent_data.response_mask += [1] * len(prefix_ids)
+        if agent_data.response_logprobs:
+            agent_data.response_logprobs += [0.0] * len(prefix_ids)
+        agent_data.metrics["forced_answer_injected"] = True
+        logger.warning(
+            "%s for request %s (assistant_turns=%d, user_turns=%d, response_len=%d)",
+            tag,
+            agent_data.request_id,
+            agent_data.assistant_turns,
+            agent_data.user_turns,
+            len(agent_data.response_mask),
+        )
+        return True
+
+    async def _tokenize_tool_messages_fallback(
+        self, add_messages: list[dict[str, Any]], agent_data: AgentData
+    ) -> list[int]:
+        """Render tool/user messages when apply_chat_template rejects a
+        standalone message list (e.g. Qwen3.5's strict chat template).
+
+        Strategy: (1) re-tokenize the full conversation with tool schemas and
+        return the delta against the current prompt_ids; (2) if that is empty,
+        emit a bare `<|im_start|>user\n<tool_response>…</tool_response><|im_end|>`
+        block directly and encode with the raw tokenizer.
+        """
+        try:
+            full_ids = await self.apply_chat_template(
+                agent_data.messages,
+                tools=self.tool_schemas,
+                images=agent_data.image_data,
+                videos=agent_data.video_data,
+            )
+            current_len = len(agent_data.prompt_ids)
+            delta = full_ids[current_len:]
+            if delta:
+                return list(delta)
+        except Exception as e:
+            logger.warning("Full-conversation re-tokenization fallback failed: %s", e)
+
+        # Last-resort raw-string encoding. Works for Qwen-family models that
+        # expect <|im_start|>user\n<tool_response>…</tool_response><|im_end|>\n.
+        parts: list[str] = []
+        for m in add_messages:
+            role = m.get("role")
+            content = m.get("content", "")
+            if isinstance(content, list):
+                content = "\n".join(
+                    c.get("text", "") for c in content if isinstance(c, dict) and c.get("type") == "text"
+                )
+            if role == "tool":
+                parts.append(f"<tool_response>\n{content}\n</tool_response>")
+            else:
+                parts.append(str(content))
+        raw = "<|im_start|>user\n" + "\n".join(parts) + "<|im_end|>\n"
+        return await self.loop.run_in_executor(
+            None, lambda: self.tokenizer.encode(raw, add_special_tokens=False)
+        )
 
     async def _handle_pending_state(self, agent_data: AgentData, sampling_params: dict[str, Any]) -> AgentState:
         """Handle the pending state: prepare the prompt and start generation."""
@@ -217,10 +619,15 @@ class ToolAgentLoop(AgentLoopBase):
         """Handle the generating state: generate model response and check for tool calls."""
         add_messages: list[dict[str, Any]] = []
 
+        # Possibly shrink the vLLM prompt if it would cross the configured
+        # threshold. `prompt_ids` (the training trajectory) is never modified.
+        await self._maybe_reset_context(agent_data)
+        generation_prompt = self._get_generation_prompt(agent_data)
+
         with simple_timer("generate_sequences", agent_data.metrics):
             output: TokenOutput = await self.server_manager.generate(
                 request_id=agent_data.request_id,
-                prompt_ids=agent_data.prompt_ids,
+                prompt_ids=generation_prompt,
                 sampling_params=sampling_params,
                 image_data=agent_data.image_data,
                 video_data=agent_data.video_data,
@@ -250,12 +657,53 @@ class ToolAgentLoop(AgentLoopBase):
         if output.routed_experts is not None:
             agent_data.routed_experts = output.routed_experts
 
-        # Check termination conditions
+        # Termination/rescue ladder.
+        #
+        # 1. `force_answer_token_threshold` (soft cap): when response_mask crosses
+        #    this count, force-inject a finish-tool prefix so the model uses its
+        #    remaining `response_length − threshold` tokens to emit the answer
+        #    rather than keep exploring. Leaves headroom inside response_length.
+        # 2. `response_length` (hard cap): last-resort safety net — if somehow
+        #    we got past force-answer without terminating, try a context reset
+        #    + rescue, otherwise inject force-answer (which will no-op if there
+        #    are truly no tokens left) and terminate.
+        # 3. Per-turn caps (`max_assistant_turns`, `max_user_turns`): same
+        #    rescue → force-answer → terminate ladder. Rescues fire freely;
+        #    there is no hard cap on rescue count.
+        eff_max_assistant = agent_data.metrics.get("max_assistant_turns_effective") or self.max_assistant_turns
+        eff_max_user = agent_data.metrics.get("max_user_turns_effective") or self.max_user_turns
+
+        # Soft-cap force-answer: crosses threshold but still under hard cap.
+        if (
+            not ignore_termination
+            and self.force_answer_token_threshold > 0
+            and len(agent_data.response_mask) >= self.force_answer_token_threshold
+            and len(agent_data.response_mask) < self.response_length
+            and not agent_data.metrics.get("forced_answer_injected")
+        ):
+            if await self._maybe_force_answer(agent_data):
+                return AgentState.GENERATING
+            # Force-answer guard said no room — fall through to hard cap.
+
         if not ignore_termination and len(agent_data.response_mask) >= self.response_length:
+            # Hard response-length exhausted: this is the last-resort guard.
+            # Do NOT rescue here — rescue keeps rollouts looping past the hard
+            # training-tensor cap. Try one final force-answer (it's size-aware
+            # and will no-op if there's truly no room), otherwise TERMINATE.
+            if await self._maybe_force_answer(agent_data):
+                return AgentState.GENERATING
             return AgentState.TERMINATED
-        if self.max_assistant_turns and agent_data.assistant_turns >= self.max_assistant_turns:
+        if eff_max_assistant and agent_data.assistant_turns >= eff_max_assistant:
+            if await self._turn_limit_rescue(agent_data):
+                return AgentState.GENERATING
+            if await self._maybe_force_answer(agent_data):
+                return AgentState.GENERATING
             return AgentState.TERMINATED
-        if self.max_user_turns and agent_data.user_turns >= self.max_user_turns:
+        if eff_max_user and agent_data.user_turns >= eff_max_user:
+            if await self._turn_limit_rescue(agent_data):
+                return AgentState.GENERATING
+            if await self._maybe_force_answer(agent_data):
+                return AgentState.GENERATING
             return AgentState.TERMINATED
 
         # Extract tool calls
@@ -355,14 +803,27 @@ class ToolAgentLoop(AgentLoopBase):
             # to stay compatible with downstream image processing logic!
             images = new_images_this_turn if new_images_this_turn else None
             videos = None
-            response_ids = await self.apply_chat_template(
-                add_messages,
-                images=images,
-                videos=videos,
-                remove_system_prompt=True,
-            )
+            try:
+                response_ids = await self.apply_chat_template(
+                    add_messages,
+                    images=images,
+                    videos=videos,
+                    remove_system_prompt=True,
+                )
+            except Exception as e:
+                # Qwen3.5-style strict chat templates reject a standalone
+                # [{"role":"tool", ...}] list. Fall back to re-tokenizing the
+                # full conversation and diffing, or raw-encoding tool_response.
+                logger.warning(
+                    "apply_chat_template(tool-delta) failed (%s); using fallback tokenization", e
+                )
+                response_ids = await self._tokenize_tool_messages_fallback(add_messages, agent_data)
 
         if len(agent_data.response_mask) + len(response_ids) >= self.response_length:
+            if await self._maybe_force_answer(agent_data):
+                # On forced-answer injection the prefix tokens were already
+                # appended; skip the tool-delta to avoid pushing past budget.
+                return AgentState.GENERATING
             return AgentState.TERMINATED
         # Update prompt_ids and response_mask
 
@@ -391,6 +852,16 @@ class ToolAgentLoop(AgentLoopBase):
         ) = await agent_data.interaction.generate_response(
             agent_data.request_id, agent_data.messages, **agent_data.interaction_kwargs
         )
+
+        # If the interaction returns an empty user turn (e.g. "no answer yet,
+        # keep rolling out"), skip injecting a placeholder user message so the
+        # trajectory doesn't get cluttered with repeated nags. The agent loop
+        # simply goes back to GENERATING to let the model continue naturally.
+        if not should_terminate_sequence and not (interaction_responses or "").strip():
+            if reward is not None:
+                agent_data.turn_scores.append(reward)
+            return AgentState.GENERATING
+
         agent_data.user_turns += 1
 
         add_messages: list[dict[str, Any]] = [{"role": "user", "content": interaction_responses}]
@@ -400,10 +871,16 @@ class ToolAgentLoop(AgentLoopBase):
             agent_data.turn_scores.append(reward)
 
         # Update prompt with user responses (similar to _handle_processing_tools_state)
-        response_ids = await self.apply_chat_template(
-            add_messages,
-            remove_system_prompt=True,
-        )
+        try:
+            response_ids = await self.apply_chat_template(
+                add_messages,
+                remove_system_prompt=True,
+            )
+        except Exception as e:
+            logger.warning(
+                "apply_chat_template(interaction-delta) failed (%s); using fallback tokenization", e
+            )
+            response_ids = await self._tokenize_tool_messages_fallback(add_messages, agent_data)
 
         # Update prompt_ids and response_mask
         agent_data.prompt_ids += response_ids

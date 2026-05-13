@@ -1,0 +1,55 @@
+{
+  "case_id": "ehr_bench_risk_prediction_5496",
+  "task": "Inpatient_Mortality",
+  "gold": "yes",
+  "final_answer": [
+    "yes"
+  ],
+  "mode": "won_the_answer",
+  "vital_calls": [
+    {
+      "index": 12,
+      "name": "ehr.run_sql_query",
+      "evidence": "Patient dod is 2151-04-30, confirming death during hospitalization",
+      "used_for": "Confirmed patient died 4 days after admission, establishing inpatient mortality"
+    },
+    {
+      "index": 3,
+      "name": "ehr.get_latest_records",
+      "evidence": "Admissions table showing hospital_expire_flag and deathtime fields",
+      "used_for": "Provided admission context including discharge/death timing information"
+    },
+    {
+      "index": 16,
+      "name": "ehr.run_sql_query",
+      "evidence": "DRG codes: drg_mortality=3.0, infectious disease with OR procedure",
+      "used_for": "Showed high mortality severity rating (3/4) indicating critical illness"
+    },
+    {
+      "index": 10,
+      "name": "ehr.get_records_by_time",
+      "evidence": "Transfer to Hematology/Oncology from ED; intraoperative hypotension context",
+      "used_for": "Showed patient admitted to floor after ED, contextualizing septic shock"
+    },
+    {
+      "index": 8,
+      "name": "ehr.get_records_by_time",
+      "evidence": "WBC 33.3, lactate 3.1, low calcium, coagulopathy, hypoglycemia",
+      "used_for": "Provided critical lab values indicating severe sepsis and organ dysfunction"
+    },
+    {
+      "index": 14,
+      "name": "ehr.get_records_by_time",
+      "evidence": "Radiology showing pyometra with heterogeneous endometrial material",
+      "used_for": "Confirmed source of sepsis as pyometra requiring surgical intervention"
+    }
+  ],
+  "non_vital_summary": "Other calls loaded EHR, retrieved vitals, ED stays, medications, emar records, services, medrecon, OMR, discharge details, and microbiology data providing supplementary clinical context.",
+  "reasoning_failure_analysis": {
+    "final_answer": "no",
+    "failure_type": "missing_evidence_in_prompt",
+    "where_it_went_wrong": "The reasoning model lacked the patients table showing dod=2151-04-30 and DRG mortality severity=3. Without these, it underweighted sepsis severity and incorrectly inferred the observation admit and PT consult meant recovery was expected.",
+    "missed_evidence": "Patient date of death (dod=2151-04-30) from patients table and DRG mortality severity score of 3 indicating high mortality risk were absent from the curated prompt.",
+    "pull_quote": "she is being actively treated with antibiotics and supportive care, is on a regular floor, and a PT consult was ordered suggesting the team expects recovery"
+  }
+}

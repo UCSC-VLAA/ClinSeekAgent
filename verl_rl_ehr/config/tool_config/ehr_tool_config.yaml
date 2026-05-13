@@ -1,0 +1,265 @@
+# Tool config for EHR multi-turn GRPO — loaded by
+# verl.tools.utils.tool_registry.initialize_tools_from_config.
+#
+# Schemas mirror openresearcher_ehr/data_utils.py (EHR_TOOL_CONTENT +
+# BROWSER_TOOL_CONTENT) plus an extra ehr.finish so the model can submit its
+# final answer through the tool-calling interface it learned during SFT.
+#
+# All tools are NATIVE (executed inside the verl process). EHR tools proxy via
+# EHRToolPool -> MCP server on $EHR_MCP_URL. Browser tools honor
+# $BROWSER_SEARCH_MODE (stub|http) and $SEARCH_SERVICE_URL.
+
+tools:
+  # ── Browser tools ────────────────────────────────────────────────────────
+  - class_name: "verl_rl_ehr.tools.browser_search_tool.BrowserSearchTool"
+    config:
+      type: native
+      search_service_url: "${oc.env:SEARCH_SERVICE_URL,http://127.0.0.1:8090}/search"
+      topn: 10
+      timeout: 30
+    tool_schema:
+      type: function
+      function:
+        name: browser.search
+        description: "Searches for information related to a query and displays top N results. Returns a list of search results with titles, URLs, and summaries."
+        parameters:
+          type: object
+          properties:
+            query:
+              type: string
+              description: "The search query string"
+            topn:
+              type: integer
+              description: "Number of results to display"
+              default: 10
+          required: ["query"]
+
+  - class_name: "verl_rl_ehr.tools.browser_open_tool.BrowserOpenTool"
+    config:
+      type: native
+      search_service_url: "${oc.env:SEARCH_SERVICE_URL,http://127.0.0.1:8090}"
+      num_lines: 100
+      timeout: 30
+    tool_schema:
+      type: function
+      function:
+        name: browser.open
+        description: "Opens a link from the current page or a fully qualified URL. Can scroll to a specific location and display a specific number of lines."
+        parameters:
+          type: object
+          properties:
+            id:
+              type: ["integer", "string"]
+              description: "Link id from current page (integer) or fully qualified URL (string). Default is -1 (most recent page)"
+              default: -1
+            cursor:
+              type: integer
+              description: "Page cursor to operate on. If not provided, the most recent page is implied"
+              default: -1
+            loc:
+              type: integer
+              description: "Starting line number. If not provided, viewport will be positioned at the beginning or centered on relevant passage"
+              default: -1
+            num_lines:
+              type: integer
+              description: "Number of lines to display"
+              default: -1
+            view_source:
+              type: boolean
+              description: "Whether to view page source"
+              default: false
+            source:
+              type: string
+              description: "The source identifier (e.g., 'web')"
+          required: []
+
+  - class_name: "verl_rl_ehr.tools.browser_find_tool.BrowserFindTool"
+    config:
+      type: native
+      search_service_url: "${oc.env:SEARCH_SERVICE_URL,http://127.0.0.1:8090}"
+      timeout: 10
+    tool_schema:
+      type: function
+      function:
+        name: browser.find
+        description: "Finds exact matches of a pattern in the current page or a specified page by cursor."
+        parameters:
+          type: object
+          properties:
+            pattern:
+              type: string
+              description: "The exact text pattern to search for"
+            cursor:
+              type: integer
+              description: "Page cursor to search in. If not provided, searches in the current page"
+              default: -1
+          required: ["pattern"]
+
+  # ── EHR tools (MCP-backed) ───────────────────────────────────────────────
+  - class_name: "verl_rl_ehr.tools.ehr_common_tool.EHRMCPTool"
+    config:
+      type: native
+    tool_schema:
+      type: function
+      function:
+        name: ehr.load_ehr
+        description: "Load the EHR database for a specific patient. This action MUST be taken once at the beginning of each EHR-related task."
+        parameters:
+          type: object
+          properties:
+            subject_id:
+              type: string
+              description: "The unique identifier for the patient"
+            timestamp:
+              type: string
+              description: "The current timestamp in 'YYYY-MM-DD HH:MM:SS' format"
+          required: ["subject_id", "timestamp"]
+
+  - class_name: "verl_rl_ehr.tools.ehr_common_tool.EHRMCPTool"
+    config:
+      type: native
+    tool_schema:
+      type: function
+      function:
+        name: ehr.get_table_names
+        description: "Retrieves the names of all available tables in the patient's EHR database, categorized into EHR tables and candidate tables."
+        parameters:
+          type: object
+          properties:
+            subject_id:
+              type: string
+              description: "The unique identifier for the patient"
+          required: ["subject_id"]
+
+  - class_name: "verl_rl_ehr.tools.ehr_common_tool.EHRMCPTool"
+    config:
+      type: native
+    tool_schema:
+      type: function
+      function:
+        name: ehr.get_column_names
+        description: "Retrieves all column names for a specified table. Essential for understanding table structure before querying."
+        parameters:
+          type: object
+          properties:
+            subject_id:
+              type: string
+              description: "The unique identifier for the patient"
+            table_name:
+              type: string
+              description: "The name of the table"
+          required: ["subject_id", "table_name"]
+
+  - class_name: "verl_rl_ehr.tools.ehr_common_tool.EHRMCPTool"
+    config:
+      type: native
+    tool_schema:
+      type: function
+      function:
+        name: ehr.get_records_by_time
+        description: "Finds records in an EHR table that fall within a given time range."
+        parameters:
+          type: object
+          properties:
+            subject_id:
+              type: string
+              description: "The unique identifier for the patient"
+            table_name:
+              type: string
+              description: "The name of the table to search in"
+            start_time:
+              type: string
+              description: "The start of the time range"
+            end_time:
+              type: string
+              description: "The end of the time range"
+          required: ["subject_id", "table_name", "start_time", "end_time"]
+
+  - class_name: "verl_rl_ehr.tools.ehr_common_tool.EHRMCPTool"
+    config:
+      type: native
+    tool_schema:
+      type: function
+      function:
+        name: ehr.run_sql_query
+        description: "Executes a standard SQL query against the patient's EHR tables."
+        parameters:
+          type: object
+          properties:
+            subject_id:
+              type: string
+              description: "The unique identifier for the patient"
+            sql_query:
+              type: string
+              description: "A valid SQL query string"
+          required: ["subject_id", "sql_query"]
+
+  - class_name: "verl_rl_ehr.tools.ehr_common_tool.EHRMCPTool"
+    config:
+      type: native
+    tool_schema:
+      type: function
+      function:
+        name: ehr.get_candidates_by_semantic_similarity
+        description: "Searches for medical terminology candidates using semantic similarity."
+        parameters:
+          type: object
+          properties:
+            table_name:
+              type: string
+              description: "The candidate table name"
+            query:
+              type: string
+              description: "The medical term or description to search for"
+            top_k:
+              type: integer
+              description: "Number of top results to return"
+              default: 10
+          required: ["table_name", "query"]
+
+  - class_name: "verl_rl_ehr.tools.ehr_common_tool.EHRMCPTool"
+    config:
+      type: native
+    tool_schema:
+      type: function
+      function:
+        name: ehr.get_candidates_by_keyword
+        description: "Searches candidate tables by keyword."
+        parameters:
+          type: object
+          properties:
+            table_name:
+              type: string
+              description: "The candidate table name"
+            query:
+              type: string
+              description: "The keyword to search for"
+            top_k:
+              type: integer
+              description: "Number of top results to return"
+              default: 10
+          required: ["table_name", "query"]
+
+  # ── Answer submission (verl-native) ─────────────────────────────────────
+  - class_name: "verl_rl_ehr.tools.ehr_finish_tool.EHRFinishTool"
+    config:
+      type: native
+    tool_schema:
+      type: function
+      function:
+        name: ehr.finish
+        description: "Submit your final answer. The answer must be a list of strings containing all plausible items (diagnoses, procedures, tests, medications, etc.) for the task. Use 'response' as the argument name."
+        parameters:
+          type: object
+          properties:
+            response:
+              type: array
+              description: "A list of final answer strings. Do not include codes or extra metadata — only the official name for each item."
+              items:
+                type: string
+            answer:
+              type: array
+              description: "Alias for 'response'. Same semantics — either name is accepted."
+              items:
+                type: string
+          required: []

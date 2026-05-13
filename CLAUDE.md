@@ -35,6 +35,25 @@ AgentEHR is a benchmark for evaluating autonomous clinical decision-making agent
 3. **Agent Execution**: Agent loads EHR, uses MCP tools to query data, generates predictions
 4. **Evaluation**: F1 score (precision/recall) between predictions and ground truth
 
+## Virtual Environments
+
+Six venvs under `venvs/` (see [`venvs/README.md`](venvs/README.md) for details).
+Use the right one for the task:
+
+| venv | Python | Use for | Key pins |
+|---|---|---|---|
+| `venvs/qwen3_5_sft` → `openresearcher_ehr/.venv/` | 3.10 | SFT of Qwen3.5 via Megatron + vLLM; Bedrock eval harness (`openresearcher_ehr/deploy_agent.py`) | torch 2.9.0 · transformers 5.3.0 · vllm 0.12.0 |
+| `venvs/qwen3_5_rl` (own tree) | 3.10 | **Multi-turn GRPO** (`verl_rl_ehr/`); sglang rollout. Do NOT share with SFT — transformers is 5.5.3 here | torch 2.9.0 · transformers 5.5.3 · vllm 0.13.0 · sglang 0.5.9 · flash-attn 2.8.3 |
+| `venvs/gemma4` | 3.10 | Gemma-4-26B SFT (FSDP + LoRA). Has its own `gemma4` model-type support | torch 2.9.0 · transformers 5.5.4 |
+| `venvs/bedrock_agent` | 3.12 | Bedrock Claude eval runs (no local model) | torch 2.11.0 · transformers 5.6.0 |
+| `venvs/mcp_ehr` | 3.12 | Runs the EHR MCP server only (`src/run_mcp_server.py`) | fastmcp + transformers 5.6.0 |
+| `venvs/mcp_image` → `src/mcp_image/.venv/` | 3.12 | MM image MCP server for EHRXQA | fastmcp only |
+
+Critical rule: **do not install anything into `venvs/qwen3_5_sft`**
+unless you also verify SFT still works. It's the only venv with the
+SFT-tested pins, and it's a symlink to `openresearcher_ehr/.venv/`
+used by the live eval harness. RL-specific additions go in `venvs/qwen3_5_rl`.
+
 ## Commands
 
 ### Development Environment
@@ -147,6 +166,34 @@ python src/agentlite/train/optimization_mcp.py \
     --batch 4 \
     --max_step 100
 ```
+
+### Multi-turn GRPO (Qwen3.5-35B-A3B)
+
+Separate pipeline from the agentlite training above. Lives in `verl_rl_ehr/`
+and uses the in-tree editable verl at `verl/` with sglang 0.5.9 rollout.
+Full setup + bug-fix history in [`docs/multiturn_rl_training.md`](docs/multiturn_rl_training.md).
+
+```bash
+# One-time preflight (installed packages + in-tree verl surgery + sglang patch):
+python verl_rl_ehr/patches/verify_verl_patches.py    # sentinel checks
+bash   verl_rl_ehr/patches/apply_sglang_patches.sh   # idempotent
+
+# Preprocess benchmark into parquet (~3000 train rows, 6 tasks):
+python verl_rl_ehr/preprocess/build_ehr_rl_parquet.py
+
+# Run MCP EHR server on :5103, then smoke test (4 GPUs, 1 step, ~150 s):
+bash scripts/run/run_mcp_server.sh 0 5103 &
+bash verl_rl_ehr/scripts/smoke_test_1step.sh
+
+# Full run (8 GPUs):
+bash verl_rl_ehr/scripts/run_grpo_qwen35_ehr.sh
+```
+
+Venv: `venvs/qwen3_5_rl/` (kept separate from `venvs/qwen3_5_sft/`;
+transformers 5.5.3 + sglang 0.5.9 + torch 2.9.0 pins). Context management
+is OpenResearcher-style **reset** (not summarization by the policy model);
+optional Claude Haiku summarization via Bedrock when
+`context_reset_summarizer_enabled=true`.
 
 ## Key Implementation Details
 

@@ -1,0 +1,220 @@
+<!DOCTYPE html><html><body><table class='tbl'><thead><tr>
+<th rowspan='2'>Model</th>
+<th colspan='3'>CXR: finding presence</th>
+<th colspan='3'>CXR: finding enumeration</th>
+<th colspan='3'>CXR: change comparison</th>
+<th colspan='3'>Mortality (24 h)</th>
+<th colspan='3'>Inpatient mortality</th>
+<th colspan='3'>Phenotype (CCS groups)</th>
+<th colspan='3'>Multimodal overall</th>
+</tr><tr>
+<th>ClinSeek</th><th>Reasoning</th><th>Δ</th>
+<th>ClinSeek</th><th>Reasoning</th><th>Δ</th>
+<th>ClinSeek</th><th>Reasoning</th><th>Δ</th>
+<th>ClinSeek</th><th>Reasoning</th><th>Δ</th>
+<th>ClinSeek</th><th>Reasoning</th><th>Δ</th>
+<th>ClinSeek</th><th>Reasoning</th><th>Δ</th>
+<th>ClinSeek</th><th>Reasoning</th><th>Δ</th>
+</tr></thead><tbody>
+<tr><td class='meta'>n</td>
+<td class='meta num' colspan='3'>177</td>
+<td class='meta num' colspan='3'>220</td>
+<td class='meta num' colspan='3'>222</td>
+<td class='meta num' colspan='3'>125</td>
+<td class='meta num' colspan='3'>125</td>
+<td class='meta num' colspan='3'>120</td>
+<td class='meta num' colspan='3'>989</td>
+</tr>
+<tr>
+<td>Claude Opus 4.6</td>
+<td class='num'>78.3</td>
+<td class='num'>55.2</td>
+<td class='num pos'>+23.2</td>
+<td class='num'>43.6</td>
+<td class='num'>31.6</td>
+<td class='num pos'>+12.0</td>
+<td class='num'>54.8</td>
+<td class='num'>38.0</td>
+<td class='num pos'>+16.7</td>
+<td class='num'>92.0</td>
+<td class='num'>93.6</td>
+<td class='num neg'>-1.6</td>
+<td class='num'>74.4</td>
+<td class='num'>69.6</td>
+<td class='num pos'>+4.8</td>
+<td class='num'>45.5</td>
+<td class='num'>11.5</td>
+<td class='num pos'>+34.0</td>
+<td class='num'><b>62.6</b></td>
+<td class='num'><b>47.5</b></td>
+<td class='num pos'><b>+15.1</b></td>
+</tr>
+<tr>
+<td>Claude Sonnet 4.6</td>
+<td class='num'>79.5</td>
+<td class='num'>64.8</td>
+<td class='num pos'>+14.7</td>
+<td class='num'>41.3</td>
+<td class='num'>29.7</td>
+<td class='num pos'>+11.6</td>
+<td class='num'>51.5</td>
+<td class='num'>34.7</td>
+<td class='num pos'>+16.8</td>
+<td class='num'>64.0</td>
+<td class='num'>90.4</td>
+<td class='num neg'>-26.4</td>
+<td class='num'>68.8</td>
+<td class='num'>70.4</td>
+<td class='num neg'>-1.6</td>
+<td class='num'>26.1</td>
+<td class='num'>13.8</td>
+<td class='num pos'>+12.3</td>
+<td class='num'><b>54.9</b></td>
+<td class='num'><b>48.0</b></td>
+<td class='num pos'><b>+6.9</b></td>
+</tr>
+<tr>
+<td>GLM-4.7</td>
+<td class='num'>73.3</td>
+<td class='num'>—</td>
+<td class='num '>—</td>
+<td class='num'>33.0</td>
+<td class='num'>—</td>
+<td class='num '>—</td>
+<td class='num'>40.6</td>
+<td class='num'>—</td>
+<td class='num '>—</td>
+<td class='num'>88.8</td>
+<td class='num'>—</td>
+<td class='num '>—</td>
+<td class='num'>72.8</td>
+<td class='num'>—</td>
+<td class='num '>—</td>
+<td class='num'>3.2</td>
+<td class='num'>—</td>
+<td class='num '>—</td>
+<td class='num'><b>50.4</b></td>
+<td class='num'><b>—</b></td>
+<td class='num '><b>—</b></td>
+</tr>
+<tr>
+<td>Qwen3.5-35B-A3B</td>
+<td class='num'>73.8</td>
+<td class='num'>59.1</td>
+<td class='num pos'>+14.7</td>
+<td class='num'>34.2</td>
+<td class='num'>34.1</td>
+<td class='num pos'>+0.1</td>
+<td class='num'>44.4</td>
+<td class='num'>30.7</td>
+<td class='num pos'>+13.7</td>
+<td class='num'>91.2</td>
+<td class='num'>90.4</td>
+<td class='num pos'>+0.8</td>
+<td class='num'>74.4</td>
+<td class='num'>81.6</td>
+<td class='num neg'>-7.2</td>
+<td class='num'>0.3</td>
+<td class='num'>0.5</td>
+<td class='num neg'>-0.2</td>
+<td class='num'><b>51.7</b></td>
+<td class='num'><b>46.9</b></td>
+<td class='num pos'><b>+4.9</b></td>
+</tr>
+<tr>
+<td>Kimi K2.5</td>
+<td class='num'>61.4</td>
+<td class='num'>56.3</td>
+<td class='num pos'>+5.1</td>
+<td class='num'>34.9</td>
+<td class='num'>24.7</td>
+<td class='num pos'>+10.2</td>
+<td class='num'>43.8</td>
+<td class='num'>35.0</td>
+<td class='num pos'>+8.7</td>
+<td class='num'>71.2</td>
+<td class='num'>91.2</td>
+<td class='num neg'>-20.0</td>
+<td class='num'>62.4</td>
+<td class='num'>87.2</td>
+<td class='num neg'>-24.8</td>
+<td class='num'>12.3</td>
+<td class='num'>12.4</td>
+<td class='num neg'>-0.1</td>
+<td class='num'><b>46.9</b></td>
+<td class='num'><b>47.5</b></td>
+<td class='num neg'><b>-0.5</b></td>
+</tr>
+<tr>
+<td>MiniMax M2.5</td>
+<td class='num'>73.6</td>
+<td class='num'>—</td>
+<td class='num '>—</td>
+<td class='num'>37.8</td>
+<td class='num'>—</td>
+<td class='num '>—</td>
+<td class='num'>47.3</td>
+<td class='num'>—</td>
+<td class='num '>—</td>
+<td class='num'>52.0</td>
+<td class='num'>—</td>
+<td class='num '>—</td>
+<td class='num'>56.0</td>
+<td class='num'>—</td>
+<td class='num '>—</td>
+<td class='num'>10.7</td>
+<td class='num'>—</td>
+<td class='num '>—</td>
+<td class='num'><b>47.1</b></td>
+<td class='num'><b>—</b></td>
+<td class='num '><b>—</b></td>
+</tr>
+<tr>
+<td>Qwen3-VL-235B</td>
+<td class='num'>70.4</td>
+<td class='num'>60.3</td>
+<td class='num pos'>+10.2</td>
+<td class='num'>35.7</td>
+<td class='num'>21.1</td>
+<td class='num pos'>+14.6</td>
+<td class='num'>47.8</td>
+<td class='num'>32.8</td>
+<td class='num pos'>+15.0</td>
+<td class='num'>79.2</td>
+<td class='num'>87.2</td>
+<td class='num neg'>-8.0</td>
+<td class='num'>61.6</td>
+<td class='num'>72.8</td>
+<td class='num neg'>-11.2</td>
+<td class='num'>6.0</td>
+<td class='num'>6.6</td>
+<td class='num neg'>-0.6</td>
+<td class='num'><b>49.8</b></td>
+<td class='num'><b>43.9</b></td>
+<td class='num pos'><b>+5.9</b></td>
+</tr>
+<tr>
+<td>Gemma-4-26B-A4B-it</td>
+<td class='num'>78.9</td>
+<td class='num'>56.9</td>
+<td class='num pos'>+22.0</td>
+<td class='num'>21.6</td>
+<td class='num'>21.4</td>
+<td class='num pos'>+0.2</td>
+<td class='num'>38.4</td>
+<td class='num'>25.4</td>
+<td class='num pos'>+13.0</td>
+<td class='num'>65.6</td>
+<td class='num'>79.2</td>
+<td class='num neg'>-13.6</td>
+<td class='num'>71.2</td>
+<td class='num'>60.0</td>
+<td class='num pos'>+11.2</td>
+<td class='num'>0.4</td>
+<td class='num'>0.0</td>
+<td class='num pos'>+0.4</td>
+<td class='num'><b>44.9</b></td>
+<td class='num'><b>38.2</b></td>
+<td class='num pos'><b>+6.6</b></td>
+</tr>
+</tbody></table></body></html>
