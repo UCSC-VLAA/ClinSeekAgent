@@ -20,14 +20,14 @@ from pathlib import Path
 # Defaults
 # ---------------------------------------------------------------------------
 DEFAULT_RESULTS = (
-    # "./openresearcher_ehr/results/ehrbench_1800_qwen3_5_35b_a3b_deepmed_6task_sft_epoch2/results.jsonl"
+    "./openresearcher_ehr/results/qa_ehr_bench_sampled_40_per_task_qwen3_5_35b_a3b/results.jsonl"
     # "./openresearcher_ehr/results/train_trajectory_3k_4ep_nonthinking_done3ep/results.jsonl"
-    "./openresearcher_ehr/results/subset_500_qwen3_5_35b_a3b_deepmed_6task_sft_epoch2_nothinking/results.jsonl"
+    # "./openresearcher_ehr/results/subset_500_qwen3_5_35b_a3b_deepmed_6task_sft_epoch2_nothinking/results.jsonl"
 )
 DEFAULT_BENCHMARK = (
-    # './data/EHR-Bench/ehr_bench_sampled_40_per_task.json'
+    './data/EHR-Bench/ehr_bench_sampled_40_per_task.json'
     # "./data/AgentEHR-Bench/MIMICIVAgentBench/train/mix_training_3k.json"
-    "./data/AgentEHR-Bench/MIMICIVAgentBench/common/subset_500/merged_subsets_500.json"
+    # "./data/AgentEHR-Bench/MIMICIVAgentBench/common/subset_500/merged_subsets_500.json"
 )
 
 
@@ -421,12 +421,20 @@ def load_benchmark(path, ehr_bench_mode=False):
 
 def load_results(path):
     grouped = defaultdict(list)
+    bad = 0
     with open(path, "r", encoding="utf-8") as f:
-        for line in f:
+        for lineno, line in enumerate(f, 1):
             if not line.strip():
                 continue
-            r = json.loads(line)
+            try:
+                r = json.loads(line)
+            except json.JSONDecodeError as e:
+                bad += 1
+                print(f"[warn] skipping malformed line {lineno} in {path}: {e}")
+                continue
             grouped[r["qid"]].append(r)
+    if bad:
+        print(f"[warn] skipped {bad} malformed line(s) in {path}")
     return grouped
 
 
@@ -463,6 +471,9 @@ def evaluate(results_path, benchmark_path, *, allow_text=False):
     cat_runs = defaultdict(int)
     cat_source = defaultdict(Counter)
 
+    # Per-question records (one per qid in the benchmark)
+    per_question = []
+
     for qid, item in bm.items():
         t = item.get("task", "unknown")
         bm_by_task[t].append(qid)
@@ -478,7 +489,27 @@ def evaluate(results_path, benchmark_path, *, allow_text=False):
         cat = item.get("task_type")
         cat = cat if isinstance(cat, str) and cat else None
 
+        q_record = {
+            "qid": qid,
+            "task": t,
+            "task_type": cat,
+            "subject_id": item.get("subject_id"),
+            "hadm_id": item.get("hadm_id"),
+            "label": gt,
+            "completed": bool(runs),
+            "num_runs": len(runs),
+            "runs": [],
+            "avg_f1": 0.0,
+            "avg_precision": 0.0,
+            "avg_recall": 0.0,
+            "avg_em": 0.0,
+            "avg_tool_calls": 0.0,
+            "avg_browser_calls": 0.0,
+            "avg_turns": 0.0,
+        }
+
         if not runs:
+            per_question.append(q_record)
             continue
 
         task_completed[t] += 1
@@ -489,6 +520,10 @@ def evaluate(results_path, benchmark_path, *, allow_text=False):
         run_f1s = []
         run_precs = []
         run_recs = []
+        run_ems = []
+        run_tool_totals = []
+        run_browser_totals = []
+        run_turn_totals = []
         for run in runs:
             preds, src = extract_finish_predictions_with_source(run, allow_text=allow_text)
             task_source[t][src] += 1
@@ -498,15 +533,32 @@ def evaluate(results_path, benchmark_path, *, allow_text=False):
             run_f1s.append(sc["f1"])
             run_precs.append(sc["prec"])
             run_recs.append(sc["rec"])
+            run_ems.append(sc["em"])
 
             tc_total, tc_browser = count_tool_calls(run)
+            tn_total = count_turns(run)
             task_tool_counts[t].append(tc_total)
             task_browser_counts[t].append(tc_browser)
-            task_turn_counts[t].append(count_turns(run))
+            task_turn_counts[t].append(tn_total)
             if cat:
                 cat_tool_counts[cat].append(tc_total)
                 cat_browser_counts[cat].append(tc_browser)
-                cat_turn_counts[cat].append(count_turns(run))
+                cat_turn_counts[cat].append(tn_total)
+            run_tool_totals.append(tc_total)
+            run_browser_totals.append(tc_browser)
+            run_turn_totals.append(tn_total)
+
+            q_record["runs"].append({
+                "predictions": preds,
+                "prediction_source": src,
+                "f1": sc["f1"],
+                "precision": sc["prec"],
+                "recall": sc["rec"],
+                "em": sc["em"],
+                "tool_calls": tc_total,
+                "browser_calls": tc_browser,
+                "turns": tn_total,
+            })
 
         avg_run_f1 = sum(run_f1s) / len(run_f1s)
         avg_run_prec = sum(run_precs) / len(run_precs)
@@ -518,6 +570,15 @@ def evaluate(results_path, benchmark_path, *, allow_text=False):
             cat_scores[cat].append(avg_run_f1)
             cat_prec[cat].append(avg_run_prec)
             cat_rec[cat].append(avg_run_rec)
+
+        q_record["avg_f1"] = avg_run_f1
+        q_record["avg_precision"] = avg_run_prec
+        q_record["avg_recall"] = avg_run_rec
+        q_record["avg_em"] = sum(run_ems) / len(run_ems)
+        q_record["avg_tool_calls"] = sum(run_tool_totals) / len(run_tool_totals)
+        q_record["avg_browser_calls"] = sum(run_browser_totals) / len(run_browser_totals)
+        q_record["avg_turns"] = sum(run_turn_totals) / len(run_turn_totals)
+        per_question.append(q_record)
 
     category_aggs = {
         "scores": cat_scores,
@@ -534,7 +595,7 @@ def evaluate(results_path, benchmark_path, *, allow_text=False):
 
     return (task_scores, task_prec, task_rec, task_tool_counts, task_browser_counts,
             task_turn_counts, task_total, task_completed, task_runs, task_source,
-            category_aggs)
+            category_aggs, per_question)
 
 
 def main():
@@ -542,7 +603,12 @@ def main():
     parser.add_argument("--results", default=DEFAULT_RESULTS)
     parser.add_argument("--benchmark", default=DEFAULT_BENCHMARK)
     parser.add_argument("--extract-text-answer-without-finish", action="store_true")
-    parser.add_argument("--output", default=None, help="Optional JSON output path.")
+    parser.add_argument("--output", default=None, help="Optional JSON output path (summary only).")
+    parser.add_argument(
+        "--output-dir",
+        default=None,
+        help="Write per_question.jsonl + summary.json + summary.txt into this directory.",
+    )
     args = parser.parse_args()
 
     results_path = Path(args.results)
@@ -552,15 +618,22 @@ def main():
         raise SystemExit(f"Results file not found: {results_path}")
 
     (scores, precs, recs, tools, browsers, turns, totals, completed, runs, sources,
-     category_aggs) = evaluate(
+     category_aggs, per_question) = evaluate(
         str(results_path), args.benchmark, allow_text=args.extract_text_answer_without_finish,
     )
 
     all_tasks = sorted(set(totals) | set(scores))
 
+    # Buffer every printed line so we can tee it to summary.txt.
+    summary_lines = []
+
+    def emit(line=""):
+        print(line)
+        summary_lines.append(line)
+
     # Header
-    print(f"{'Task':<22s} {'Total':>5s} {'Done':>5s} {'Runs':>5s} {'Prec':>7s} {'Rec':>7s} {'F1':>7s} {'ToolAvg':>8s} {'Brows%':>7s} {'TurnAvg':>8s}")
-    print("-" * 89)
+    emit(f"{'Task':<22s} {'Total':>5s} {'Done':>5s} {'Runs':>5s} {'Prec':>7s} {'Rec':>7s} {'F1':>7s} {'ToolAvg':>8s} {'Brows%':>7s} {'TurnAvg':>8s}")
+    emit("-" * 89)
 
     g_scores, g_precs, g_recs, g_tools, g_browsers, g_turns = [], [], [], [], [], []
 
@@ -598,20 +671,20 @@ def main():
                 continue
             zero_runs_printed += 1
 
-        print(f"{t:<22s} {n_total:>5d} {n_done:>5d} {n_runs:>5d} {avg_p*100:>7.1f} {avg_r*100:>7.1f} {avg_f1*100:>7.1f} {avg_tc:>8.1f} {browser_pct:>6.1f}% {avg_tn:>8.1f}")
+        emit(f"{t:<22s} {n_total:>5d} {n_done:>5d} {n_runs:>5d} {avg_p*100:>7.1f} {avg_r*100:>7.1f} {avg_f1*100:>7.1f} {avg_tc:>8.1f} {browser_pct:>6.1f}% {avg_tn:>8.1f}")
 
         # prediction source breakdown (only if interesting)
         src = sources.get(t, {})
         non_finish = {k: v for k, v in src.items() if k != "finish_tool_call"}
         if non_finish:
             parts = ", ".join(f"{k}={v}" for k, v in sorted(non_finish.items()))
-            print(f"  └─ sources: finish={src.get('finish_tool_call', 0)}, {parts}")
+            emit(f"  └─ sources: finish={src.get('finish_tool_call', 0)}, {parts}")
 
     if zero_runs_skipped:
-        print(f"  └─ ... {zero_runs_skipped} more task(s) with Runs=0 hidden")
+        emit(f"  └─ ... {zero_runs_skipped} more task(s) with Runs=0 hidden")
 
     # Overall
-    print("-" * 89)
+    emit("-" * 89)
     avg_f1 = sum(g_scores) / len(g_scores) if g_scores else 0.0
     avg_p = sum(g_precs) / len(g_precs) if g_precs else 0.0
     avg_r = sum(g_recs) / len(g_recs) if g_recs else 0.0
@@ -621,13 +694,13 @@ def main():
     n_total = sum(totals.values())
     n_done = sum(completed.values())
     n_runs = sum(runs.values())
-    print(f"{'Overall':<22s} {n_total:>5d} {n_done:>5d} {n_runs:>5d} {avg_p*100:>7.1f} {avg_r*100:>7.1f} {avg_f1*100:>7.1f} {avg_tc:>8.1f} {browser_pct:>6.1f}% {avg_tn:>8.1f}")
+    emit(f"{'Overall':<22s} {n_total:>5d} {n_done:>5d} {n_runs:>5d} {avg_p*100:>7.1f} {avg_r*100:>7.1f} {avg_f1*100:>7.1f} {avg_tc:>8.1f} {browser_pct:>6.1f}% {avg_tn:>8.1f}")
 
     # Per-category breakdown (e.g. task_type: risk_prediction / decision_making)
     cat_totals = category_aggs["total"]
     if cat_totals:
-        print("-" * 89)
-        print("By task_type:")
+        emit("-" * 89)
+        emit("By task_type:")
         for cat in sorted(cat_totals):
             c_total = cat_totals[cat]
             c_done = category_aggs["completed"].get(cat, 0)
@@ -644,61 +717,100 @@ def main():
             c_avg_tc = sum(ctc) / len(ctc) if ctc else 0.0
             c_avg_tn = sum(ctn) / len(ctn) if ctn else 0.0
             c_browser_pct = sum(cbc) / sum(ctc) * 100 if sum(ctc) else 0.0
-            print(f"{cat:<22s} {c_total:>5d} {c_done:>5d} {c_runs:>5d} {c_avg_p*100:>7.1f} {c_avg_r*100:>7.1f} {c_avg_f1*100:>7.1f} {c_avg_tc:>8.1f} {c_browser_pct:>6.1f}% {c_avg_tn:>8.1f}")
+            emit(f"{cat:<22s} {c_total:>5d} {c_done:>5d} {c_runs:>5d} {c_avg_p*100:>7.1f} {c_avg_r*100:>7.1f} {c_avg_f1*100:>7.1f} {c_avg_tc:>8.1f} {c_browser_pct:>6.1f}% {c_avg_tn:>8.1f}")
             c_src = category_aggs["sources"].get(cat, {})
             c_non_finish = {k: v for k, v in c_src.items() if k != "finish_tool_call"}
             if c_non_finish:
                 parts = ", ".join(f"{k}={v}" for k, v in sorted(c_non_finish.items()))
-                print(f"  └─ sources: finish={c_src.get('finish_tool_call', 0)}, {parts}")
+                emit(f"  └─ sources: finish={c_src.get('finish_tool_call', 0)}, {parts}")
 
-    # Optional JSON output
+    # Build the per-task + per-task_type summary payload (shared by --output and --output-dir).
+    per_task_payload = {}
+    for t in all_tasks:
+        s = scores.get(t, [])
+        p = precs.get(t, [])
+        r = recs.get(t, [])
+        tc = tools.get(t, [])
+        bc = browsers.get(t, [])
+        tn = turns.get(t, [])
+        per_task_payload[t] = {
+            "total": totals[t],
+            "completed": completed.get(t, 0),
+            "runs": runs.get(t, 0),
+            "precision": sum(p) / len(p) if p else 0.0,
+            "recall": sum(r) / len(r) if r else 0.0,
+            "f1": sum(s) / len(s) if s else 0.0,
+            "tool_calls_avg": sum(tc) / len(tc) if tc else 0.0,
+            "turns_avg": sum(tn) / len(tn) if tn else 0.0,
+            "browser_tool_pct": sum(bc) / sum(tc) * 100 if sum(tc) else 0.0,
+            "prediction_sources": dict(sources.get(t, {})),
+        }
+    per_cat_payload = {}
+    for cat in sorted(category_aggs["total"]):
+        cs = category_aggs["scores"].get(cat, [])
+        cp = category_aggs["prec"].get(cat, [])
+        cr = category_aggs["rec"].get(cat, [])
+        ctc = category_aggs["tools"].get(cat, [])
+        cbc = category_aggs["browsers"].get(cat, [])
+        ctn = category_aggs["turns"].get(cat, [])
+        per_cat_payload[cat] = {
+            "total": category_aggs["total"][cat],
+            "completed": category_aggs["completed"].get(cat, 0),
+            "runs": category_aggs["runs"].get(cat, 0),
+            "precision": sum(cp) / len(cp) if cp else 0.0,
+            "recall": sum(cr) / len(cr) if cr else 0.0,
+            "f1": sum(cs) / len(cs) if cs else 0.0,
+            "tool_calls_avg": sum(ctc) / len(ctc) if ctc else 0.0,
+            "turns_avg": sum(ctn) / len(ctn) if ctn else 0.0,
+            "browser_tool_pct": sum(cbc) / sum(ctc) * 100 if sum(ctc) else 0.0,
+            "prediction_sources": dict(category_aggs["sources"].get(cat, {})),
+        }
+    overall_payload = {
+        "total": n_total,
+        "completed": n_done,
+        "runs": n_runs,
+        "precision": avg_p,
+        "recall": avg_r,
+        "f1": avg_f1,
+        "tool_calls_avg": avg_tc,
+        "turns_avg": avg_tn,
+        "browser_tool_pct": browser_pct,
+    }
+    summary_payload = {
+        "overall": overall_payload,
+        "per_task": per_task_payload,
+        "per_task_type": per_cat_payload,
+    }
+
+    # Legacy single-file output
     if args.output:
-        payload = {}
-        for t in all_tasks:
-            s = scores.get(t, [])
-            p = precs.get(t, [])
-            r = recs.get(t, [])
-            tc = tools.get(t, [])
-            bc = browsers.get(t, [])
-            tn = turns.get(t, [])
-            payload[t] = {
-                "total": totals[t],
-                "completed": completed.get(t, 0),
-                "runs": runs.get(t, 0),
-                "precision": sum(p) / len(p) if p else 0.0,
-                "recall": sum(r) / len(r) if r else 0.0,
-                "f1": sum(s) / len(s) if s else 0.0,
-                "tool_calls_avg": sum(tc) / len(tc) if tc else 0.0,
-                "turns_avg": sum(tn) / len(tn) if tn else 0.0,
-                "browser_tool_pct": sum(bc) / sum(tc) * 100 if sum(tc) else 0.0,
-                "prediction_sources": dict(sources.get(t, {})),
-            }
-        cat_payload = {}
-        for cat in sorted(category_aggs["total"]):
-            cs = category_aggs["scores"].get(cat, [])
-            cp = category_aggs["prec"].get(cat, [])
-            cr = category_aggs["rec"].get(cat, [])
-            ctc = category_aggs["tools"].get(cat, [])
-            cbc = category_aggs["browsers"].get(cat, [])
-            ctn = category_aggs["turns"].get(cat, [])
-            cat_payload[cat] = {
-                "total": category_aggs["total"][cat],
-                "completed": category_aggs["completed"].get(cat, 0),
-                "runs": category_aggs["runs"].get(cat, 0),
-                "precision": sum(cp) / len(cp) if cp else 0.0,
-                "recall": sum(cr) / len(cr) if cr else 0.0,
-                "f1": sum(cs) / len(cs) if cs else 0.0,
-                "tool_calls_avg": sum(ctc) / len(ctc) if ctc else 0.0,
-                "turns_avg": sum(ctn) / len(ctn) if ctn else 0.0,
-                "browser_tool_pct": sum(cbc) / sum(ctc) * 100 if sum(ctc) else 0.0,
-                "prediction_sources": dict(category_aggs["sources"].get(cat, {})),
-            }
-        payload = {"per_task": payload, "per_task_type": cat_payload}
         out = Path(args.output)
         out.parent.mkdir(parents=True, exist_ok=True)
-        with open(out, "w") as f:
-            json.dump(payload, f, ensure_ascii=False, indent=2)
+        with open(out, "w", encoding="utf-8") as f:
+            json.dump(summary_payload, f, ensure_ascii=False, indent=2)
         print(f"\nJSON written to {out}")
+
+    # New --output-dir: per_question.jsonl + summary.json + summary.txt
+    if args.output_dir:
+        out_dir = Path(args.output_dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        pq_path = out_dir / "per_question.jsonl"
+        with open(pq_path, "w", encoding="utf-8") as f:
+            for q in per_question:
+                f.write(json.dumps(q, ensure_ascii=False) + "\n")
+
+        summary_path = out_dir / "summary.json"
+        with open(summary_path, "w", encoding="utf-8") as f:
+            json.dump(summary_payload, f, ensure_ascii=False, indent=2)
+
+        summary_txt_path = out_dir / "summary.txt"
+        with open(summary_txt_path, "w", encoding="utf-8") as f:
+            f.write("\n".join(summary_lines) + "\n")
+
+        print(f"\nPer-question scores → {pq_path}")
+        print(f"Summary JSON        → {summary_path}")
+        print(f"Summary table       → {summary_txt_path}")
 
 
 if __name__ == "__main__":

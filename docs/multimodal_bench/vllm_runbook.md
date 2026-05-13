@@ -151,7 +151,7 @@ concurrency=6.
 | `VLLM_MODEL` | empty (auto-resolve) | Fixed served-model id; empty = ask `/v1/models` |
 | `MAX_CONCURRENCY` | 6 | Parallel samples in flight |
 | `MAX_ROUNDS` | 200 | Hard cap on tool rounds per sample |
-| `ENABLE_THINKING` | 0 | Set 1 to enable Qwen3 thinking mode |
+| `ENABLE_THINKING` | 1 | Set 1 to enable Qwen3 thinking mode. **Per-model override**: set to `0` for `models/Qwen3.5-35B-A3B-DeepMed-6task-SFT-epoch2` (SFT-tuned model without thinking support); keep default `1` for all other models including the base `Qwen3.5-35B-A3B`. |
 | `IMAGE_CUDA_VISIBLE_DEVICES` | `0,1,2,3,4,5,6,7` | GPUs visible to image MCP |
 | `HF_TOKEN` | `~/.cache/huggingface/token` | Needed for MAIRA-2 (gated) |
 

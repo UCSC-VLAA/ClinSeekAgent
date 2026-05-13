@@ -64,7 +64,7 @@ ENABLE_IMAGE=1                  # whether to route image.* calls at all
 LIMIT=0                         # 0 = no limit; N = truncate to first N rows
 
 BACKEND=${BACKEND:-bedrock}     # bedrock | vllm
-BEDROCK_MODEL_ID=${BEDROCK_MODEL_ID:-us.anthropic.claude-opus-4-6-v1}
+BEDROCK_MODEL_ID=${BEDROCK_MODEL_ID:-us.anthropic.claude-opus-4-7}
 BEDROCK_REGION=${BEDROCK_REGION:-us-east-1}
 
 # vLLM backend (only used when BACKEND=vllm)
@@ -73,11 +73,11 @@ VLLM_API_KEY=${VLLM_API_KEY:-EMPTY}
 VLLM_MODEL=${VLLM_MODEL:-}      # empty = auto-resolve from /v1/models
 
 MAX_ROUNDS=${MAX_ROUNDS:-200}
-MAX_CONCURRENCY=${MAX_CONCURRENCY:-6}
-RUNS_PER_QUESTION=${RUNS_PER_QUESTION:-1}
+MAX_CONCURRENCY=${MAX_CONCURRENCY:-10}
+RUNS_PER_QUESTION=${RUNS_PER_QUESTION:-4}
 MAX_TOOL_RESULT_CHARS=${MAX_TOOL_RESULT_CHARS:-100000}
 IMAGE_MAX_EDGE=${IMAGE_MAX_EDGE:-1568}
-ENABLE_THINKING=${ENABLE_THINKING:-0}
+ENABLE_THINKING=${ENABLE_THINKING:-1}
 
 # Where the datasets live (must have been extracted; see docs/05_*.md)
 REPO_ROOT=${REPO_ROOT:-$(cd "${SCRIPT_DIR}/.." && pwd)}
@@ -147,7 +147,21 @@ esac
 [[ -n "$DATA_PATH_OVERRIDE" ]] && DATA_PATH="$DATA_PATH_OVERRIDE"
 
 if [[ -z "$OUTPUT_DIR" ]]; then
-    OUTPUT_DIR="./results/mm_${MODE}_$(date -u +%Y%m%dT%H%M%SZ)"
+    # Resolve a short model name for the output directory suffix.
+    if [[ "$BACKEND" == "vllm" ]]; then
+        if [[ -n "$VLLM_MODEL" ]]; then
+            _MODEL_TAG="$VLLM_MODEL"
+        else
+            # Auto-resolve from the running vLLM server.
+            _MODEL_TAG=$(curl -sf "${VLLM_API_BASE_URL}/models" \
+                | python3 -c "import sys,json; print(json.load(sys.stdin)['data'][0]['id'])" 2>/dev/null || echo "unknown")
+        fi
+    else
+        _MODEL_TAG="${BEDROCK_MODEL_ID:-bedrock}"
+    fi
+    # Keep only the basename (strip path prefixes).
+    _MODEL_TAG=$(basename "$_MODEL_TAG")
+    OUTPUT_DIR="./results/mm_${MODE}_${_MODEL_TAG}"
 fi
 mkdir -p "$OUTPUT_DIR"
 

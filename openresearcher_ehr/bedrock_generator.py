@@ -101,7 +101,7 @@ class BedrockAsyncGenerator:
 
     def _supports_adaptive_thinking(self) -> bool:
         normalized = self.model_id.lower()
-        return "claude-opus-4-6" in normalized
+        return "claude-opus-4-" in normalized
 
     def _build_thinking_config(self, max_tokens: int) -> Optional[dict]:
         if not self.enable_thinking:
