@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>microbiologyevents_13856925 — microbiologyevents — claude_opus_4_6</title>
+<style>
+:root {
+  --border: #d1d5db;
+  --muted: #6b7280;
+  --text: #111827;
+  --bg: #fafafa;
+  --panel: #ffffff;
+  --link: #9ca3af;
+  --link-dim: #e5e7eb;
+  --root: #1e40af;
+  --sub:  #3b82f6;
+  --tool: #10b981;
+  --reason: #f59e0b;
+  --finish: #ec4899;
+  --selected: #111827;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+               "Helvetica Neue", Arial, sans-serif;
+  background: var(--bg); color: var(--text); font-size: 13px;
+}
+.header {
+  padding: 10px 16px; border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+.header h1 { margin: 0; font-size: 15px; font-weight: 600; }
+.header .meta { margin-top: 2px; color: var(--muted); font-size: 11px; }
+.header .meta span { margin-right: 14px; }
+.outcome {
+  margin-top: 6px; border: 1px solid var(--border); border-radius: 3px;
+  background: var(--bg);
+}
+.outcome > summary {
+  list-style: none; cursor: pointer; padding: 3px 8px;
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  font-size: 11px;
+}
+.outcome > summary::-webkit-details-marker { display: none; }
+.outcome > summary::before {
+  content: "▸"; color: var(--muted); width: 9px; font-size: 10px;
+  transition: transform .12s; display: inline-block;
+}
+.outcome[open] > summary::before { transform: rotate(90deg); }
+.outcome .pill {
+  display: inline-block; font-size: 10px; padding: 1px 6px;
+  border-radius: 8px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.pill.f1-high { background: #d1fae5; color: #065f46; }
+.pill.f1-mid  { background: #fef3c7; color: #92400e; }
+.pill.f1-low  { background: #fee2e2; color: #991b1b; }
+.pill.metric  { background: #e5e7eb; color: #374151; }
+.outcome-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
+  padding: 2px 8px 8px 8px;
+}
+.outcome-grid .col {
+  border: 1px solid var(--border); border-radius: 3px; background: var(--panel);
+  padding: 4px 8px; min-height: 0; max-height: 140px; overflow: auto;
+}
+.outcome-grid h3 {
+  margin: 0 0 3px 0; font-size: 10px; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .04em;
+}
+.outcome-grid ul { margin: 0; padding-left: 16px; }
+.outcome-grid li {
+  font-size: 11.5px; padding: 0; line-height: 1.35; word-break: break-word;
+}
+.outcome-grid li.hit     { color: #065f46; }
+.outcome-grid li.missing { color: #991b1b; }
+.outcome-grid li.extra   { color: #92400e; }
+.outcome-grid li .marker { display: inline-block; width: 14px; }
+.outcome-grid li.hit .marker     { color: #10b981; }
+.outcome-grid li.missing .marker { color: #ef4444; }
+.outcome-grid li.extra .marker   { color: #f59e0b; }
+.outcome-grid .empty { color: var(--muted); font-style: italic; font-size: 12px; }
+.app {
+  display: flex; flex: 1; min-height: 0;
+}
+.page {
+  display: flex; flex-direction: column; height: 100%;
+}
+.canvas-wrap {
+  flex: 1; position: relative; overflow: hidden; background: var(--bg);
+}
+#canvas { width: 100%; height: 100%; cursor: grab; user-select: none; }
+#canvas.dragging { cursor: grabbing; }
+
+.controls {
+  position: absolute; top: 8px; left: 8px; z-index: 10;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 4px;
+  padding: 4px; display: flex; gap: 2px; box-shadow: 0 1px 2px rgba(0,0,0,.06);
+}
+.controls button {
+  font: inherit; font-size: 11px; padding: 3px 8px; cursor: pointer;
+  background: white; border: 1px solid var(--border); border-radius: 3px;
+}
+.controls button:hover { background: #f3f4f6; }
+.legend {
+  position: absolute; bottom: 8px; left: 8px; z-index: 10;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 4px;
+  padding: 6px 10px; font-size: 11px; color: var(--muted);
+  display: flex; gap: 12px; box-shadow: 0 1px 2px rgba(0,0,0,.06);
+}
+.legend .swatch {
+  display: inline-block; width: 10px; height: 10px; border-radius: 2px;
+  vertical-align: middle; margin-right: 4px;
+}
+
+/* Nodes */
+.node rect {
+  stroke: var(--border); stroke-width: 1;
+  fill: var(--panel); cursor: pointer;
+}
+.node text {
+  pointer-events: none; font-size: 11px; fill: var(--text);
+}
+.node .bar {
+  stroke: none;
+}
+.node.type-root   .bar { fill: var(--root);   }
+.node.type-subproblem .bar { fill: var(--sub); }
+.node.type-tool_call  .bar { fill: var(--tool); }
+.node.type-reason .bar { fill: var(--reason); }
+.node.type-finish .bar { fill: var(--finish); }
+
+.node.has-hidden rect { stroke-dasharray: 3 3; }
+.node.selected rect { stroke: var(--selected); stroke-width: 2; }
+
+.node .collapsed-badge {
+  fill: var(--text); font-size: 10px; font-weight: 600;
+}
+
+.link {
+  fill: none; stroke: var(--link); stroke-width: 1;
+}
+.link.dim { stroke: var(--link-dim); }
+
+/* Sidebar */
+.sidebar {
+  width: 420px; min-width: 320px; border-left: 1px solid var(--border);
+  background: var(--panel); display: flex; flex-direction: column;
+  flex-shrink: 0;
+}
+.sidebar .tab {
+  padding: 8px 12px; border-bottom: 1px solid var(--border);
+  font-weight: 600; font-size: 12px; display: flex; justify-content: space-between;
+  align-items: center;
+}
+.sidebar .body {
+  padding: 10px 14px; overflow-y: auto; flex: 1; line-height: 1.5;
+}
+.sidebar .placeholder { color: var(--muted); font-style: italic; }
+.sidebar h2 {
+  font-size: 13px; margin: 12px 0 4px 0; color: #374151;
+}
+.sidebar h2:first-child { margin-top: 0; }
+.sidebar .kv { margin: 4px 0; font-size: 12px; }
+.sidebar .label {
+  color: var(--muted); font-size: 10px; text-transform: uppercase;
+  letter-spacing: .04em; display: block; margin-top: 8px;
+}
+.sidebar pre {
+  margin: 4px 0; padding: 8px 10px; background: #f3f4f6; border-radius: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px; white-space: pre-wrap; word-break: break-word;
+  max-height: 40vh; overflow: auto;
+}
+.sidebar .badge {
+  display: inline-block; font-size: 10px; padding: 1px 6px;
+  border-radius: 10px; color: white; margin-right: 4px;
+  text-transform: uppercase; letter-spacing: .04em;
+}
+.badge-root   { background: var(--root); }
+.badge-subproblem { background: var(--sub); }
+.badge-tool_call  { background: var(--tool); }
+.badge-reason { background: var(--reason); }
+.badge-finish { background: var(--finish); }
+</style>
+</head>
+<body>
+<div class="page">
+<div class="header">
+  <h1>microbiologyevents_13856925</h1>
+  <div class="meta">
+    <span><strong>task:</strong> microbiologyevents</span>
+    <span><strong>model:</strong> claude_opus_4_6</span>
+    <span><strong>status:</strong> success</span>
+    <span><strong>events:</strong> 58</span>
+    <span><strong>nodes:</strong> 59</span>
+    <span><strong>depth:</strong> 4</span>
+    <span><span class="pill f1-low">F1 0.00</span></span>
+  </div>
+  <details class="outcome">
+  <summary><strong>Outcome</strong><span class="pill f1-low">F1 0.00</span><span class="pill metric">P 0.00</span><span class="pill metric">R 0.00</span><span class="pill metric">0 hit · 2 miss · 8 extra</span></summary>
+  <div class="outcome-grid">
+    <div class="col">
+      <h3>Gold label · 2 item(s)</h3>
+      <ul><li class="missing"><span class="marker">✗</span>Chlamydia trachomatis, Nucleic Acid Probe, with Amplification</li><li class="missing"><span class="marker">✗</span>NEISSERIA GONORRHOEAE (GC), NUCLEIC ACID PROBE, WITH AMPLIFICATION</li></ul>
+    </div>
+    <div class="col">
+      <h3>Prediction · 8 item(s)</h3>
+      <ul><li class="extra"><span class="marker">+</span>ANAEROBIC CULTURE</li><li class="extra"><span class="marker">+</span>Blood Culture, Routine</li><li class="extra"><span class="marker">+</span>FLUID CULTURE</li><li class="extra"><span class="marker">+</span>FUNGAL CULTURE</li><li class="extra"><span class="marker">+</span>GRAM STAIN</li><li class="extra"><span class="marker">+</span>R/O Beta Strep Group A</li><li class="extra"><span class="marker">+</span>RESPIRATORY CULTURE</li><li class="extra"><span class="marker">+</span>WOUND CULTURE</li></ul>
+    </div>
+  </div>
+</details>
+</div>
+<div class="app">
+  <div class="canvas-wrap">
+    <div class="controls">
+      <button id="ctl-fit" title="Fit to window">Fit</button>
+      <button id="ctl-zoom-in">+</button>
+      <button id="ctl-zoom-out">−</button>
+      <button id="ctl-expand-all" title="Expand every node">Expand all</button>
+      <button id="ctl-collapse-deep" title="Collapse everything below depth 2">
+        Collapse deep
+      </button>
+    </div>
+    <div class="legend">
+      <span><span class="swatch" style="background:var(--root)"></span>root</span>
+      <span><span class="swatch" style="background:var(--sub)"></span>subproblem</span>
+      <span><span class="swatch" style="background:var(--tool)"></span>tool call</span>
+      <span><span class="swatch" style="background:var(--reason)"></span>reason</span>
+      <span><span class="swatch" style="background:var(--finish)"></span>finish</span>
+      <span style="color:#9ca3af">· drag to pan · wheel to zoom · click node for details · shift+click or double-click to collapse</span>
+    </div>
+    <svg id="canvas"><g id="viewport"></g></svg>
+  </div>
+  <div class="sidebar">
+    <div class="tab" id="sidebar-tab">
+      <span id="sidebar-tab-title">Details</span>
+    </div>
+    <div class="body" id="sidebar-body"></div>
+  </div>
+</div>
+<script>window.__TREE__ = {"id": "n_0001", "level": 0, "type": "root", "title": "<task_instruction>\nYour current task is to act as a clinical microbiologist.\n\nYour objective is to determine all necessary microbiological tests for the patient by analyzing their complete medical his…", "root_task": "<task_instruction>\nYour current task is to act as a clinical microbiologist.\n\nYour objective is to determine all necessary microbiological tests for the patient by analyzing their complete medical history, current clinical condition, established diagnoses, and clinical signs of infection.\n\nYou must find the most likely official microbiological test candidates using the **`microbiologyevents_candidates`** reference data or semantic matching tools.\n\nWhen you need medical knowledge or clinical information to support your microbiological assessment, use the `browser.search` tool to find authoritative medical information from reliable sources.\n\nSubmit your final answer through `ehr.finish` as a **list** containing **multiple plausible microbiological tests**. Each item in the list must be a string representing an official microbiological test name, and **must not contain any codes or other additional information**.\n</task_instruction>\n\n<patient_info>\nCurrent Time: 2126-04-10 23:59:00\nPatient Subject ID: 13856925\n</patient_info>", "event_indices": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57], "msg_indices": [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 34, 35, 36, 37, 38, 39, 40, 41, 42, 44, 45, 46, 48], "children": [{"id": "n_0002", "level": 1, "type": "subproblem", "title": "Load patient EHR and retrieve all clinical data", "rationale": "The agent loads the patient's EHR, discovers available tables, and retrieves all relevant clinical records (diagnosis, ED stays, triage, labs, microbiology, vitals, demographics, transfers) to build a complete clinical picture.", "event_indices": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28], "msg_indices": [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19], "children": [{"id": "n_0003", "level": 2, "type": "subproblem", "title": "Initialize EHR and discover available tables", "rationale": "The agent loads the patient EHR and retrieves the list of available tables to plan subsequent data retrieval.", "event_indices": [0, 1, 2, 3, 4], "msg_indices": [2, 3, 4], "children": [{"id": "n_0004", "level": 3, "type": "reason", "title": "reasoning note", "rationale": "I'll start by loading the patient's EHR data and exploring the available tables to understand their medical history and current condition.", "event_indices": [], "msg_indices": [], "children": []}, {"id": "n_0005", "level": 3, "type": "tool_call", "title": "ehr_load_ehr", "tool": "ehr_load_ehr", "args": {"subject_id": "13856925", "timestamp": "2126-04-10 23:59:00"}, "call_id": "toolu_bdrk_01A4FoDm19BjyC62zmzbggLe", "observation_summary": "Loaded the full EHR snapshot at 2126-04-10: 1 diagnosis, 1 ED stay, 1 triage, 23 lab events, 9 OMR entries, 1 microbiology event, 1 transfer, and multiple candidate tables for matching.", "observation_shape": "text,len=707", "observation_body": null, "event_indices": [1, 3], "msg_indices": [2, 3], "children": []}, {"id": "n_0006", "level": 3, "type": "tool_call", "title": "ehr_get_table_names", "tool": "ehr_get_table_names", "args": {"subject_id": "13856925"}, "call_id": "toolu_bdrk_019iFqisxSQzdBB8fmGac616", "observation_summary": "Listed available EHR tables (diagnosis, edstays, labevents, microbiologyevents, omr, patients, transfers, triage) and candidate tables for the patient.", "observation_shape": "text,len=312", "observation_body": null, "event_indices": [2, 4], "msg_indices": [2, 4], "children": []}]}, {"id": "n_0007", "level": 2, "type": "subproblem", "title": "Retrieve all clinical records by time range", "rationale": "The agent queries all EHR tables (diagnosis, edstays, triage, labevents, microbiologyevents, omr, patients, transfers) using time-based filtering, receiving results or errors for tables without timestamp columns.", "event_indices": [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20], "msg_indices": [5, 6, 7, 8, 9, 10, 11, 12, 13], "children": [{"id": "n_0008", "level": 3, "type": "subproblem", "title": "Query diagnosis and edstays tables", "rationale": "Parallel queries to diagnosis and edstays tables with their corresponding observations.", "event_indices": [5, 6, 13, 14], "msg_indices": [5, 6, 7], "children": [{"id": "n_0009", "level": 4, "type": "tool_call", "title": "ehr_get_records_by_time", "tool": "ehr_get_records_by_time", "args": {"subject_id": "13856925", "table_name": "diagnosis", "start_time": "2000-01-01 00:00:00", "end_time": "2126-04-10 23:59:00"}, "call_id": "toolu_bdrk_015imriSCp8UVXUPL3tB779N", "observation_summary": "The patient had one ED diagnosis of 'Swelling in Head & Neck' (ICD-9 7842) on 2126-02-20.", "observation_shape": "text,len=185", "observation_body": null, "event_indices": [5, 13], "msg_indices": [5, 6], "children": []}, {"id": "n_0010", "level": 4, "type": "tool_call", "title": "ehr_get_records_by_time", "tool": "ehr_get_records_by_time", "args": {"subject_id": "13856925", "table_name": "edstays", "start_time": "2000-01-01 00:00:00", "end_time": "2126-04-10 23:59:00"}, "call_id": "toolu_bdrk_01Ez38DsW5MLeazDcj2ovWN1", "observation_summary": "Found one ED stay on 2126-02-20 for a female Hispanic/Latino patient who arrived by walk-in and was discharged home.", "observation_shape": "text,len=271", "observation_body": null, "event_indices": [6, 14], "msg_indices": [5, 7], "children": []}]}, {"id": "n_0011", "level": 3, "type": "subproblem", "title": "Query triage table (error - no timestamp column)", "rationale": "Triage table query that returns an error due to missing timestamp column.", "event_indices": [7, 15], "msg_indices": [5, 8], "children": [{"id": "n_0012", "level": 4, "type": "tool_call", "title": "ehr_get_records_by_time", "tool": "ehr_get_records_by_time", "args": {"subject_id": "13856925", "table_name": "triage", "start_time": "2000-01-01 00:00:00", "end_time": "2126-04-10 23:59:00"}, "call_id": "toolu_bdrk_01KcmPrQBScmsgReWTHLjAgB", "observation_summary": "Confirmed that the 'triage' table has no timestamp column and cannot be filtered by time.", "observation_shape": "text,len=74", "observation_body": null, "event_indices": [7, 15], "msg_indices": [5, 8], "children": []}]}, {"id": "n_0013", "level": 3, "type": "subproblem", "title": "Query labevents and microbiologyevents tables", "rationale": "Parallel queries to labevents and microbiologyevents tables returning clinical lab and microbiology data.", "event_indices": [8, 9, 16, 17], "msg_indices": [5, 9, 10], "children": [{"id": "n_0014", "level": 4, "type": "tool_call", "title": "ehr_get_records_by_time", "tool": "ehr_get_records_by_time", "args": {"subject_id": "13856925", "table_name": "labevents", "start_time": "2000-01-01 00:00:00", "end_time": "2126-04-10 23:59:00"}, "call_id": "toolu_bdrk_01C35sRiEfqjebBC5SYad2PB", "observation_summary": "Retrieved 23 lab events for the patient, including a vitamin D level of 10 ng/mL (flagged abnormal, ref 30–60) on 2126-03-09, among other results.", "observation_shape": "text,len=13271", "observation_body": null, "event_indices": [8, 16], "msg_indices": [5, 9], "children": []}, {"id": "n_0015", "level": 4, "type": "tool_call", "title": "ehr_get_records_by_time", "tool": "ehr_get_records_by_time", "args": {"subject_id": "13856925", "table_name": "microbiologyevents", "start_time": "2000-01-01 00:00:00", "end_time": "2126-04-10 23:59:00"}, "call_id": "toolu_bdrk_017UddugRLFk2eDR3SC3rirc", "observation_summary": "A throat culture from 2126-01-04 tested for R/O Beta Strep Group A was negative, with comment 'NO BETA STREPTOCOCCUS GROUP A FOUND.'", "observation_shape": "text,len=729", "observation_body": null, "event_indices": [9, 17], "msg_indices": [5, 10], "children": []}]}, {"id": "n_0016", "level": 3, "type": "subproblem", "title": "Query omr, patients, and transfers tables", "rationale": "Parallel queries to omr, patients, and transfers tables with mixed success (patients table has no timestamp column).", "event_indices": [10, 11, 12, 18, 19, 20], "msg_indices": [5, 11, 12, 13], "children": [{"id": "n_0017", "level": 4, "type": "tool_call", "title": "ehr_get_records_by_time", "tool": "ehr_get_records_by_time", "args": {"subject_id": "13856925", "table_name": "omr", "start_time": "2000-01-01 00:00:00", "end_time": "2126-04-10 23:59:00"}, "call_id": "toolu_bdrk_01ASUyzGKUta2RmSYXce168c", "observation_summary": "OMR records show BMI increasing from 35.9 to 36.7 (Jan–Mar 2126), weight 190–194 lbs, and blood pressures of 108/62, 102/42, and 100/70 across three dates.", "observation_shape": "text,len=669", "observation_body": null, "event_indices": [10, 18], "msg_indices": [5, 11], "children": []}, {"id": "n_0018", "level": 4, "type": "tool_call", "title": "ehr_get_records_by_time", "tool": "ehr_get_records_by_time", "args": {"subject_id": "13856925", "table_name": "patients", "start_time": "2000-01-01 00:00:00", "end_time": "2126-04-10 23:59:00"}, "call_id": "toolu_bdrk_01VVwR6eb1mS8hJmpVmvH3Bc", "observation_summary": "Confirmed that the patients table cannot be filtered by time due to lacking a timestamp column.", "observation_shape": "text,len=76", "observation_body": null, "event_indices": [11, 19], "msg_indices": [5, 12], "children": []}, {"id": "n_0019", "level": 4, "type": "tool_call", "title": "ehr_get_records_by_time", "tool": "ehr_get_records_by_time", "args": {"subject_id": "13856925", "table_name": "transfers", "start_time": "2000-01-01 00:00:00", "end_time": "2126-04-10 23:59:00"}, "call_id": "toolu_bdrk_01Wh9VZtUdpWrNqvNhRjxo6J", "observation_summary": "Transfer records show a single ED visit from 2126-02-20 20:42 to 21:33 in the Emergency Department, with no associated hospital admission ID.", "observation_shape": "text,len=203", "observation_body": null, "event_indices": [12, 20], "msg_indices": [5, 13], "children": []}]}]}, {"id": "n_0020", "level": 2, "type": "subproblem", "title": "Retrieve triage and patient demographics via alternative queries", "rationale": "The agent retries fetching triage and patients data using latest records and SQL queries after time-based filtering failed.", "event_indices": [21, 22, 23, 24, 25, 26, 27, 28], "msg_indices": [14, 15, 16, 17, 18, 19], "children": [{"id": "n_0021", "level": 3, "type": "subproblem", "title": "Attempt latest records retrieval for triage and patients tables", "rationale": "The agent tries to use ehr_get_latest_records for triage and patients tables but both fail due to missing timestamp columns.", "event_indices": [21, 22, 23, 24], "msg_indices": [14, 15, 16], "children": [{"id": "n_0022", "level": 4, "type": "tool_call", "title": "ehr_get_latest_records", "tool": "ehr_get_latest_records", "args": {"subject_id": "13856925", "table_name": "triage"}, "call_id": "toolu_bdrk_01KTqrD97RThW487mMuj1KKV", "observation_summary": "Confirmed that the triage table has no timestamp column and cannot retrieve latest records.", "observation_shape": "text,len=83", "observation_body": null, "event_indices": [21, 23], "msg_indices": [14, 15], "children": []}, {"id": "n_0023", "level": 4, "type": "tool_call", "title": "ehr_get_latest_records", "tool": "ehr_get_latest_records", "args": {"subject_id": "13856925", "table_name": "patients"}, "call_id": "toolu_bdrk_01UPkT1Fdq51VWEKbjWbarBY", "observation_summary": "Confirmed that the patients table has no timestamp column and cannot retrieve latest records.", "observation_shape": "text,len=85", "observation_body": null, "event_indices": [22, 24], "msg_indices": [14, 16], "children": []}]}, {"id": "n_0024", "level": 3, "type": "subproblem", "title": "SQL query fallback for triage and patients data", "rationale": "The agent falls back to raw SQL queries to successfully retrieve triage vitals/chief complaint and patient demographics.", "event_indices": [25, 26, 27, 28], "msg_indices": [17, 18, 19], "children": [{"id": "n_0025", "level": 4, "type": "tool_call", "title": "ehr_run_sql_query", "tool": "ehr_run_sql_query", "args": {"subject_id": "13856925", "sql_query": "SELECT * FROM triage"}, "call_id": "toolu_bdrk_01Q2g82XyRC4NjVTy2wzXzCc", "observation_summary": "Triage data shows the patient presented with chief complaint of FACIAL SWELLING, temp 98.4, HR 103, RR 16, O2 sat 98%, BP 135/82, pain 5/10, acuity level 2.", "observation_shape": "text,len=191", "observation_body": null, "event_indices": [25, 27], "msg_indices": [17, 18], "children": []}, {"id": "n_0026", "level": 4, "type": "tool_call", "title": "ehr_run_sql_query", "tool": "ehr_run_sql_query", "args": {"subject_id": "13856925", "sql_query": "SELECT * FROM patients"}, "call_id": "toolu_bdrk_01ADi6u9rtVyG9y5q2MkfQHA", "observation_summary": "Patient 13856925 is a 37-year-old female with anchor year 2126 (2011–2013 group), no recorded date of death.", "observation_shape": "text,len=125", "observation_body": null, "event_indices": [26, 28], "msg_indices": [17, 19], "children": []}]}]}]}, {"id": "n_0027", "level": 1, "type": "subproblem", "title": "Synthesize clinical picture and search microbiology candidates", "rationale": "The agent reasons about the patient's clinical presentation (facial swelling, tachycardia, prior negative strep culture) and performs semantic/keyword searches against the microbiologyevents_candidates table to identify relevant test options.", "event_indices": [29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43], "msg_indices": [20, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31], "children": [{"id": "n_0028", "level": 2, "type": "subproblem", "title": "Clinical reasoning and initial semantic search for microbiology tests", "rationale": "The agent synthesizes the clinical picture and performs the first semantic similarity search to identify relevant microbiological test candidates.", "event_indices": [29, 30, 31], "msg_indices": [20, 22, 23], "children": [{"id": "n_0029", "level": 3, "type": "reason", "title": "reasoning note", "rationale": "Let me synthesize the patient's clinical picture:\n\n**Patient:** 37-year-old female, Hispanic/Latino (Puerto Rican)\n**BMI:** 36.7 (obese)\n**Chief Complaint:** FACIAL SWELLING\n**Diagnosis:** SWELLING IN HEAD & NECK (ICD-9 7842)\n**Triage Vitals:** Temp 98.4°F, HR 103 (tachycardic), RR 16, O2 sat 98%, BP 135/82, Pain 5/10, Acuity 2 (emergent)\n\n**Medical History:**\n- On 2126-01-04: Throat culture for R/O Beta Strep Group A → NEGATIVE (no beta streptococcus group A found)\n- On 2126-02-20: ED visit for facial swelling, discharged home\n- On 2126-03-09: Routine labs ordered including CBC, metabolic panel, lipid panel, HbA1c, vitamin D, TSH\n  - Notable: Low Vitamin D (10 ng/mL, ref 30-60) - abnormal\n  - Elevated LDL Cholesterol (143 mg/dL, ref <129) - abnormal\n  - Low RBC (4.17, ref 4.2-5.4) - slightly low\n  - HbA1c 5.4% - normal\n  - WBC 7.3 - normal\n  - Rest largely normal\n\n**Clinical Assessment:**\nThe patient presents with facial swelling. She had a prior throat culture that was negative for Group A Strep. The facial swelling could be related to:\n1. Dental/periodontal abscess → need wound/abscess culture, aerobic and anaerobic cultures\n2. Peritonsillar abscess \n3. Parotitis/salivary gland infection\n4. Cellulitis of the face\n5. Sinusitis\n6. Lymphadenitis\n7. Angioedema (allergic)\n\nGiven that she presented to the ED with facial swelling (acuity 2 - emergent), tachycardia (HR 103), and pain (5/10), and had a prior throat culture for strep, this suggests an infectious etiology is being considered. The swelling in the head and neck region with these clinical signs warrants microbiological workup.\n\nFor facial/neck swelling with possible infection, the following microbiological tests would be appropriate:\n1. Blood culture (aerobic and anaerobic) - to rule out bacteremia/sepsis given tachycardia\n2. Wound culture / abscess culture if there's a drainable collection\n3. Throat culture / rapid strep test (she already had one, but may need repeat)\n4. Gram stain of any aspirate\n5. Anaerobi", "event_indices": [], "msg_indices": [], "children": []}, {"id": "n_0030", "level": 3, "type": "tool_call", "title": "ehr_get_candidates_by_semantic_similarity", "tool": "ehr_get_candidates_by_semantic_similarity", "args": {"table_name": "microbiologyevents_candidates", "query": ["blood culture aerobic anaerobic", "throat culture strep", "wound culture abscess", "gram stain", "rapid strep antigen test", "facial swelling infection culture"]}, "call_id": "toolu_bdrk_011VXs1KdgPruqsKiaoE5hMH", "observation_summary": "Semantic similarity search across multiple culture-related queries identified relevant microbiology candidates including ANAEROBIC CULTURE (0.716), Blood Culture Routine (0.597), R/O Beta Strep Group A (0.555), RESPIRATORY CULTURE, WOUND CULTURE, and others.", "observation_shape": "text,len=2418", "observation_body": null, "event_indices": [30, 31], "msg_indices": [22, 23], "children": []}]}, {"id": "n_0031", "level": 2, "type": "subproblem", "title": "Keyword searches for strep, blood culture, throat, and respiratory tests", "rationale": "The agent performs multiple parallel keyword searches against the candidates table to find tests related to strep, blood culture, throat, and respiratory categories.", "event_indices": [32, 33, 34, 35, 36, 37, 38, 39], "msg_indices": [24, 25, 26, 27, 28], "children": [{"id": "n_0032", "level": 3, "type": "subproblem", "title": "Search for strep-related microbiology test candidates", "rationale": "The agent searches for 'strep' keyword and receives matching candidates including R/O GROUP B BETA STREP, R/O Beta Strep Group A, and R/O Group B Strep - Penicillin Allergy.", "event_indices": [32, 36], "msg_indices": [24, 25], "children": [{"id": "n_0033", "level": 4, "type": "tool_call", "title": "ehr_get_candidates_by_keyword", "tool": "ehr_get_candidates_by_keyword", "args": {"table_name": "microbiologyevents_candidates", "keyword": "strep"}, "call_id": "toolu_bdrk_01KJo4axaNV2PafC6ux3bR37", "observation_summary": "Keyword search for 'strep' in microbiologyevents candidates returned three options: R/O GROUP B BETA STREP, R/O Beta Strep Group A, and R/O Group B Strep - Penicillin Allergy.", "observation_shape": "text,len=155", "observation_body": null, "event_indices": [32, 36], "msg_indices": [24, 25], "children": []}]}, {"id": "n_0034", "level": 3, "type": "subproblem", "title": "Search for blood culture microbiology test candidates", "rationale": "The agent searches for 'blood culture' keyword and receives matching candidates including Blood Culture Routine, Neonate, Post Mortem, and specialized cultures.", "event_indices": [33, 37], "msg_indices": [24, 26], "children": [{"id": "n_0035", "level": 4, "type": "tool_call", "title": "ehr_get_candidates_by_keyword", "tool": "ehr_get_candidates_by_keyword", "args": {"table_name": "microbiologyevents_candidates", "keyword": "blood culture"}, "call_id": "toolu_bdrk_01GYMhHiyZu4bsLuY39HS2EP", "observation_summary": "Found six blood culture-related candidates including Blood Culture Routine, Brucella, Post Mortem, Neonate, M. furfur, and Bartonella blood cultures.", "observation_shape": "text,len=188", "observation_body": null, "event_indices": [33, 37], "msg_indices": [24, 26], "children": []}]}, {"id": "n_0036", "level": 3, "type": "subproblem", "title": "Search for throat-related microbiology test candidates", "rationale": "The agent searches for 'throat' keyword but no matching records are found in the candidates table.", "event_indices": [34, 38], "msg_indices": [24, 27], "children": [{"id": "n_0037", "level": 4, "type": "tool_call", "title": "ehr_get_candidates_by_keyword", "tool": "ehr_get_candidates_by_keyword", "args": {"table_name": "microbiologyevents_candidates", "keyword": "throat"}, "call_id": "toolu_bdrk_014KehVGChj7YZYM1MLnroC7", "observation_summary": "No candidates containing the keyword 'throat' exist in the microbiologyevents_candidates table.", "observation_shape": "text,len=90", "observation_body": null, "event_indices": [34, 38], "msg_indices": [24, 27], "children": []}]}, {"id": "n_0038", "level": 3, "type": "subproblem", "title": "Search for respiratory microbiology test candidates", "rationale": "The agent searches for 'respiratory' keyword and receives matching candidates including Respiratory Culture, Respiratory Viral Culture, Respiratory Viral Antigen Screen, and Respiratory Virus Identification.", "event_indices": [35, 39], "msg_indices": [24, 28], "children": [{"id": "n_0039", "level": 4, "type": "tool_call", "title": "ehr_get_candidates_by_keyword", "tool": "ehr_get_candidates_by_keyword", "args": {"table_name": "microbiologyevents_candidates", "keyword": "respiratory"}, "call_id": "toolu_bdrk_0157ovKnTSBmuVbdmf1GCkAA", "observation_summary": "Found four respiratory-related microbiology candidates: RESPIRATORY CULTURE, Respiratory Viral Culture, Respiratory Viral Antigen Screen, and Respiratory Virus Identification.", "observation_shape": "text,len=164", "observation_body": null, "event_indices": [35, 39], "msg_indices": [24, 28], "children": []}]}]}, {"id": "n_0040", "level": 2, "type": "subproblem", "title": "Search for abscess-related and additional culture/sensitivity candidates", "rationale": "The agent searches for abscess-related tests by keyword and performs semantic searches for fluid culture, tissue culture, sensitivity testing, and fungal culture.", "event_indices": [40, 41, 42, 43], "msg_indices": [29, 30, 31], "children": [{"id": "n_0041", "level": 3, "type": "tool_call", "title": "ehr_get_candidates_by_keyword", "tool": "ehr_get_candidates_by_keyword", "args": {"table_name": "microbiologyevents_candidates", "keyword": "abscess"}, "call_id": "toolu_bdrk_01CAtnHettK2xtZVt13Wfsy1", "observation_summary": "No candidates containing the keyword 'abscess' exist in the microbiologyevents_candidates table.", "observation_shape": "text,len=91", "observation_body": null, "event_indices": [40, 42], "msg_indices": [29, 30], "children": []}, {"id": "n_0042", "level": 3, "type": "tool_call", "title": "ehr_get_candidates_by_semantic_similarity", "tool": "ehr_get_candidates_by_semantic_similarity", "args": {"table_name": "microbiologyevents_candidates", "query": ["fluid culture", "tissue culture", "sensitivity testing antibiotic", "fungal culture"]}, "call_id": "toolu_bdrk_011cqGis7aDKgDB4MCZDirdt", "observation_summary": "Semantic search found exact or near-exact matches for FLUID CULTURE (1.0), TISSUE CULTURE-TISSUE (0.966), sensitivity/antibiotic testing, and FUNGAL CULTURE in the microbiologyevents candidates table.", "observation_shape": "text,len=1860", "observation_body": null, "event_indices": [41, 43], "msg_indices": [29, 31], "children": []}]}]}, {"id": "n_0043", "level": 1, "type": "subproblem", "title": "Research clinical guidelines for head/neck infection microbiology testing", "rationale": "The agent searches the web for authoritative medical literature on microbiological tests appropriate for facial/head-neck swelling and infections to inform test selection.", "event_indices": [44, 45, 46, 47, 48, 49, 50, 51, 52], "msg_indices": [32, 34, 35, 36, 37, 38, 39, 40, 41], "children": [{"id": "n_0044", "level": 2, "type": "subproblem", "title": "Initial clinical reasoning about facial swelling microbiology", "rationale": "The agent reasons about the patient's clinical scenario to determine what microbiological tests might be relevant for facial/head-neck swelling.", "event_indices": [44], "msg_indices": [32], "children": [{"id": "n_0045", "level": 3, "type": "reason", "title": "reasoning note", "rationale": "Now let me think about the clinical scenario more carefully:\n\n**Patient Profile:** 37-year-old obese female presenting to the ED with FACIAL SWELLING (chief complaint) and diagnosed with SWELLING IN HEAD & NECK.\n\n**Key clinical features:**\n- Tachycardic (HR 103) suggesting possible infectious/inflammatory process\n- Pain 5/10\n- Acuity 2 (emergent)\n- Prior throat culture for Group A strep was NEGATIVE (January 2126)\n- Disposition: HOME (so not admitted)\n\n**Clinical reasoning for facial/neck swelling:**\nThe combination of facial swelling, tachycardia, pain, and the prior throat culture suggests concern for:\n1. Peritonsillar or parapharyngeal abscess\n2. Dental abscess/odontogenic infection\n3. Deep neck space infection (Ludwig's angina, submandibular abscess)\n4. Facial cellulitis\n5. Infected lymph node/lymphadenitis\n6. Salivary gland infection (sialadenitis/parotitis)\n\nGiven the prior throat culture for Group A Strep and the current presentation with facial/head-neck swelling, this is very likely an infectious process. The appropriate microbiological tests would include:\n\n1. **R/O Beta Strep Group A** - already done once, may need to repeat given persistent/recurrent symptoms\n2. **Blood Culture, Routine** - given tachycardia, concern for systemic infection\n3. **WOUND CULTURE** - if there's a drainable abscess or wound\n4. **ANAEROBIC CULTURE** - important for deep neck space infections/abscesses (anaerobes are common)\n5. **GRAM STAIN** - direct microscopy of any collected specimen\n6. **FLUID CULTURE** - if fluid is aspirated from swelling\n7. **RESPIRATORY CULTURE** - if upper airway involvement suspected\n8. **FUNGAL CULTURE** - to rule out deep fungal infection (less likely but part of comprehensive workup)\n\nGiven the patient was discharged home (not admitted), this suggests a less severe presentation. But the acuity 2 suggests it was initially concerning. The most likely tests ordered would be:\n\n1. R/O Beta Strep Group A (repeat throat culture) - most likely given histor", "event_indices": [], "msg_indices": [], "children": []}]}, {"id": "n_0046", "level": 2, "type": "subproblem", "title": "Web search for head/neck infection microbiology tests", "rationale": "The agent performs a web search to find authoritative sources on microbiological testing for facial swelling and head/neck infections.", "event_indices": [45, 46], "msg_indices": [34, 35], "children": [{"id": "n_0047", "level": 3, "type": "tool_call", "title": "browser_search", "tool": "browser_search", "args": {"query": "microbiological tests facial swelling head neck infection emergency department"}, "call_id": "toolu_bdrk_01RCNU8YMYezPQJeuR3d6DzC", "observation_summary": "Web search for microbiological tests for facial swelling and head/neck infections returned results including PMC articles on microbiologic investigations, imaging of acute face/neck infections, clinical presentation and microbiology profiles, and dental infection sources.", "observation_shape": "text,len=2779", "observation_body": null, "event_indices": [45, 46], "msg_indices": [34, 35], "children": []}]}, {"id": "n_0048", "level": 2, "type": "subproblem", "title": "Review PMC article on head and neck infection microbiology investigations", "rationale": "The agent opens and reads through a PMC article detailing microbiologic investigation methods for head and neck infections.", "event_indices": [47, 48, 49, 50, 51, 52], "msg_indices": [36, 37, 38, 39, 40, 41], "children": [{"id": "n_0049", "level": 3, "type": "subproblem", "title": "Initial opening of PMC article on head and neck infection microbiology", "rationale": "The agent opens the PMC article and views the first 53 lines including the abstract.", "event_indices": [47, 48], "msg_indices": [36, 37], "children": [{"id": "n_0050", "level": 4, "type": "tool_call", "title": "browser_open", "tool": "browser_open", "args": {"id": "0"}, "call_id": "toolu_bdrk_01V9d3dxA1waj7fJP6XbEBHp", "observation_summary": "Opened the beginning of the PMC article on head and neck infection microbiology, which describes available methods (stained smears, antigen detection, cultures, molecular techniques) and notes that normal flora complicates pathogen identification.", "observation_shape": "text,len=4534", "observation_body": null, "event_indices": [47, 48], "msg_indices": [36, 37], "children": []}]}, {"id": "n_0051", "level": 3, "type": "subproblem", "title": "Failed attempt to scroll article with invalid link id", "rationale": "The agent attempts to scroll using an invalid link id parameter, resulting in an error.", "event_indices": [49, 50], "msg_indices": [38, 39], "children": [{"id": "n_0052", "level": 4, "type": "tool_call", "title": "browser_open", "tool": "browser_open", "args": {"id": "1", "loc": 53, "num_lines": 100}, "call_id": "toolu_bdrk_014g8EtmKonXTd8VPyJH2GuN", "observation_summary": "Attempted to open a link with invalid id '1', resulting in an error.", "observation_shape": "text,len=20", "observation_body": null, "event_indices": [49, 50], "msg_indices": [38, 39], "children": []}]}, {"id": "n_0053", "level": 3, "type": "subproblem", "title": "Successful scrolling to read detailed article content", "rationale": "The agent correctly scrolls the article to read lines 53-252 covering predisposing factors and microbiologic methods.", "event_indices": [51, 52], "msg_indices": [40, 41], "children": [{"id": "n_0054", "level": 4, "type": "tool_call", "title": "browser_open", "tool": "browser_open", "args": {"loc": 53, "num_lines": 200}, "call_id": "toolu_bdrk_01E8icRm1LZ2isxZs3HaD7jm", "observation_summary": "Browsed a PMC article on microbiologic investigations for head and neck infections, covering specimen collection challenges, polymicrobial nature of infections, and the difficulty distinguishing commensals from pathogens.", "observation_shape": "text,len=16962", "observation_body": null, "event_indices": [51, 52], "msg_indices": [40, 41], "children": []}]}]}]}, {"id": "n_0055", "level": 1, "type": "subproblem", "title": "Refine candidate tests and submit final answer", "rationale": "The agent performs additional semantic searches for specific tests (pharyngitis, mono, EBV), synthesizes all findings into a clinical reasoning summary, and submits the final list of recommended microbiological tests.", "event_indices": [53, 54, 55, 56, 57], "msg_indices": [42, 44, 45, 46, 48], "children": [{"id": "n_0056", "level": 2, "type": "reason", "title": "reasoning note", "rationale": "Based on the comprehensive review of the patient's clinical data and medical literature on head and neck infections, let me determine the most appropriate microbiological tests:\n\n**Clinical Summary:**\n- 37F with facial/head-neck swelling\n- Prior negative throat culture for Group A Strep (Jan 2126)\n- ED visit for facial swelling (Feb 2126) - emergent acuity, tachycardic, pain\n- No admission (discharged home)\n\n**The key considerations:**\n1. The patient already had a throat culture (R/O Beta Strep Group A) done in January, suggesting pharyngitis/throat infection was suspected\n2. Now presenting with facial swelling - could be:\n   - Peritonsillar abscess\n   - Dental/odontogenic infection\n   - Deep neck space infection\n   - Cellulitis\n   - Lymphadenitis\n\n**For head and neck infections, standard microbiological workup includes:**\n1. **R/O Beta Strep Group A** - throat culture to rule out Group A strep (already done once, likely to be repeated given similar presentation)\n2. **GRAM STAIN** - for direct microscopy of any specimen\n3. **WOUND CULTURE** - if abscess is drained or wound present\n4. **ANAEROBIC CULTURE** - deep neck infections often involve anaerobes\n5. **Blood Culture, Routine** - if systemic infection is suspected (tachycardia present)\n6. **RESPIRATORY CULTURE** - if upper respiratory involvement\n7. **FLUID CULTURE** - if fluid is aspirated from swelling\n8. **FUNGAL CULTURE** - to rule out fungal etiology (less common but part of comprehensive workup)\n\nGiven this patient had a prior strep throat culture and now presents with facial swelling, the most relevant tests would center around the throat/wound cultures, gram stain, and blood cultures. Let me finalize my answer.", "event_indices": [], "msg_indices": [], "children": []}, {"id": "n_0057", "level": 2, "type": "tool_call", "title": "ehr_get_candidates_by_semantic_similarity", "tool": "ehr_get_candidates_by_semantic_similarity", "args": {"table_name": "microbiologyevents_candidates", "query": ["throat culture pharyngitis", "mono spot test", "EBV antibody", "rapid strep test group A"]}, "call_id": "toolu_bdrk_01YTy9aCUxZZeGEQ4ZXFYYMn", "observation_summary": "Semantic search for throat/mono/EBV/strep tests in microbiologyevents found no direct throat culture or rapid strep matches, but identified Epstein-Barr virus VCA-IgG and IgM antibody tests (similarity ~0.71-0.72) and respiratory cultures as closest matches.", "observation_shape": "text,len=1288", "observation_body": null, "event_indices": [54, 55], "msg_indices": [44, 45], "children": []}, {"id": "n_0058", "level": 2, "type": "reason", "title": "reasoning note", "rationale": "Let me think about this more carefully. The patient:\n\n1. Had a throat culture for Group A Strep in January 2126 → NEGATIVE\n2. Presented to ED in February 2126 with facial swelling (chief complaint)\n3. Diagnosis: Swelling in head & neck\n4. Tachycardic (HR 103), pain 5/10, acuity 2 (emergent)\n5. Discharged home\n\nThe fact that she had a prior negative strep throat culture and now presents with facial swelling suggests progression or a new infectious process. Facial swelling with prior pharyngitis workup could suggest:\n- Peritonsillar abscess (complications of pharyngitis)\n- Dental abscess spreading to facial spaces\n- Lymphadenitis\n- Parotitis (mumps or bacterial)\n- Angioedema (non-infectious)\n\nGiven this is a microbiological test prediction task, I need to predict what tests would be ordered for this patient. Given:\n- Prior strep throat culture was done → likely to repeat or do similar\n- Facial swelling with signs of infection → wound/abscess culture, gram stain\n- The patient already has 1 microbiology event (the throat culture)\n\nThe most clinically appropriate microbiological tests for a patient with head/neck swelling and possible infection would be:\n\n1. **R/O Beta Strep Group A** - repeat throat culture (given prior history)\n2. **WOUND CULTURE** - for any abscess drainage or wound\n3. **ANAEROBIC CULTURE** - deep space infections are often polymicrobial with anaerobes\n4. **GRAM STAIN** - direct microscopy\n5. **Blood Culture, Routine** - rule out bacteremia given tachycardia\n6. **RESPIRATORY CULTURE** - upper respiratory tract involvement\n7. **FUNGAL CULTURE** - rule out fungal etiology\n\nGiven the clinical context of facial swelling in the head/neck region and prior strep workup, I'll include the most clinically relevant tests.", "event_indices": [], "msg_indices": [], "children": []}, {"id": "n_0059", "level": 2, "type": "finish", "title": "finish", "answer": ["R/O Beta Strep Group A", "WOUND CULTURE", "ANAEROBIC CULTURE", "GRAM STAIN", "Blood Culture, Routine", "RESPIRATORY CULTURE", "FUNGAL CULTURE", "FLUID CULTURE"], "event_indices": [57], "msg_indices": [48], "children": []}]}]};</script>
+<script>
+(function() {
+  const DATA = window.__TREE__;
+  const NODES = [];
+  const EDGES = [];
+
+  // Assign stable numeric ids and collapsed flags
+  let nid = 0;
+  function walk(n, parent) {
+    n.__nid = nid++;
+    n.__parent = parent ? parent.__nid : null;
+    n.__collapsed = false;
+    (n.children || []).forEach(c => walk(c, n));
+  }
+  walk(DATA, null);
+
+  // ── Layout (simple Reingold-Tilford: leaves get consecutive y slots,
+  //          internal nodes sit at the midpoint of their children's y) ───
+  const DX = 60;   // vertical step per leaf slot
+  const DY = 270;  // horizontal step per depth level
+  const NODE_W = 240, NODE_H = 54;
+
+  function layout(root) {
+    let leafSlot = 0;
+    function visit(n, depth) {
+      n.__depth = depth;
+      const kids = (n.__collapsed ? [] : (n.children || []));
+      if (kids.length === 0) {
+        n.__y = leafSlot * DX;
+        leafSlot++;
+      } else {
+        kids.forEach(c => visit(c, depth + 1));
+        const ys = kids.map(c => c.__y);
+        n.__y = (Math.min.apply(null, ys) + Math.max.apply(null, ys)) / 2;
+      }
+      n.__x = depth * DY;
+    }
+    visit(root, 0);
+  }
+
+  function flatten(root) {
+    NODES.length = 0; EDGES.length = 0;
+    function rec(n) {
+      NODES.push(n);
+      const kids = (n.__collapsed ? [] : (n.children || []));
+      kids.forEach(c => { EDGES.push([n, c]); rec(c); });
+    }
+    rec(root);
+  }
+
+  // ── Labels ────────────────────────────────────────────────────────────
+  function shortTitle(n) {
+    const t = n.type;
+    if (t === "root") return "ROOT";
+    if (t === "subproblem") return (n.title || "").trim();
+    if (t === "tool_call")  return (n.tool || "tool");
+    if (t === "reason")     return "reason";
+    if (t === "finish")     return "FINISH";
+    return t;
+  }
+  function subLabel(n) {
+    const t = n.type;
+    if (t === "root") return (n.title || "").trim();
+    if (t === "subproblem") return (n.rationale || "").trim();
+    if (t === "tool_call")  return (n.observation_summary || "").trim();
+    if (t === "reason")     return (n.rationale || "").trim();
+    if (t === "finish") {
+      const a = n.answer;
+      if (a == null) return "";
+      const s = typeof a === "string" ? a : JSON.stringify(a);
+      return s;
+    }
+    return "";
+  }
+  function truncate(s, n) {
+    s = (s || "").replace(/\s+/g, " ");
+    return s.length > n ? s.slice(0, n - 1) + "…" : s;
+  }
+  function countHiddenDescendants(n) {
+    if (!n.__collapsed) return 0;
+    let c = 0;
+    function rec(x) {
+      (x.children || []).forEach(k => { c++; rec(k); });
+    }
+    rec(n);
+    return c;
+  }
+
+  // ── Render ────────────────────────────────────────────────────────────
+  const svg = document.getElementById("canvas");
+  const viewport = document.getElementById("viewport");
+  let selectedNid = null;
+
+  function render() {
+    layout(DATA);
+    flatten(DATA);
+    viewport.innerHTML = "";
+
+    // Compute bounding box
+    const xs = NODES.map(n => n.__x);
+    const ys = NODES.map(n => n.__y);
+    const xmin = Math.min.apply(null, xs), xmax = Math.max.apply(null, xs);
+    const ymin = Math.min.apply(null, ys), ymax = Math.max.apply(null, ys);
+    const W = (xmax - xmin) + NODE_W + 40;
+    const H = (ymax - ymin) + NODE_H + 40;
+    // Re-base so everything starts at (20, 20)
+    const ox = 20 - xmin, oy = 20 - ymin;
+
+    // Edges
+    for (const [p, c] of EDGES) {
+      const x1 = p.__x + ox + NODE_W;
+      const y1 = p.__y + oy + NODE_H / 2;
+      const x2 = c.__x + ox;
+      const y2 = c.__y + oy + NODE_H / 2;
+      const mx = (x1 + x2) / 2;
+      const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      path.setAttribute("class", "link");
+      path.setAttribute("d", `M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`);
+      viewport.appendChild(path);
+    }
+
+    // Nodes
+    for (const n of NODES) {
+      const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+      g.setAttribute("class",
+        `node type-${n.type}` +
+        (n.__collapsed ? " has-hidden" : "") +
+        (n.__nid === selectedNid ? " selected" : ""));
+      g.setAttribute("transform",
+        `translate(${n.__x + ox}, ${n.__y + oy})`);
+      g.setAttribute("data-nid", n.__nid);
+
+      const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+      rect.setAttribute("width", NODE_W);
+      rect.setAttribute("height", NODE_H);
+      rect.setAttribute("rx", 4);
+      g.appendChild(rect);
+
+      // Left colored bar
+      const bar = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+      bar.setAttribute("class", "bar");
+      bar.setAttribute("width", 5);
+      bar.setAttribute("height", NODE_H);
+      bar.setAttribute("rx", 2);
+      g.appendChild(bar);
+
+      // Main label (row 1)
+      const t1 = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      t1.setAttribute("x", 12);
+      t1.setAttribute("y", 16);
+      t1.setAttribute("font-weight", "600");
+      t1.textContent = truncate(shortTitle(n), 32);
+      g.appendChild(t1);
+
+      // Sub label (row 2) — full width, no overlap
+      const t2 = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      t2.setAttribute("x", 12);
+      t2.setAttribute("y", 32);
+      t2.setAttribute("fill", "#6b7280");
+      t2.textContent = truncate(subLabel(n), 38);
+      g.appendChild(t2);
+
+      // Footer row (row 3): event range left-aligned, hidden-count badge right
+      if (n.event_indices && n.event_indices.length) {
+        const ev = n.event_indices;
+        const er = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        er.setAttribute("x", 12);
+        er.setAttribute("y", 47);
+        er.setAttribute("fill", "#9ca3af");
+        er.setAttribute("font-size", "10");
+        er.textContent = ev.length === 1
+          ? `E${String(ev[0]).padStart(3,"0")}`
+          : `E${String(ev[0]).padStart(3,"0")}–E${String(ev[ev.length-1]).padStart(3,"0")}`;
+        g.appendChild(er);
+      }
+      if (n.__collapsed) {
+        const hc = countHiddenDescendants(n);
+        const tb = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        tb.setAttribute("class", "collapsed-badge");
+        tb.setAttribute("x", NODE_W - 10);
+        tb.setAttribute("y", 47);
+        tb.setAttribute("text-anchor", "end");
+        tb.setAttribute("font-size", "10");
+        tb.textContent = `+${hc} hidden`;
+        g.appendChild(tb);
+      }
+
+      g.addEventListener("click", ev => {
+        ev.stopPropagation();
+        if (ev.shiftKey || ev.detail === 2) {
+          // Shift+click or double-click: toggle collapse (only if has children)
+          if (n.children && n.children.length) {
+            n.__collapsed = !n.__collapsed;
+            render();
+          }
+          return;
+        }
+        selectedNid = n.__nid;
+        renderSidebar(n);
+        render();
+      });
+      viewport.appendChild(g);
+    }
+
+    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+    svg.__bbox = { W, H };
+  }
+
+  // ── Sidebar ───────────────────────────────────────────────────────────
+  const sidebarBody = document.getElementById("sidebar-body");
+  const sidebarTab = document.getElementById("sidebar-tab-title");
+
+  function h(tag, attrs, children) {
+    const e = document.createElement(tag);
+    for (const k in (attrs || {})) {
+      if (k === "class") e.className = attrs[k];
+      else if (k === "html") e.innerHTML = attrs[k];
+      else e.setAttribute(k, attrs[k]);
+    }
+    (children || []).forEach(c => {
+      if (typeof c === "string") e.appendChild(document.createTextNode(c));
+      else if (c) e.appendChild(c);
+    });
+    return e;
+  }
+  function pretty(v) {
+    if (v == null) return "";
+    if (typeof v === "string") return v;
+    try { return JSON.stringify(v, null, 2); }
+    catch (e) { return String(v); }
+  }
+  function renderSidebar(n) {
+    sidebarTab.innerHTML = "";
+    sidebarTab.appendChild(h("span", {}, [
+      h("span", {class: `badge badge-${n.type}`}, [n.type.toUpperCase()]),
+      " ",
+      (n.id || "")
+    ]));
+    const body = sidebarBody;
+    body.innerHTML = "";
+
+    // Title
+    body.appendChild(h("h2", {}, [shortTitle(n) || n.type]));
+    if (n.type === "subproblem" && n.title) {
+      body.appendChild(h("div", {class: "kv"}, [n.title]));
+    }
+    if (n.type === "root" && n.title) {
+      body.appendChild(h("div", {class: "kv"}, [n.title]));
+    }
+
+    // Rationale
+    if (n.rationale) {
+      body.appendChild(h("span", {class: "label"}, ["rationale"]));
+      body.appendChild(h("div", {class: "kv"}, [n.rationale]));
+    }
+
+    // Event / msg references
+    const meta = [];
+    if (n.level !== undefined) meta.push(`level=${n.level}`);
+    if (n.event_indices && n.event_indices.length)
+      meta.push(`events=${n.event_indices.join(",")}`);
+    if (n.msg_indices && n.msg_indices.length)
+      meta.push(`messages=${n.msg_indices.join(",")}`);
+    if ((n.children || []).length)
+      meta.push(`children=${n.children.length}`);
+    if (meta.length) {
+      body.appendChild(h("span", {class: "label"}, ["metadata"]));
+      body.appendChild(h("div", {class: "kv"}, [meta.join(" · ")]));
+    }
+
+    if (n.type === "root") {
+      if (n.root_task) {
+        body.appendChild(h("span", {class: "label"}, ["root task"]));
+        body.appendChild(h("pre", {}, [n.root_task]));
+      }
+    }
+    if (n.type === "tool_call") {
+      body.appendChild(h("span", {class: "label"}, ["tool"]));
+      body.appendChild(h("div", {class: "kv"}, [n.tool || ""]));
+      body.appendChild(h("span", {class: "label"}, ["arguments"]));
+      body.appendChild(h("pre", {}, [pretty(n.args)]));
+      if (n.call_id) {
+        body.appendChild(h("span", {class: "label"}, ["call id"]));
+        body.appendChild(h("div", {class: "kv"}, [n.call_id]));
+      }
+      body.appendChild(h("span", {class: "label"}, ["observation shape"]));
+      body.appendChild(h("div", {class: "kv"}, [n.observation_shape || "—"]));
+      body.appendChild(h("span", {class: "label"}, ["observation summary"]));
+      body.appendChild(h("div", {class: "kv"},
+        [n.observation_summary || "(no summary)"]));
+    }
+    if (n.type === "reason") {
+      body.appendChild(h("span", {class: "label"}, ["reasoning text"]));
+      body.appendChild(h("pre", {}, [n.rationale || ""]));
+    }
+    if (n.type === "finish") {
+      body.appendChild(h("span", {class: "label"}, ["final answer"]));
+      body.appendChild(h("pre", {}, [pretty(n.answer)]));
+    }
+  }
+  function resetSidebar() {
+    sidebarTab.textContent = "Details";
+    sidebarBody.innerHTML =
+      '<div class="placeholder">Click a node to see details. ' +
+      'Shift+click or double-click a node to collapse/expand its subtree.</div>';
+  }
+  resetSidebar();
+
+  // ── Zoom & pan ────────────────────────────────────────────────────────
+  let tx = 0, ty = 0, scale = 1;
+  function applyTransform() {
+    viewport.setAttribute("transform",
+      `translate(${tx}, ${ty}) scale(${scale})`);
+  }
+  function fit() {
+    const bbox = svg.__bbox;
+    if (!bbox) return;
+    const cw = svg.clientWidth, ch = svg.clientHeight;
+    const sx = cw / bbox.W, sy = ch / bbox.H;
+    scale = Math.min(sx, sy, 1.0);
+    tx = (cw - bbox.W * scale) / 2;
+    ty = (ch - bbox.H * scale) / 2;
+    applyTransform();
+  }
+  svg.addEventListener("wheel", ev => {
+    ev.preventDefault();
+    const r = svg.getBoundingClientRect();
+    const mx = ev.clientX - r.left, my = ev.clientY - r.top;
+    const wx = (mx - tx) / scale, wy = (my - ty) / scale;
+    const k = ev.deltaY < 0 ? 1.12 : 1 / 1.12;
+    scale = Math.max(0.15, Math.min(3.0, scale * k));
+    tx = mx - wx * scale;
+    ty = my - wy * scale;
+    applyTransform();
+  }, { passive: false });
+
+  let dragging = false, dragStart = null;
+  svg.addEventListener("mousedown", ev => {
+    if (ev.target.closest(".node")) return;
+    dragging = true; svg.classList.add("dragging");
+    dragStart = { x: ev.clientX - tx, y: ev.clientY - ty };
+  });
+  document.addEventListener("mousemove", ev => {
+    if (!dragging) return;
+    tx = ev.clientX - dragStart.x;
+    ty = ev.clientY - dragStart.y;
+    applyTransform();
+  });
+  document.addEventListener("mouseup", () => {
+    dragging = false; svg.classList.remove("dragging");
+  });
+
+  // Controls
+  document.getElementById("ctl-fit").addEventListener("click", fit);
+  document.getElementById("ctl-zoom-in").addEventListener("click", () => {
+    scale = Math.min(3.0, scale * 1.25); applyTransform();
+  });
+  document.getElementById("ctl-zoom-out").addEventListener("click", () => {
+    scale = Math.max(0.15, scale / 1.25); applyTransform();
+  });
+  document.getElementById("ctl-expand-all").addEventListener("click", () => {
+    function rec(n) { n.__collapsed = false; (n.children||[]).forEach(rec); }
+    rec(DATA); render(); fit();
+  });
+  document.getElementById("ctl-collapse-deep").addEventListener("click", () => {
+    // Collapse at depth 2 (keep root + level-1 subproblems expanded)
+    function rec(n, d) {
+      n.__collapsed = (d >= 2 && (n.children||[]).length > 0);
+      (n.children||[]).forEach(c => rec(c, d + 1));
+    }
+    rec(DATA, 0); render(); fit();
+  });
+
+  render();
+  // Initial fit after DOM has laid out
+  requestAnimationFrame(fit);
+})();
+</script>
+</div>
+</body>
+</html>

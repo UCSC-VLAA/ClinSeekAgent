@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>transfers_13791947 — transfers — claude_opus_4_6</title>
+<style>
+:root {
+  --border: #d1d5db;
+  --muted: #6b7280;
+  --text: #111827;
+  --bg: #fafafa;
+  --panel: #ffffff;
+  --link: #9ca3af;
+  --link-dim: #e5e7eb;
+  --root: #1e40af;
+  --sub:  #3b82f6;
+  --tool: #10b981;
+  --reason: #f59e0b;
+  --finish: #ec4899;
+  --selected: #111827;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+               "Helvetica Neue", Arial, sans-serif;
+  background: var(--bg); color: var(--text); font-size: 13px;
+}
+.header {
+  padding: 10px 16px; border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+.header h1 { margin: 0; font-size: 15px; font-weight: 600; }
+.header .meta { margin-top: 2px; color: var(--muted); font-size: 11px; }
+.header .meta span { margin-right: 14px; }
+.outcome {
+  margin-top: 6px; border: 1px solid var(--border); border-radius: 3px;
+  background: var(--bg);
+}
+.outcome > summary {
+  list-style: none; cursor: pointer; padding: 3px 8px;
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  font-size: 11px;
+}
+.outcome > summary::-webkit-details-marker { display: none; }
+.outcome > summary::before {
+  content: "▸"; color: var(--muted); width: 9px; font-size: 10px;
+  transition: transform .12s; display: inline-block;
+}
+.outcome[open] > summary::before { transform: rotate(90deg); }
+.outcome .pill {
+  display: inline-block; font-size: 10px; padding: 1px 6px;
+  border-radius: 8px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.pill.f1-high { background: #d1fae5; color: #065f46; }
+.pill.f1-mid  { background: #fef3c7; color: #92400e; }
+.pill.f1-low  { background: #fee2e2; color: #991b1b; }
+.pill.metric  { background: #e5e7eb; color: #374151; }
+.outcome-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
+  padding: 2px 8px 8px 8px;
+}
+.outcome-grid .col {
+  border: 1px solid var(--border); border-radius: 3px; background: var(--panel);
+  padding: 4px 8px; min-height: 0; max-height: 140px; overflow: auto;
+}
+.outcome-grid h3 {
+  margin: 0 0 3px 0; font-size: 10px; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .04em;
+}
+.outcome-grid ul { margin: 0; padding-left: 16px; }
+.outcome-grid li {
+  font-size: 11.5px; padding: 0; line-height: 1.35; word-break: break-word;
+}
+.outcome-grid li.hit     { color: #065f46; }
+.outcome-grid li.missing { color: #991b1b; }
+.outcome-grid li.extra   { color: #92400e; }
+.outcome-grid li .marker { display: inline-block; width: 14px; }
+.outcome-grid li.hit .marker     { color: #10b981; }
+.outcome-grid li.missing .marker { color: #ef4444; }
+.outcome-grid li.extra .marker   { color: #f59e0b; }
+.outcome-grid .empty { color: var(--muted); font-style: italic; font-size: 12px; }
+.app {
+  display: flex; flex: 1; min-height: 0;
+}
+.page {
+  display: flex; flex-direction: column; height: 100%;
+}
+.canvas-wrap {
+  flex: 1; position: relative; overflow: hidden; background: var(--bg);
+}
+#canvas { width: 100%; height: 100%; cursor: grab; user-select: none; }
+#canvas.dragging { cursor: grabbing; }
+
+.controls {
+  position: absolute; top: 8px; left: 8px; z-index: 10;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 4px;
+  padding: 4px; display: flex; gap: 2px; box-shadow: 0 1px 2px rgba(0,0,0,.06);
+}
+.controls button {
+  font: inherit; font-size: 11px; padding: 3px 8px; cursor: pointer;
+  background: white; border: 1px solid var(--border); border-radius: 3px;
+}
+.controls button:hover { background: #f3f4f6; }
+.legend {
+  position: absolute; bottom: 8px; left: 8px; z-index: 10;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 4px;
+  padding: 6px 10px; font-size: 11px; color: var(--muted);
+  display: flex; gap: 12px; box-shadow: 0 1px 2px rgba(0,0,0,.06);
+}
+.legend .swatch {
+  display: inline-block; width: 10px; height: 10px; border-radius: 2px;
+  vertical-align: middle; margin-right: 4px;
+}
+
+/* Nodes */
+.node rect {
+  stroke: var(--border); stroke-width: 1;
+  fill: var(--panel); cursor: pointer;
+}
+.node text {
+  pointer-events: none; font-size: 11px; fill: var(--text);
+}
+.node .bar {
+  stroke: none;
+}
+.node.type-root   .bar { fill: var(--root);   }
+.node.type-subproblem .bar { fill: var(--sub); }
+.node.type-tool_call  .bar { fill: var(--tool); }
+.node.type-reason .bar { fill: var(--reason); }
+.node.type-finish .bar { fill: var(--finish); }
+
+.node.has-hidden rect { stroke-dasharray: 3 3; }
+.node.selected rect { stroke: var(--selected); stroke-width: 2; }
+
+.node .collapsed-badge {
+  fill: var(--text); font-size: 10px; font-weight: 600;
+}
+
+.link {
+  fill: none; stroke: var(--link); stroke-width: 1;
+}
+.link.dim { stroke: var(--link-dim); }
+
+/* Sidebar */
+.sidebar {
+  width: 420px; min-width: 320px; border-left: 1px solid var(--border);
+  background: var(--panel); display: flex; flex-direction: column;
+  flex-shrink: 0;
+}
+.sidebar .tab {
+  padding: 8px 12px; border-bottom: 1px solid var(--border);
+  font-weight: 600; font-size: 12px; display: flex; justify-content: space-between;
+  align-items: center;
+}
+.sidebar .body {
+  padding: 10px 14px; overflow-y: auto; flex: 1; line-height: 1.5;
+}
+.sidebar .placeholder { color: var(--muted); font-style: italic; }
+.sidebar h2 {
+  font-size: 13px; margin: 12px 0 4px 0; color: #374151;
+}
+.sidebar h2:first-child { margin-top: 0; }
+.sidebar .kv { margin: 4px 0; font-size: 12px; }
+.sidebar .label {
+  color: var(--muted); font-size: 10px; text-transform: uppercase;
+  letter-spacing: .04em; display: block; margin-top: 8px;
+}
+.sidebar pre {
+  margin: 4px 0; padding: 8px 10px; background: #f3f4f6; border-radius: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px; white-space: pre-wrap; word-break: break-word;
+  max-height: 40vh; overflow: auto;
+}
+.sidebar .badge {
+  display: inline-block; font-size: 10px; padding: 1px 6px;
+  border-radius: 10px; color: white; margin-right: 4px;
+  text-transform: uppercase; letter-spacing: .04em;
+}
+.badge-root   { background: var(--root); }
+.badge-subproblem { background: var(--sub); }
+.badge-tool_call  { background: var(--tool); }
+.badge-reason { background: var(--reason); }
+.badge-finish { background: var(--finish); }
+</style>
+</head>
+<body>
+<div class="page">
+<div class="header">
+  <h1>transfers_13791947</h1>
+  <div class="meta">
+    <span><strong>task:</strong> transfers</span>
+    <span><strong>model:</strong> claude_opus_4_6</span>
+    <span><strong>status:</strong> success</span>
+    <span><strong>events:</strong> 43</span>
+    <span><strong>nodes:</strong> 45</span>
+    <span><strong>depth:</strong> 4</span>
+    <span><span class="pill f1-mid">F1 0.33</span></span>
+  </div>
+  <details class="outcome">
+  <summary><strong>Outcome</strong><span class="pill f1-mid">F1 0.33</span><span class="pill metric">P 0.20</span><span class="pill metric">R 1.00</span><span class="pill metric">1 hit · 0 miss · 4 extra</span></summary>
+  <div class="outcome-grid">
+    <div class="col">
+      <h3>Gold label · 1 item(s)</h3>
+      <ul><li class="hit"><span class="marker">✓</span>Transplant</li></ul>
+    </div>
+    <div class="col">
+      <h3>Prediction · 5 item(s)</h3>
+      <ul><li class="extra"><span class="marker">+</span>Medical Intensive Care Unit (MICU)</li><li class="extra"><span class="marker">+</span>Medical/Surgical Intensive Care Unit (MICU/SICU)</li><li class="extra"><span class="marker">+</span>Surgery</li><li class="extra"><span class="marker">+</span>Surgical Intensive Care Unit (SICU)</li><li class="hit"><span class="marker">✓</span>Transplant</li></ul>
+    </div>
+  </div>
+</details>
+</div>
+<div class="app">
+  <div class="canvas-wrap">
+    <div class="controls">
+      <button id="ctl-fit" title="Fit to window">Fit</button>
+      <button id="ctl-zoom-in">+</button>
+      <button id="ctl-zoom-out">−</button>
+      <button id="ctl-expand-all" title="Expand every node">Expand all</button>
+      <button id="ctl-collapse-deep" title="Collapse everything below depth 2">
+        Collapse deep
+      </button>
+    </div>
+    <div class="legend">
+      <span><span class="swatch" style="background:var(--root)"></span>root</span>
+      <span><span class="swatch" style="background:var(--sub)"></span>subproblem</span>
+      <span><span class="swatch" style="background:var(--tool)"></span>tool call</span>
+      <span><span class="swatch" style="background:var(--reason)"></span>reason</span>
+      <span><span class="swatch" style="background:var(--finish)"></span>finish</span>
+      <span style="color:#9ca3af">· drag to pan · wheel to zoom · click node for details · shift+click or double-click to collapse</span>
+    </div>
+    <svg id="canvas"><g id="viewport"></g></svg>
+  </div>
+  <div class="sidebar">
+    <div class="tab" id="sidebar-tab">
+      <span id="sidebar-tab-title">Details</span>
+    </div>
+    <div class="body" id="sidebar-body"></div>
+  </div>
+</div>
+<script>window.__TREE__ = {"id": "n_0001", "level": 0, "type": "root", "title": "<task_instruction>\nYour current task is to act as a hospital care coordinator and clinical decision-maker.\n\nYour objective is to determine the most appropriate care unit for patient transfer by analyz…", "root_task": "<task_instruction>\nYour current task is to act as a hospital care coordinator and clinical decision-maker.\n\nYour objective is to determine the most appropriate care unit for patient transfer by analyzing their current clinical condition, medical history, severity of illness, and care requirements.\n\nYou must consider the patient's current location, clinical stability, required level of monitoring, and specialized care needs to recommend the optimal transfer destination.\n\nYou must find the most likely official care unit candidates using the **`transfers_candidates`** reference data or semantic matching tools.\n\nWhen you need medical knowledge or clinical information to support your transfer planning, use the `browser.search` tool to find authoritative medical information from reliable sources.\n\nSubmit your final answer through `ehr.finish` as a **list** containing **multiple plausible care units**. Each item in the list must be a string representing an official care unit name, and **must not contain any codes or other additional information**.\n</task_instruction>\n\n<patient_info>\nCurrent Time: 2116-02-22 14:42:03\nPatient Subject ID: 13791947\n</patient_info>", "event_indices": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42], "msg_indices": [2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13, 14, 15, 16, 17, 18, 19, 20, 22, 23, 24, 25, 27, 28, 29, 30, 31, 32, 34, 35, 36, 38], "children": [{"id": "n_0002", "level": 1, "type": "subproblem", "title": "Load patient EHR and identify available data tables", "rationale": "Initial setup to load the patient's electronic health record and discover what data tables are available for analysis.", "event_indices": [0, 1, 2, 3, 4], "msg_indices": [2, 3, 4], "children": [{"id": "n_0003", "level": 2, "type": "reason", "title": "reasoning note", "rationale": "I'll start by loading the patient's EHR data and exploring the available tables to understand their clinical situation.", "event_indices": [], "msg_indices": [], "children": []}, {"id": "n_0004", "level": 2, "type": "tool_call", "title": "ehr_load_ehr", "tool": "ehr_load_ehr", "args": {"subject_id": "13791947", "timestamp": "2116-02-22 14:42:03"}, "call_id": "toolu_bdrk_01X6aR9VB2eMXhvdso38iiG5", "observation_summary": "Loaded the full EHR snapshot at the prediction time, including 3157 lab events, 1119 POE orders, 522 ingredient events, 213 output events, 963 radiology candidates, and numerous other records.", "observation_shape": "text,len=1722", "observation_body": null, "event_indices": [1, 3], "msg_indices": [2, 3], "children": []}, {"id": "n_0005", "level": 2, "type": "tool_call", "title": "ehr_get_table_names", "tool": "ehr_get_table_names", "args": {"subject_id": "13791947"}, "call_id": "toolu_bdrk_01A8KwF65JrK5XeVMHnLYzZw", "observation_summary": "Listed all available EHR tables and candidate tables for this patient, including chartevents, labevents, radiology, prescriptions, procedures, and many others.", "observation_shape": "text,len=636", "observation_body": null, "event_indices": [2, 4], "msg_indices": [2, 4], "children": []}]}, {"id": "n_0006", "level": 1, "type": "subproblem", "title": "Gather current transfer status, admission details, service, and ICU history", "rationale": "Retrieve the patient's current location, admission context, active service, and ICU stay history to understand their care trajectory.", "event_indices": [5, 6, 7, 8, 9, 10, 11, 12], "msg_indices": [5, 6, 7, 8, 9], "children": [{"id": "n_0007", "level": 2, "type": "subproblem", "title": "Retrieve transfers, admissions, services, and ICU stays records", "rationale": "All four EHR queries were issued as parallel tool calls and their observations form a single atomic retrieval step.", "event_indices": [5, 6, 7, 8, 9, 10, 11, 12], "msg_indices": [5, 6, 7, 8, 9], "children": [{"id": "n_0008", "level": 3, "type": "tool_call", "title": "ehr_get_latest_records", "tool": "ehr_get_latest_records", "args": {"subject_id": "13791947", "table_name": "transfers"}, "call_id": "toolu_bdrk_01G95tVerQz7tbj6m4EEvFJ8", "observation_summary": "The most recent transfer placed the patient in the Transplant unit starting 2116-02-22 01:28, with outtime at 14:43.", "observation_shape": "text,len=189", "observation_body": null, "event_indices": [5, 9], "msg_indices": [5, 6], "children": []}, {"id": "n_0009", "level": 3, "type": "tool_call", "title": "ehr_get_latest_records", "tool": "ehr_get_latest_records", "args": {"subject_id": "13791947", "table_name": "admissions"}, "call_id": "toolu_bdrk_01WdNyDi6w9v2DYsXZ1Jy6NH", "observation_summary": "The latest admission record shows the patient's full clinical history including anticoagulant use, diverticulitis, aortic stenosis, and erectile dysfunction among other conditions.", "observation_shape": "text,len=7859", "observation_body": null, "event_indices": [6, 10], "msg_indices": [5, 7], "children": []}, {"id": "n_0010", "level": 3, "type": "tool_call", "title": "ehr_get_latest_records", "tool": "ehr_get_latest_records", "args": {"subject_id": "13791947", "table_name": "services"}, "call_id": "toolu_bdrk_019goMfR5oUHLK8pzSogiGSz", "observation_summary": "The patient's service was transferred from Medicine (MED) to Surgery (SURG) on 2116-02-15.", "observation_shape": "text,len=131", "observation_body": null, "event_indices": [7, 11], "msg_indices": [5, 8], "children": []}, {"id": "n_0011", "level": 3, "type": "tool_call", "title": "ehr_get_latest_records", "tool": "ehr_get_latest_records", "args": {"subject_id": "13791947", "table_name": "icustays"}, "call_id": "toolu_bdrk_01Cp95tsT2PfnQoNV1Jx8Qk8", "observation_summary": "The latest ICU stay was in the SICU from 2116-02-11 to 2116-02-22 with a length of stay of approximately 10.5 days.", "observation_shape": "text,len=319", "observation_body": null, "event_indices": [8, 12], "msg_indices": [5, 9], "children": []}]}]}, {"id": "n_0012", "level": 1, "type": "subproblem", "title": "Analyze full transfer history, diagnoses, and recent clinical data", "rationale": "Obtain the complete transfer sequence, diagnosis codes, and recent chart/lab/prescription data to assess clinical severity and care needs.", "event_indices": [13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25], "msg_indices": [10, 12, 13, 14, 15, 16, 17, 18, 19], "children": [{"id": "n_0013", "level": 2, "type": "subproblem", "title": "Synthesize known clinical context and transfer timing", "rationale": "The reasoning step consolidates what is already known about the patient's current unit, history, and timing of the impending transfer.", "event_indices": [13], "msg_indices": [10], "children": [{"id": "n_0014", "level": 3, "type": "reason", "title": "reasoning note", "rationale": "Let me analyze what I know so far:\n\n1. Patient is currently in \"Transplant\" unit (since 2116-02-22 01:28:09, with outtime 2116-02-22 14:43:03 - almost at current time 14:42:03)\n2. The patient was previously in SICU for ~10.5 days (2116-02-11 to 2116-02-22)\n3. Service is SURG (surgical)\n4. Admission: Abdominal distension, hepatitis C cirrhosis, ascites, appendicitis managed medically, SBP concerns, Afib with RVR, pleural effusion\n5. Patient eventually dies on 2116-03-16 (hospital_expire_flag = 1)\n6. The outtime of the current transfer is 2116-02-22 14:43:03 which is about 1 minute after current time, suggesting a transfer is happening NOW\n\nLet me check recent clinical data to understand current condition and where the patient might be transferred next.", "event_indices": [], "msg_indices": [], "children": []}]}, {"id": "n_0015", "level": 2, "type": "subproblem", "title": "Retrieve transfer history, diagnoses, and initial chart events", "rationale": "Three parallel EHR queries are made for transfers, diagnoses, and recent chart events, with their corresponding observations returned.", "event_indices": [14, 15, 16, 17, 18, 19], "msg_indices": [12, 13, 14, 15], "children": [{"id": "n_0016", "level": 3, "type": "subproblem", "title": "Retrieve and observe transfer history", "rationale": "The transfer history query and its observation showing ED, MICU, SICU, and Transplant unit stays.", "event_indices": [14, 17], "msg_indices": [12, 13], "children": [{"id": "n_0017", "level": 4, "type": "tool_call", "title": "ehr_get_records_by_time", "tool": "ehr_get_records_by_time", "args": {"subject_id": "13791947", "table_name": "transfers", "start_time": "2116-01-21 00:00:00", "end_time": "2116-02-22 14:42:03"}, "call_id": "toolu_bdrk_013CPT4AEsXHLxYkcCxjWBkd", "observation_summary": "Transfer records for the current admission (hadm 27054007) show the patient moved through ED, Transplant, MICU, back to Transplant, then SICU, and finally back to Transplant unit.", "observation_shape": "text,len=839", "observation_body": null, "event_indices": [14, 17], "msg_indices": [12, 13], "children": []}]}, {"id": "n_0018", "level": 3, "type": "subproblem", "title": "Retrieve and observe diagnoses", "rationale": "The diagnoses ICD query and its observation showing alcoholic cirrhosis, UTI, hypertension, and hepatitis B.", "event_indices": [15, 18], "msg_indices": [12, 14], "children": [{"id": "n_0019", "level": 4, "type": "tool_call", "title": "ehr_get_records_by_time", "tool": "ehr_get_records_by_time", "args": {"subject_id": "13791947", "table_name": "diagnoses_icd", "start_time": "2100-01-01 00:00:00", "end_time": "2116-02-22 14:42:03"}, "call_id": "toolu_bdrk_01N2qcbnWtutCvPQV4jAaWkU", "observation_summary": "Retrieved diagnoses across multiple admissions showing alcoholic cirrhosis with ascites, UTI, hypertension, chronic hepatitis C, chronic atrial fibrillation, and other conditions.", "observation_shape": "text,len=2393", "observation_body": null, "event_indices": [15, 18], "msg_indices": [12, 14], "children": []}]}, {"id": "n_0020", "level": 3, "type": "subproblem", "title": "Retrieve and observe recent chart events", "rationale": "The chart events query and its observation indicating no recent charted data available.", "event_indices": [16, 19], "msg_indices": [12, 15], "children": [{"id": "n_0021", "level": 4, "type": "tool_call", "title": "ehr_get_records_by_time", "tool": "ehr_get_records_by_time", "args": {"subject_id": "13791947", "table_name": "chartevents", "start_time": "2116-02-22 10:00:00", "end_time": "2116-02-22 14:42:03"}, "call_id": "toolu_bdrk_01EAVsYQRkdBtmv6SudgLPKU", "observation_summary": "No chart events were recorded between 2116-02-22 10:00 and 14:42, suggesting the patient may have been transferred or discharged from the monitored unit by that time.", "observation_shape": "text,len=92", "observation_body": null, "event_indices": [16, 19], "msg_indices": [12, 15], "children": []}]}]}, {"id": "n_0022", "level": 2, "type": "subproblem", "title": "Retrieve extended chart events, labs, and prescriptions", "rationale": "A second round of parallel queries expands the time window for chart events and retrieves lab results and prescriptions to assess clinical severity.", "event_indices": [20, 21, 22, 23, 24, 25], "msg_indices": [16, 17, 18, 19], "children": [{"id": "n_0023", "level": 3, "type": "subproblem", "title": "Retrieve recent chart events data", "rationale": "Fetches chart events from the last ~20 hours to assess vital signs and clinical monitoring parameters.", "event_indices": [20, 23], "msg_indices": [16, 17], "children": [{"id": "n_0024", "level": 4, "type": "tool_call", "title": "ehr_get_records_by_time", "tool": "ehr_get_records_by_time", "args": {"subject_id": "13791947", "table_name": "chartevents", "start_time": "2116-02-21 18:00:00", "end_time": "2116-02-22 14:42:03"}, "call_id": "toolu_bdrk_01DQR6eZtKBXKibBCV2EVkzx", "observation_summary": "Chart events from 2116-02-21 18:00 to 2116-02-22 showed vital signs including heart rate of 75 bpm and entries for altered mental status; data extended through the evening/night but appeared to end before 2116-02-22 10:00.", "observation_shape": "text,len=100000", "observation_body": null, "event_indices": [20, 23], "msg_indices": [16, 17], "children": []}]}, {"id": "n_0025", "level": 3, "type": "subproblem", "title": "Retrieve lab results", "rationale": "Fetches laboratory events to evaluate hematology, chemistry, and other diagnostic markers for clinical severity assessment.", "event_indices": [21, 24], "msg_indices": [16, 18], "children": [{"id": "n_0026", "level": 4, "type": "tool_call", "title": "ehr_get_records_by_time", "tool": "ehr_get_records_by_time", "args": {"subject_id": "13791947", "table_name": "labevents", "start_time": "2116-02-21 00:00:00", "end_time": "2116-02-22 14:42:03"}, "call_id": "toolu_bdrk_01UvURwP7U4P3eEP7nbGa5Xe", "observation_summary": "Lab results from 2116-02-21 to 2116-02-22 showed abnormally low hematocrit (28.7%, ref 40-51) and hemoglobin (8.9 g/dL, ref 13.7-17.5), indicating significant anemia, along with other labs.", "observation_shape": "text,len=26783", "observation_body": null, "event_indices": [21, 24], "msg_indices": [16, 18], "children": []}]}, {"id": "n_0027", "level": 3, "type": "subproblem", "title": "Retrieve active prescriptions", "rationale": "Fetches current medication orders to understand treatment regimen and care intensity requirements.", "event_indices": [22, 25], "msg_indices": [16, 19], "children": [{"id": "n_0028", "level": 4, "type": "tool_call", "title": "ehr_get_records_by_time", "tool": "ehr_get_records_by_time", "args": {"subject_id": "13791947", "table_name": "prescriptions", "start_time": "2116-02-20 00:00:00", "end_time": "2116-02-22 14:42:03"}, "call_id": "toolu_bdrk_013DavHH5jWKzbgPt67cSEAd", "observation_summary": "Prescriptions from 2116-02-20 to 2116-02-22 included IV sodium chloride and other medications, with orders placed by multiple providers around 2116-02-22.", "observation_shape": "text,len=6476", "observation_body": null, "event_indices": [22, 25], "msg_indices": [16, 19], "children": []}]}]}]}, {"id": "n_0029", "level": 1, "type": "subproblem", "title": "Identify candidate care units and review surgical procedures", "rationale": "Search for plausible transfer destination candidates using semantic similarity and review recent procedures to understand surgical context.", "event_indices": [26, 27, 28, 29, 30], "msg_indices": [20, 22, 23, 24], "children": [{"id": "n_0030", "level": 2, "type": "reason", "title": "reasoning note", "rationale": "Let me analyze the clinical picture:\n\n**Transfer History:**\n- Admitted 2116-01-21 → Transplant unit\n- 2116-02-02 → MICU (for acute desaturation, Afib with RVR)\n- 2116-02-04 → Transplant\n- 2116-02-11 → SICU (for ~10.5 days, likely for surgery/appendicitis)\n- 2116-02-22 01:28 → Transplant (current location, outtime 14:43)\n\nThe patient is being transferred FROM Transplant at 14:43, so I need to predict the NEXT unit.\n\n**Current Clinical Status:**\n- Vitals (2116-02-21 20:00): HR 68 (AF), BP 98/49 (MAP 59 - low!), RR 24, SpO2 96%, Temp 97.9°F\n- GCS: Eye 3 (to speech), Verbal 4 (confused), Motor 6 (obeys) = GCS 13\n- CAM-ICU: Inattention YES, MS Change YES → positive for delirium\n- Mild dyspnea, shallow breathing\n- Diminished lung sounds (RLL, LLL)\n- Soft distended abdomen\n- Abdominal incision with staples, erythema, large serosanguineous drainage, VAC treatment\n- Pressure ulcer (Stage II, coccyx)\n\n**Labs (2116-02-22 06:41):**\n- WBC 21.8 (HIGH - leukocytosis)\n- Hgb 8.5, Hct 26.8 (severe anemia)\n- Platelets 179 (OK)\n- INR 1.8, PT 20.1, PTT 49.0 (coagulopathy - liver disease)\n- Fibrinogen 134 (low)\n- Albumin 2.8 (low)\n- Bilirubin 2.7 (elevated)\n- BUN 33 (elevated)\n- Creatinine 0.9 (OK)\n- AST 41 (slightly elevated)\n- Glucose 100\n\n**Medications:** Micafungin (antifungal), Daptomycin (antibiotic), Diltiazem (rate control), Metoprolol (rate control), Lactulose (hepatic encephalopathy), Pantoprazole (PPI), Albumin, Phytonadione (Vitamin K for coagulopathy)\n\n**Key Clinical Issues:**\n1. Decompensated liver cirrhosis with ascites, coagulopathy, hypoalbuminemia\n2. Recent appendicitis with abscess, managed with surgery (abdominal incision with staples and VAC)\n3. Active infection (WBC 21.8, on multiple antibiotics/antifungals)\n4. Atrial fibrillation with hemodynamic instability (low BP, MAP 59)\n5. Respiratory compromise (diminished lung sounds, pleural effusions)\n6. Delirium (positive CAM-ICU)\n7. Anemia (Hgb 8.5)\n\nThe patient is being transferred out of the Transplant floor. Given:\n- ", "event_indices": [], "msg_indices": [], "children": []}, {"id": "n_0031", "level": 2, "type": "tool_call", "title": "ehr_get_candidates_by_semantic_similarity", "tool": "ehr_get_candidates_by_semantic_similarity", "args": {"table_name": "transfers_candidates", "query": ["surgical intensive care unit", "medical intensive care unit", "transplant floor", "medicine ward", "surgical ward"]}, "call_id": "toolu_bdrk_01RooULrtNcgxdbYdA3wxPsV", "observation_summary": "Semantic similarity search mapped queries to transfer candidates: 'surgical intensive care unit' matched SICU (0.744), MICU/SICU (0.682); 'medical intensive care unit' matched MICU and related units; also identified Surgery ward as a candidate.", "observation_shape": "text,len=2547", "observation_body": null, "event_indices": [27, 29], "msg_indices": [22, 23], "children": []}, {"id": "n_0032", "level": 2, "type": "tool_call", "title": "ehr_get_records_by_time", "tool": "ehr_get_records_by_time", "args": {"subject_id": "13791947", "table_name": "procedures_icd", "start_time": "2116-02-01 00:00:00", "end_time": "2116-02-22 14:42:03"}, "call_id": "toolu_bdrk_01BBo56MPxhuvMj7rJY4Euo9", "observation_summary": "Procedures during the admission included open appendix resection, lower intestinal tract inspection (percutaneous endoscopic), abdominal wall repair (open), and peritoneal cavity drainage (percutaneous), with major surgeries on 2116-02-11 and drainage on 2116-02-08.", "observation_shape": "text,len=2183", "observation_body": null, "event_indices": [28, 30], "msg_indices": [22, 24], "children": []}]}, {"id": "n_0033", "level": 1, "type": "subproblem", "title": "Investigate transfer orders and determine planned destination", "rationale": "Check physician orders for explicit transfer directives to identify the intended next care unit.", "event_indices": [31, 32, 33, 34, 35, 36, 37], "msg_indices": [25, 27, 28, 29, 30, 31], "children": [{"id": "n_0034", "level": 2, "type": "subproblem", "title": "Reasoning about clinical context and transfer timing", "rationale": "The agent synthesizes clinical findings to form a hypothesis about the transfer destination before querying orders.", "event_indices": [31], "msg_indices": [25], "children": [{"id": "n_0035", "level": 3, "type": "reason", "title": "reasoning note", "rationale": "Now let me look at the discharge note details for additional context about what happened after the Transplant stay.\n\nLet me also check if there are any orders or notes around the current time that suggest where the patient is going.\n\nKey findings:\n- Patient had an open appendectomy on 2116-02-11 (which is when they went to SICU)\n- Multiple paracenteses\n- Central line placed 2116-02-16\n- Recent peritoneal drainage 2116-02-19\n\nThe patient was in the SICU for 10.5 days after surgery, transferred to Transplant at 01:28 on 2116-02-22, and is being transferred out at 14:43.\n\nGiven the clinical picture:\n- Worsening WBC (19.9 → 22.1 → 21.8) - persistent leukocytosis\n- Low BP (MAP 59)\n- Positive CAM-ICU (delirium)\n- On multiple antibiotics (daptomycin, micafungin) and IV medications\n- Post-surgical with wound VAC\n- Diminished lung sounds, respiratory concerns\n- Liver cirrhosis with coagulopathy\n\nThe patient seems to still be quite sick. The transfer from SICU to Transplant might have been premature, or the patient may be deteriorating. Given the short stay on Transplant (only ~13 hours from 01:28 to 14:43), this could be a \"bounce-back\" to the ICU.\n\nMost likely destinations:\n1. **Surgical Intensive Care Unit (SICU)** - most likely, given surgical service, prior SICU stay, and deteriorating condition\n2. **Medical Intensive Care Unit (MICU)** - possible if medical issues predominate\n3. **Medical/Surgical Intensive Care Unit (MICU/SICU)** - combined unit option\n4. **Surgery** - if this is just a floor transfer within surgical service\n5. **Transplant** - could stay on transplant (but outtime suggests leaving)\n\nGiven the short stay on Transplant and concerning vitals, the most likely scenario is a bounce-back to an ICU, most likely SICU given surgical service. But could also go to MICU if medical management is primary focus. Other floor options like Surgery or Medicine are possible if the patient is being managed conservatively.\n\nLet me also check recent POE orders for any transf", "event_indices": [], "msg_indices": [], "children": []}]}, {"id": "n_0036", "level": 2, "type": "subproblem", "title": "Query transfer and daily orders from POE table", "rationale": "Two parallel queries retrieve transfer-related orders and all orders from the current day to identify transfer directives.", "event_indices": [32, 33, 34, 35], "msg_indices": [27, 28, 29], "children": [{"id": "n_0037", "level": 3, "type": "tool_call", "title": "ehr_get_records_by_keyword", "tool": "ehr_get_records_by_keyword", "args": {"subject_id": "13791947", "table_name": "poe", "keyword": "transfer"}, "call_id": "toolu_bdrk_01NmGdbQd6ik74cqiHwTomwd", "observation_summary": "Found multiple ADT transfer orders throughout the admission: on 2116-02-02, 2116-02-04 (two), and 2116-02-22, indicating the patient was transferred between units several times.", "observation_shape": "text,len=1259", "observation_body": null, "event_indices": [32, 34], "msg_indices": [27, 28], "children": []}, {"id": "n_0038", "level": 3, "type": "tool_call", "title": "ehr_get_records_by_time", "tool": "ehr_get_records_by_time", "args": {"subject_id": "13791947", "table_name": "poe", "start_time": "2116-02-22 00:00:00", "end_time": "2116-02-22 14:42:03"}, "call_id": "toolu_bdrk_01PFMytvZnTEpnHALP1xbdiU", "observation_summary": "Retrieved POE orders on 2116-02-22 before 14:42, showing a transfer order (poe_id 1181) at 02:11:24 along with multiple medication and other orders placed by provider P803MX.", "observation_shape": "text,len=6992", "observation_body": null, "event_indices": [33, 35], "msg_indices": [27, 29], "children": []}]}, {"id": "n_0039", "level": 2, "type": "subproblem", "title": "Retrieve POE detail for transfer order destination", "rationale": "The agent looks up the specific transfer order detail to confirm the planned destination is Surgery.", "event_indices": [36, 37], "msg_indices": [30, 31], "children": [{"id": "n_0040", "level": 3, "type": "tool_call", "title": "ehr_get_records_by_value", "tool": "ehr_get_records_by_value", "args": {"subject_id": "13791947", "table_name": "poe_detail", "column_name": "poe_id", "value": "13791947-1181"}, "call_id": "toolu_bdrk_01L1krsVwT3V49ATDmRcth5v", "observation_summary": "POE detail for order 13791947-1181 confirmed it was an 'Admit to inpatient' order with a transfer destination of 'Surgery'.", "observation_shape": "text,len=200", "observation_body": null, "event_indices": [36, 37], "msg_indices": [30, 31], "children": []}]}]}, {"id": "n_0041", "level": 1, "type": "subproblem", "title": "Finalize candidate list and submit answer", "rationale": "Synthesize all clinical findings, match against official care unit names, and submit the final ranked list of plausible transfer destinations.", "event_indices": [38, 39, 40, 41, 42], "msg_indices": [32, 34, 35, 36, 38], "children": [{"id": "n_0042", "level": 2, "type": "reason", "title": "reasoning note", "rationale": "The transfer order (poe_id 13791947-1181) at 2116-02-22 02:11:24 shows the patient is to be transferred to \"Surgery\". This is a floor transfer order from the time the patient was admitted to the Transplant unit from SICU.\n\nBut wait - the transfer order says \"Transfer to: Surgery\". This was placed at 02:11 on 2116-02-22, which is after the patient arrived at Transplant at 01:28. This suggests the plan was to transfer to the Surgery floor/ward.\n\nHowever, let me also check if there are any later transfer orders. The transfer order at 02:11 might have been the initial order when the patient was moved from SICU. The current location is Transplant, and the outtime is 14:43.\n\nLet me also look at recent radiology and any other clinical orders that might help.\n\nLooking at the transfers_candidates, the relevant \"Surgery\" unit is available. Given:\n1. The transfer order explicitly says \"Transfer to: Surgery\"\n2. The patient is on surgical service\n3. The patient was in SICU and moved to Transplant briefly\n\nThe most likely next unit is \"Surgery\" (surgical ward). But given the clinical instability, ICU bounce-back is also possible.\n\nLet me also check if there's a TPN order (Central TPN ordered at 12:20) - this suggests the patient is on a floor and needs nutritional support, consistent with being on a surgical ward.\n\nLet me provide my final answer. The key candidates based on the transfer order and clinical picture:\n\n1. **Surgery** - explicitly ordered in transfer POE\n2. **Surgical Intensive Care Unit (SICU)** - if clinical deterioration necessitates ICU readmission\n3. **Transplant** - the patient has been going back to Transplant repeatedly\n4. **Medical/Surgical Intensive Care Unit (MICU/SICU)** - another ICU option\n5. **Medical Intensive Care Unit (MICU)** - prior stay here\n\nThe transfer order says \"Surgery\" so that's the most likely. But given the patient's clinical instability and the pattern of bouncing between Transplant and ICU, ICU readmission is also very possible.", "event_indices": [], "msg_indices": [], "children": []}, {"id": "n_0043", "level": 2, "type": "tool_call", "title": "ehr_get_candidates_by_keyword", "tool": "ehr_get_candidates_by_keyword", "args": {"table_name": "transfers_candidates", "keyword": "surgery"}, "call_id": "toolu_bdrk_01YUnYdhGAAgY5aLq5utuFtW", "observation_summary": "Keyword search for 'surgery' in transfers_candidates returned several matching care units including Surgery (score 36), Cardiac Surgery (32), Thoracic Surgery (30), and Surgery/Trauma (22).", "observation_shape": "text,len=384", "observation_body": null, "event_indices": [39, 40], "msg_indices": [34, 35], "children": []}, {"id": "n_0044", "level": 2, "type": "reason", "title": "reasoning note", "rationale": "Now I have a clear picture. Let me compile my final answer.\n\nThe transfer order says \"Transfer to: Surgery\" - this is the explicit destination.\n\nThe patient's clinical profile:\n- Post-appendectomy with complications (abscess, wound VAC)\n- Liver cirrhosis with decompensation\n- Active infection (WBC 21.8, on daptomycin + micafungin)\n- Hemodynamic instability (MAP 59)\n- Delirium\n- On surgical service\n\nThe most likely care units for this transfer:\n\n1. **Surgery** - matches the transfer order exactly, most likely destination for a post-surgical patient stepping down from SICU through Transplant\n2. **Transplant** - the patient's \"home\" unit during this admission; they were admitted here initially and have returned repeatedly\n3. **Surgical Intensive Care Unit (SICU)** - if clinical deterioration necessitates ICU readmission (the short stay on Transplant and concerning vitals could mean bounce-back)\n4. **Medical/Surgical Intensive Care Unit (MICU/SICU)** - another ICU option\n5. **Medical Intensive Care Unit (MICU)** - prior stay, possible if medical issues predominate\n\nGiven the transfer order explicitly states \"Surgery\" and the patient is on surgical service stepping down from SICU, I'll prioritize Surgery and Transplant as the top floor-level options, with SICU as the backup ICU option.", "event_indices": [], "msg_indices": [], "children": []}, {"id": "n_0045", "level": 2, "type": "finish", "title": "finish", "answer": ["Surgery", "Transplant", "Surgical Intensive Care Unit (SICU)", "Medical/Surgical Intensive Care Unit (MICU/SICU)", "Medical Intensive Care Unit (MICU)"], "event_indices": [42], "msg_indices": [38], "children": []}]}]};</script>
+<script>
+(function() {
+  const DATA = window.__TREE__;
+  const NODES = [];
+  const EDGES = [];
+
+  // Assign stable numeric ids and collapsed flags
+  let nid = 0;
+  function walk(n, parent) {
+    n.__nid = nid++;
+    n.__parent = parent ? parent.__nid : null;
+    n.__collapsed = false;
+    (n.children || []).forEach(c => walk(c, n));
+  }
+  walk(DATA, null);
+
+  // ── Layout (simple Reingold-Tilford: leaves get consecutive y slots,
+  //          internal nodes sit at the midpoint of their children's y) ───
+  const DX = 60;   // vertical step per leaf slot
+  const DY = 270;  // horizontal step per depth level
+  const NODE_W = 240, NODE_H = 54;
+
+  function layout(root) {
+    let leafSlot = 0;
+    function visit(n, depth) {
+      n.__depth = depth;
+      const kids = (n.__collapsed ? [] : (n.children || []));
+      if (kids.length === 0) {
+        n.__y = leafSlot * DX;
+        leafSlot++;
+      } else {
+        kids.forEach(c => visit(c, depth + 1));
+        const ys = kids.map(c => c.__y);
+        n.__y = (Math.min.apply(null, ys) + Math.max.apply(null, ys)) / 2;
+      }
+      n.__x = depth * DY;
+    }
+    visit(root, 0);
+  }
+
+  function flatten(root) {
+    NODES.length = 0; EDGES.length = 0;
+    function rec(n) {
+      NODES.push(n);
+      const kids = (n.__collapsed ? [] : (n.children || []));
+      kids.forEach(c => { EDGES.push([n, c]); rec(c); });
+    }
+    rec(root);
+  }
+
+  // ── Labels ────────────────────────────────────────────────────────────
+  function shortTitle(n) {
+    const t = n.type;
+    if (t === "root") return "ROOT";
+    if (t === "subproblem") return (n.title || "").trim();
+    if (t === "tool_call")  return (n.tool || "tool");
+    if (t === "reason")     return "reason";
+    if (t === "finish")     return "FINISH";
+    return t;
+  }
+  function subLabel(n) {
+    const t = n.type;
+    if (t === "root") return (n.title || "").trim();
+    if (t === "subproblem") return (n.rationale || "").trim();
+    if (t === "tool_call")  return (n.observation_summary || "").trim();
+    if (t === "reason")     return (n.rationale || "").trim();
+    if (t === "finish") {
+      const a = n.answer;
+      if (a == null) return "";
+      const s = typeof a === "string" ? a : JSON.stringify(a);
+      return s;
+    }
+    return "";
+  }
+  function truncate(s, n) {
+    s = (s || "").replace(/\s+/g, " ");
+    return s.length > n ? s.slice(0, n - 1) + "…" : s;
+  }
+  function countHiddenDescendants(n) {
+    if (!n.__collapsed) return 0;
+    let c = 0;
+    function rec(x) {
+      (x.children || []).forEach(k => { c++; rec(k); });
+    }
+    rec(n);
+    return c;
+  }
+
+  // ── Render ────────────────────────────────────────────────────────────
+  const svg = document.getElementById("canvas");
+  const viewport = document.getElementById("viewport");
+  let selectedNid = null;
+
+  function render() {
+    layout(DATA);
+    flatten(DATA);
+    viewport.innerHTML = "";
+
+    // Compute bounding box
+    const xs = NODES.map(n => n.__x);
+    const ys = NODES.map(n => n.__y);
+    const xmin = Math.min.apply(null, xs), xmax = Math.max.apply(null, xs);
+    const ymin = Math.min.apply(null, ys), ymax = Math.max.apply(null, ys);
+    const W = (xmax - xmin) + NODE_W + 40;
+    const H = (ymax - ymin) + NODE_H + 40;
+    // Re-base so everything starts at (20, 20)
+    const ox = 20 - xmin, oy = 20 - ymin;
+
+    // Edges
+    for (const [p, c] of EDGES) {
+      const x1 = p.__x + ox + NODE_W;
+      const y1 = p.__y + oy + NODE_H / 2;
+      const x2 = c.__x + ox;
+      const y2 = c.__y + oy + NODE_H / 2;
+      const mx = (x1 + x2) / 2;
+      const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      path.setAttribute("class", "link");
+      path.setAttribute("d", `M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`);
+      viewport.appendChild(path);
+    }
+
+    // Nodes
+    for (const n of NODES) {
+      const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+      g.setAttribute("class",
+        `node type-${n.type}` +
+        (n.__collapsed ? " has-hidden" : "") +
+        (n.__nid === selectedNid ? " selected" : ""));
+      g.setAttribute("transform",
+        `translate(${n.__x + ox}, ${n.__y + oy})`);
+      g.setAttribute("data-nid", n.__nid);
+
+      const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+      rect.setAttribute("width", NODE_W);
+      rect.setAttribute("height", NODE_H);
+      rect.setAttribute("rx", 4);
+      g.appendChild(rect);
+
+      // Left colored bar
+      const bar = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+      bar.setAttribute("class", "bar");
+      bar.setAttribute("width", 5);
+      bar.setAttribute("height", NODE_H);
+      bar.setAttribute("rx", 2);
+      g.appendChild(bar);
+
+      // Main label (row 1)
+      const t1 = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      t1.setAttribute("x", 12);
+      t1.setAttribute("y", 16);
+      t1.setAttribute("font-weight", "600");
+      t1.textContent = truncate(shortTitle(n), 32);
+      g.appendChild(t1);
+
+      // Sub label (row 2) — full width, no overlap
+      const t2 = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      t2.setAttribute("x", 12);
+      t2.setAttribute("y", 32);
+      t2.setAttribute("fill", "#6b7280");
+      t2.textContent = truncate(subLabel(n), 38);
+      g.appendChild(t2);
+
+      // Footer row (row 3): event range left-aligned, hidden-count badge right
+      if (n.event_indices && n.event_indices.length) {
+        const ev = n.event_indices;
+        const er = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        er.setAttribute("x", 12);
+        er.setAttribute("y", 47);
+        er.setAttribute("fill", "#9ca3af");
+        er.setAttribute("font-size", "10");
+        er.textContent = ev.length === 1
+          ? `E${String(ev[0]).padStart(3,"0")}`
+          : `E${String(ev[0]).padStart(3,"0")}–E${String(ev[ev.length-1]).padStart(3,"0")}`;
+        g.appendChild(er);
+      }
+      if (n.__collapsed) {
+        const hc = countHiddenDescendants(n);
+        const tb = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        tb.setAttribute("class", "collapsed-badge");
+        tb.setAttribute("x", NODE_W - 10);
+        tb.setAttribute("y", 47);
+        tb.setAttribute("text-anchor", "end");
+        tb.setAttribute("font-size", "10");
+        tb.textContent = `+${hc} hidden`;
+        g.appendChild(tb);
+      }
+
+      g.addEventListener("click", ev => {
+        ev.stopPropagation();
+        if (ev.shiftKey || ev.detail === 2) {
+          // Shift+click or double-click: toggle collapse (only if has children)
+          if (n.children && n.children.length) {
+            n.__collapsed = !n.__collapsed;
+            render();
+          }
+          return;
+        }
+        selectedNid = n.__nid;
+        renderSidebar(n);
+        render();
+      });
+      viewport.appendChild(g);
+    }
+
+    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+    svg.__bbox = { W, H };
+  }
+
+  // ── Sidebar ───────────────────────────────────────────────────────────
+  const sidebarBody = document.getElementById("sidebar-body");
+  const sidebarTab = document.getElementById("sidebar-tab-title");
+
+  function h(tag, attrs, children) {
+    const e = document.createElement(tag);
+    for (const k in (attrs || {})) {
+      if (k === "class") e.className = attrs[k];
+      else if (k === "html") e.innerHTML = attrs[k];
+      else e.setAttribute(k, attrs[k]);
+    }
+    (children || []).forEach(c => {
+      if (typeof c === "string") e.appendChild(document.createTextNode(c));
+      else if (c) e.appendChild(c);
+    });
+    return e;
+  }
+  function pretty(v) {
+    if (v == null) return "";
+    if (typeof v === "string") return v;
+    try { return JSON.stringify(v, null, 2); }
+    catch (e) { return String(v); }
+  }
+  function renderSidebar(n) {
+    sidebarTab.innerHTML = "";
+    sidebarTab.appendChild(h("span", {}, [
+      h("span", {class: `badge badge-${n.type}`}, [n.type.toUpperCase()]),
+      " ",
+      (n.id || "")
+    ]));
+    const body = sidebarBody;
+    body.innerHTML = "";
+
+    // Title
+    body.appendChild(h("h2", {}, [shortTitle(n) || n.type]));
+    if (n.type === "subproblem" && n.title) {
+      body.appendChild(h("div", {class: "kv"}, [n.title]));
+    }
+    if (n.type === "root" && n.title) {
+      body.appendChild(h("div", {class: "kv"}, [n.title]));
+    }
+
+    // Rationale
+    if (n.rationale) {
+      body.appendChild(h("span", {class: "label"}, ["rationale"]));
+      body.appendChild(h("div", {class: "kv"}, [n.rationale]));
+    }
+
+    // Event / msg references
+    const meta = [];
+    if (n.level !== undefined) meta.push(`level=${n.level}`);
+    if (n.event_indices && n.event_indices.length)
+      meta.push(`events=${n.event_indices.join(",")}`);
+    if (n.msg_indices && n.msg_indices.length)
+      meta.push(`messages=${n.msg_indices.join(",")}`);
+    if ((n.children || []).length)
+      meta.push(`children=${n.children.length}`);
+    if (meta.length) {
+      body.appendChild(h("span", {class: "label"}, ["metadata"]));
+      body.appendChild(h("div", {class: "kv"}, [meta.join(" · ")]));
+    }
+
+    if (n.type === "root") {
+      if (n.root_task) {
+        body.appendChild(h("span", {class: "label"}, ["root task"]));
+        body.appendChild(h("pre", {}, [n.root_task]));
+      }
+    }
+    if (n.type === "tool_call") {
+      body.appendChild(h("span", {class: "label"}, ["tool"]));
+      body.appendChild(h("div", {class: "kv"}, [n.tool || ""]));
+      body.appendChild(h("span", {class: "label"}, ["arguments"]));
+      body.appendChild(h("pre", {}, [pretty(n.args)]));
+      if (n.call_id) {
+        body.appendChild(h("span", {class: "label"}, ["call id"]));
+        body.appendChild(h("div", {class: "kv"}, [n.call_id]));
+      }
+      body.appendChild(h("span", {class: "label"}, ["observation shape"]));
+      body.appendChild(h("div", {class: "kv"}, [n.observation_shape || "—"]));
+      body.appendChild(h("span", {class: "label"}, ["observation summary"]));
+      body.appendChild(h("div", {class: "kv"},
+        [n.observation_summary || "(no summary)"]));
+    }
+    if (n.type === "reason") {
+      body.appendChild(h("span", {class: "label"}, ["reasoning text"]));
+      body.appendChild(h("pre", {}, [n.rationale || ""]));
+    }
+    if (n.type === "finish") {
+      body.appendChild(h("span", {class: "label"}, ["final answer"]));
+      body.appendChild(h("pre", {}, [pretty(n.answer)]));
+    }
+  }
+  function resetSidebar() {
+    sidebarTab.textContent = "Details";
+    sidebarBody.innerHTML =
+      '<div class="placeholder">Click a node to see details. ' +
+      'Shift+click or double-click a node to collapse/expand its subtree.</div>';
+  }
+  resetSidebar();
+
+  // ── Zoom & pan ────────────────────────────────────────────────────────
+  let tx = 0, ty = 0, scale = 1;
+  function applyTransform() {
+    viewport.setAttribute("transform",
+      `translate(${tx}, ${ty}) scale(${scale})`);
+  }
+  function fit() {
+    const bbox = svg.__bbox;
+    if (!bbox) return;
+    const cw = svg.clientWidth, ch = svg.clientHeight;
+    const sx = cw / bbox.W, sy = ch / bbox.H;
+    scale = Math.min(sx, sy, 1.0);
+    tx = (cw - bbox.W * scale) / 2;
+    ty = (ch - bbox.H * scale) / 2;
+    applyTransform();
+  }
+  svg.addEventListener("wheel", ev => {
+    ev.preventDefault();
+    const r = svg.getBoundingClientRect();
+    const mx = ev.clientX - r.left, my = ev.clientY - r.top;
+    const wx = (mx - tx) / scale, wy = (my - ty) / scale;
+    const k = ev.deltaY < 0 ? 1.12 : 1 / 1.12;
+    scale = Math.max(0.15, Math.min(3.0, scale * k));
+    tx = mx - wx * scale;
+    ty = my - wy * scale;
+    applyTransform();
+  }, { passive: false });
+
+  let dragging = false, dragStart = null;
+  svg.addEventListener("mousedown", ev => {
+    if (ev.target.closest(".node")) return;
+    dragging = true; svg.classList.add("dragging");
+    dragStart = { x: ev.clientX - tx, y: ev.clientY - ty };
+  });
+  document.addEventListener("mousemove", ev => {
+    if (!dragging) return;
+    tx = ev.clientX - dragStart.x;
+    ty = ev.clientY - dragStart.y;
+    applyTransform();
+  });
+  document.addEventListener("mouseup", () => {
+    dragging = false; svg.classList.remove("dragging");
+  });
+
+  // Controls
+  document.getElementById("ctl-fit").addEventListener("click", fit);
+  document.getElementById("ctl-zoom-in").addEventListener("click", () => {
+    scale = Math.min(3.0, scale * 1.25); applyTransform();
+  });
+  document.getElementById("ctl-zoom-out").addEventListener("click", () => {
+    scale = Math.max(0.15, scale / 1.25); applyTransform();
+  });
+  document.getElementById("ctl-expand-all").addEventListener("click", () => {
+    function rec(n) { n.__collapsed = false; (n.children||[]).forEach(rec); }
+    rec(DATA); render(); fit();
+  });
+  document.getElementById("ctl-collapse-deep").addEventListener("click", () => {
+    // Collapse at depth 2 (keep root + level-1 subproblems expanded)
+    function rec(n, d) {
+      n.__collapsed = (d >= 2 && (n.children||[]).length > 0);
+      (n.children||[]).forEach(c => rec(c, d + 1));
+    }
+    rec(DATA, 0); render(); fit();
+  });
+
+  render();
+  // Initial fit after DOM has laid out
+  requestAnimationFrame(fit);
+})();
+</script>
+</div>
+</body>
+</html>

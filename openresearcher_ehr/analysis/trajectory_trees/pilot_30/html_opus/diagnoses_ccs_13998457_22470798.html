@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>diagnoses_ccs_13998457_22470798 — diagnoses_ccs — claude_opus_4_6</title>
+<style>
+:root {
+  --border: #d1d5db;
+  --muted: #6b7280;
+  --text: #111827;
+  --bg: #fafafa;
+  --panel: #ffffff;
+  --link: #9ca3af;
+  --link-dim: #e5e7eb;
+  --root: #1e40af;
+  --sub:  #3b82f6;
+  --tool: #10b981;
+  --reason: #f59e0b;
+  --finish: #ec4899;
+  --selected: #111827;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+               "Helvetica Neue", Arial, sans-serif;
+  background: var(--bg); color: var(--text); font-size: 13px;
+}
+.header {
+  padding: 10px 16px; border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+.header h1 { margin: 0; font-size: 15px; font-weight: 600; }
+.header .meta { margin-top: 2px; color: var(--muted); font-size: 11px; }
+.header .meta span { margin-right: 14px; }
+.app {
+  display: flex; height: calc(100% - 52px);
+}
+.canvas-wrap {
+  flex: 1; position: relative; overflow: hidden; background: var(--bg);
+}
+#canvas { width: 100%; height: 100%; cursor: grab; user-select: none; }
+#canvas.dragging { cursor: grabbing; }
+
+.controls {
+  position: absolute; top: 8px; left: 8px; z-index: 10;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 4px;
+  padding: 4px; display: flex; gap: 2px; box-shadow: 0 1px 2px rgba(0,0,0,.06);
+}
+.controls button {
+  font: inherit; font-size: 11px; padding: 3px 8px; cursor: pointer;
+  background: white; border: 1px solid var(--border); border-radius: 3px;
+}
+.controls button:hover { background: #f3f4f6; }
+.legend {
+  position: absolute; bottom: 8px; left: 8px; z-index: 10;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 4px;
+  padding: 6px 10px; font-size: 11px; color: var(--muted);
+  display: flex; gap: 12px; box-shadow: 0 1px 2px rgba(0,0,0,.06);
+}
+.legend .swatch {
+  display: inline-block; width: 10px; height: 10px; border-radius: 2px;
+  vertical-align: middle; margin-right: 4px;
+}
+
+/* Nodes */
+.node rect {
+  stroke: var(--border); stroke-width: 1;
+  fill: var(--panel); cursor: pointer;
+}
+.node text {
+  pointer-events: none; font-size: 11px; fill: var(--text);
+}
+.node .bar {
+  stroke: none;
+}
+.node.type-root   .bar { fill: var(--root);   }
+.node.type-subproblem .bar { fill: var(--sub); }
+.node.type-tool_call  .bar { fill: var(--tool); }
+.node.type-reason .bar { fill: var(--reason); }
+.node.type-finish .bar { fill: var(--finish); }
+
+.node.has-hidden rect { stroke-dasharray: 3 3; }
+.node.selected rect { stroke: var(--selected); stroke-width: 2; }
+
+.node .collapsed-badge {
+  fill: var(--text); font-size: 10px; font-weight: 600;
+}
+
+.link {
+  fill: none; stroke: var(--link); stroke-width: 1;
+}
+.link.dim { stroke: var(--link-dim); }
+
+/* Sidebar */
+.sidebar {
+  width: 420px; min-width: 320px; border-left: 1px solid var(--border);
+  background: var(--panel); display: flex; flex-direction: column;
+  flex-shrink: 0;
+}
+.sidebar .tab {
+  padding: 8px 12px; border-bottom: 1px solid var(--border);
+  font-weight: 600; font-size: 12px; display: flex; justify-content: space-between;
+  align-items: center;
+}
+.sidebar .body {
+  padding: 10px 14px; overflow-y: auto; flex: 1; line-height: 1.5;
+}
+.sidebar .placeholder { color: var(--muted); font-style: italic; }
+.sidebar h2 {
+  font-size: 13px; margin: 12px 0 4px 0; color: #374151;
+}
+.sidebar h2:first-child { margin-top: 0; }
+.sidebar .kv { margin: 4px 0; font-size: 12px; }
+.sidebar .label {
+  color: var(--muted); font-size: 10px; text-transform: uppercase;
+  letter-spacing: .04em; display: block; margin-top: 8px;
+}
+.sidebar pre {
+  margin: 4px 0; padding: 8px 10px; background: #f3f4f6; border-radius: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px; white-space: pre-wrap; word-break: break-word;
+  max-height: 40vh; overflow: auto;
+}
+.sidebar .badge {
+  display: inline-block; font-size: 10px; padding: 1px 6px;
+  border-radius: 10px; color: white; margin-right: 4px;
+  text-transform: uppercase; letter-spacing: .04em;
+}
+.badge-root   { background: var(--root); }
+.badge-subproblem { background: var(--sub); }
+.badge-tool_call  { background: var(--tool); }
+.badge-reason { background: var(--reason); }
+.badge-finish { background: var(--finish); }
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>diagnoses_ccs_13998457_22470798</h1>
+  <div class="meta">
+    <span><strong>task:</strong> diagnoses_ccs</span>
+    <span><strong>model:</strong> claude_opus_4_6</span>
+    <span><strong>status:</strong> success</span>
+    <span><strong>events:</strong> 76</span>
+    <span><strong>nodes:</strong> 72</span>
+    <span><strong>depth:</strong> 4</span>
+    <span><strong>gold label:</strong> [{&quot;name&quot;: &quot;Cardiac and circulatory congenital anomalies&quot;, &quot;icd_code&quot;: &quot;Q231&quot;, &quot;icd_version&quot;: 10, &quot;seq_num&quot;: 1}, {&quot;name&quot;: &quot;Complications of surgical procedures or medical care&quot;, &quot;ic…</span>
+  </div>
+</div>
+<div class="app">
+  <div class="canvas-wrap">
+    <div class="controls">
+      <button id="ctl-fit" title="Fit to window">Fit</button>
+      <button id="ctl-zoom-in">+</button>
+      <button id="ctl-zoom-out">−</button>
+      <button id="ctl-expand-all" title="Expand every node">Expand all</button>
+      <button id="ctl-collapse-deep" title="Collapse everything below depth 2">
+        Collapse deep
+      </button>
+    </div>
+    <div class="legend">
+      <span><span class="swatch" style="background:var(--root)"></span>root</span>
+      <span><span class="swatch" style="background:var(--sub)"></span>subproblem</span>
+      <span><span class="swatch" style="background:var(--tool)"></span>tool call</span>
+      <span><span class="swatch" style="background:var(--reason)"></span>reason</span>
+      <span><span class="swatch" style="background:var(--finish)"></span>finish</span>
+      <span style="color:#9ca3af">· drag to pan · wheel to zoom · click node for details · shift+click or double-click to collapse</span>
+    </div>
+    <svg id="canvas"><g id="viewport"></g></svg>
+  </div>
+  <div class="sidebar">
+    <div class="tab" id="sidebar-tab">
+      <span id="sidebar-tab-title">Details</span>
+    </div>
+    <div class="body" id="sidebar-body"></div>
+  </div>
+</div>
+<script>window.__TREE__ = {"id": "n_0001", "level": 0, "type": "root", "title": "<task_instruction>\nYour current task is to act as a diagnostician.\n\nYour objective is to determine all plausible diagnoses for the patient's current condition by analyzing the patient's complete histo…", "root_task": "<task_instruction>\nYour current task is to act as a diagnostician.\n\nYour objective is to determine all plausible diagnoses for the patient's current condition by analyzing the patient's complete history.\n\nYou must find the most likely official CCS candidates using the **`diagnoses_ccs_candidates`** reference table.\n\nWhen you need medical knowledge or clinical information to support your diagnostic reasoning, use the `browser.search` tool to find authoritative medical information from reliable sources.\n\nSubmit your final answer through `ehr.finish` as a **list** containing **multiple plausible diagnoses**. Each item in the list must be a string representing an official CCS diagnosis name, and **must not contain any codes or other additional information**.\n</task_instruction>\n\n<patient_info>\nCurrent Time: 2162-07-27 17:43:00\nPatient Subject ID: 13998457\n</patient_info>", "event_indices": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75], "msg_indices": [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 49, 50, 51, 52, 53, 54, 56], "children": [{"id": "n_0002", "level": 1, "type": "subproblem", "title": "Load EHR data and explore available tables", "rationale": "Initial setup to load the patient's EHR and discover what data tables are available for analysis.", "event_indices": [0, 1, 2, 3, 4], "msg_indices": [2, 3, 4], "children": [{"id": "n_0003", "level": 2, "type": "reason", "title": "reasoning note", "rationale": "I'll start by loading the patient's EHR data and exploring the available tables.", "event_indices": [], "msg_indices": [], "children": []}, {"id": "n_0004", "level": 2, "type": "tool_call", "title": "ehr_load_ehr", "tool": "ehr_load_ehr", "args": {"subject_id": "13998457", "timestamp": "2162-07-27 17:43:00"}, "call_id": "toolu_bdrk_01FFhCGZD9D9rV8941Mxzb63", "observation_summary": "Loaded the full EHR snapshot at the reference timestamp, including 763 lab events, 163 prescriptions, 481 emar records, 10 microbiology events, 252 ingredient events, 184 output events, and multiple candidate mapping tables.", "observation_shape": "text,len=1464", "observation_body": null, "event_indices": [1, 3], "msg_indices": [2, 3], "children": []}, {"id": "n_0005", "level": 2, "type": "tool_call", "title": "ehr_get_table_names", "tool": "ehr_get_table_names", "args": {"subject_id": "13998457"}, "call_id": "toolu_bdrk_01B7NxvozvAQ6eTVza3KayuZ", "observation_summary": "Listed all available EHR and candidate tables for patient 13998457, including standard clinical tables (labevents, prescriptions, diagnoses_icd, etc.) and mapping candidate tables.", "observation_shape": "text,len=567", "observation_body": null, "event_indices": [2, 4], "msg_indices": [2, 4], "children": []}]}, {"id": "n_0006", "level": 1, "type": "subproblem", "title": "Gather patient demographics, admissions, discharge summaries, and transfer history", "rationale": "Retrieve core clinical records including admissions, patient info, discharge notes, radiology, and transfers to understand the patient's clinical picture.", "event_indices": [5, 6, 7, 8, 9, 10, 11, 12, 13, 14], "msg_indices": [5, 6, 7, 8, 9, 10], "children": [{"id": "n_0007", "level": 2, "type": "subproblem", "title": "Retrieve admissions records", "rationale": "Fetch and observe the patient's admission history to understand hospital encounters.", "event_indices": [5, 10], "msg_indices": [5, 6], "children": [{"id": "n_0008", "level": 3, "type": "tool_call", "title": "ehr_get_records_by_time", "tool": "ehr_get_records_by_time", "args": {"subject_id": "13998457", "table_name": "admissions", "start_time": "2100-01-01 00:00:00", "end_time": "2162-07-27 17:43:00"}, "call_id": "toolu_bdrk_018ZPm2pFz6xMXzJwD8wTEcf", "observation_summary": "Retrieved admissions data showing multiple hospital encounters for patient 13998457, including admission/discharge times, locations, insurance, and clinical context mentioning severe aortic disease with echocardiogram and perfusion scan.", "observation_shape": "text,len=5483", "observation_body": null, "event_indices": [5, 10], "msg_indices": [5, 6], "children": []}]}, {"id": "n_0009", "level": 2, "type": "subproblem", "title": "Attempt to retrieve patient demographics", "rationale": "Attempt to get patient demographic info, which fails due to missing timestamp column.", "event_indices": [6, 11], "msg_indices": [5, 7], "children": [{"id": "n_0010", "level": 3, "type": "tool_call", "title": "ehr_get_records_by_time", "tool": "ehr_get_records_by_time", "args": {"subject_id": "13998457", "table_name": "patients", "start_time": "2100-01-01 00:00:00", "end_time": "2200-01-01 00:00:00"}, "call_id": "toolu_bdrk_01TPVEoVZQ2rn6wQoa7KunRv", "observation_summary": "Confirmed that the 'patients' table has no timestamp column and cannot be filtered by time.", "observation_shape": "text,len=76", "observation_body": null, "event_indices": [6, 11], "msg_indices": [5, 7], "children": []}]}, {"id": "n_0011", "level": 2, "type": "subproblem", "title": "Retrieve discharge summaries", "rationale": "Fetch discharge notes to understand diagnoses and clinical narrative at discharge.", "event_indices": [7, 12], "msg_indices": [5, 8], "children": [{"id": "n_0012", "level": 3, "type": "tool_call", "title": "ehr_get_records_by_time", "tool": "ehr_get_records_by_time", "args": {"subject_id": "13998457", "table_name": "discharge", "start_time": "2100-01-01 00:00:00", "end_time": "2162-07-27 17:43:00"}, "call_id": "toolu_bdrk_0188PXCwZEP8PNxwnizAqShs", "observation_summary": "Retrieved the discharge note for patient 13998457, containing detailed clinical narrative including diagnoses, procedures, and follow-up plans (mentions narcotics and follow-up discussion).", "observation_shape": "text,len=21697", "observation_body": null, "event_indices": [7, 12], "msg_indices": [5, 8], "children": []}]}, {"id": "n_0013", "level": 2, "type": "subproblem", "title": "Retrieve radiology reports", "rationale": "Fetch radiology notes to understand imaging findings relevant to diagnosis.", "event_indices": [8, 13], "msg_indices": [5, 9], "children": [{"id": "n_0014", "level": 3, "type": "tool_call", "title": "ehr_get_records_by_time", "tool": "ehr_get_records_by_time", "args": {"subject_id": "13998457", "table_name": "radiology", "start_time": "2100-01-01 00:00:00", "end_time": "2162-07-27 17:43:00"}, "call_id": "toolu_bdrk_01DVgN7KLLvepBtYrnPXqMrW", "observation_summary": "Radiology reports from the admission document findings including pleural effusions (left moderate, right small) among other imaging results during the hospitalization.", "observation_shape": "text,len=17126", "observation_body": null, "event_indices": [8, 13], "msg_indices": [5, 9], "children": []}]}, {"id": "n_0015", "level": 2, "type": "subproblem", "title": "Retrieve transfer history", "rationale": "Fetch transfer records to understand patient movement between care units.", "event_indices": [9, 14], "msg_indices": [5, 10], "children": [{"id": "n_0016", "level": 3, "type": "tool_call", "title": "ehr_get_records_by_time", "tool": "ehr_get_records_by_time", "args": {"subject_id": "13998457", "table_name": "transfers", "start_time": "2100-01-01 00:00:00", "end_time": "2162-07-27 17:43:00"}, "call_id": "toolu_bdrk_014FWKuhVCF7aKoZsMsDzLzk", "observation_summary": "Transfer records show the patient was admitted to Medicine/Cardiology on 2162-07-11, moved to CVICU on 2162-07-18 post-surgery, then to Cardiac Surgery floor on 2162-07-24, with expected discharge around 2162-07-27.", "observation_shape": "text,len=773", "observation_body": null, "event_indices": [9, 14], "msg_indices": [5, 10], "children": []}]}]}, {"id": "n_0017", "level": 1, "type": "subproblem", "title": "Review procedures, DRG codes, services, and vitals to characterize the admission", "rationale": "Gather procedural, DRG, service, and OMR data to understand what interventions were performed and the clinical context.", "event_indices": [15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27], "msg_indices": [11, 13, 14, 15, 16, 17, 18, 19, 20, 21], "children": [{"id": "n_0018", "level": 2, "type": "subproblem", "title": "Initial reasoning about patient's clinical picture", "rationale": "The agent synthesizes key findings from prior data before making further queries.", "event_indices": [15], "msg_indices": [11], "children": [{"id": "n_0019", "level": 3, "type": "reason", "title": "reasoning note", "rationale": "Let me analyze the patient's condition from the discharge summary and clinical data:\n\nKey findings:\n1. **Chief Complaint**: Syncope - found down unresponsive\n2. **Major Procedures**: \n   - Aortic valve replacement (AVR) with bioprosthetic valve\n   - Coronary artery bypass graft x2 (CABG) - LIMA to LAD, SVG to PDA\n   - Mediastinal exploration for bleeding (postoperative complication)\n   - Permanent pacemaker (placed at prior facility for sick sinus syndrome)\n3. **Diagnoses from discharge**:\n   - Hypertension (HTN)\n   - Hyperlipidemia\n   - Alcohol (ETOH) abuse\n   - Atrial fibrillation\n   - Chronic systolic heart failure, EF 30%\n   - Atrial arrhythmias, Sick Sinus Syndrome s/p pacemaker\n   - Severe aortic stenosis (bicuspid aortic valve) - treated with AVR\n   - Coronary artery disease (2-vessel: 90% mid LAD, 80% right PDA)\n4. **Additional findings**:\n   - Hyponatremia (Na 128-129)\n   - Anemia (Hgb 8.7-9.0, Hct 25-27)\n   - Nocturnal hallucinations (possibly delirium or alcohol withdrawal)\n   - Pleural effusions (left moderate, right small)\n   - Left lower lobe atelectasis\n   - Mild mitral regurgitation\n   - Mild vascular congestion\n   - Atherosclerotic plaque in carotid arteries (<40% bilateral)\n\nLet me now search for CCS diagnosis codes matching these conditions.\n", "event_indices": [], "msg_indices": [], "children": []}]}, {"id": "n_0020", "level": 2, "type": "subproblem", "title": "Retrieve procedures, DRG codes, and services data", "rationale": "Three parallel API calls to get procedures_icd, drgcodes, and services tables, with their corresponding observations.", "event_indices": [16, 17, 18, 19, 20, 21], "msg_indices": [13, 14, 15, 16], "children": [{"id": "n_0021", "level": 3, "type": "tool_call", "title": "ehr_get_records_by_time", "tool": "ehr_get_records_by_time", "args": {"subject_id": "13998457", "table_name": "procedures_icd", "start_time": "2100-01-01 00:00:00", "end_time": "2162-07-27 17:43:00"}, "call_id": "toolu_bdrk_01BgwK2hr1ripmEiaNngbrnK", "observation_summary": "Procedures include aortic valve replacement with zooplastic tissue (open), left heart catheterization, and two coronary artery bypass grafts (one LIMA, one aorta with venous tissue), along with cardiac output support, all performed during the 2162-07-11 to 2162-07-18 period.", "observation_shape": "text,len=1759", "observation_body": null, "event_indices": [16, 19], "msg_indices": [13, 14], "children": []}, {"id": "n_0022", "level": 3, "type": "tool_call", "title": "ehr_get_records_by_time", "tool": "ehr_get_records_by_time", "args": {"subject_id": "13998457", "table_name": "drgcodes", "start_time": "2100-01-01 00:00:00", "end_time": "2162-07-27 17:43:00"}, "call_id": "toolu_bdrk_01Sk19Yshd4a2C1svRe5nKVJ", "observation_summary": "Confirmed that the `drgcodes` table has no timestamp column and cannot be filtered by time.", "observation_shape": "text,len=76", "observation_body": null, "event_indices": [17, 20], "msg_indices": [13, 15], "children": []}, {"id": "n_0023", "level": 3, "type": "tool_call", "title": "ehr_get_records_by_time", "tool": "ehr_get_records_by_time", "args": {"subject_id": "13998457", "table_name": "services", "start_time": "2100-01-01 00:00:00", "end_time": "2162-07-27 17:43:00"}, "call_id": "toolu_bdrk_01Vu57jgHoPX3mzK37mAXjq3", "observation_summary": "Services records show the patient was admitted to Cardiology Medicine (CMED) on 2162-07-11 and transferred to Cardiac Surgery (CSURG) on 2162-07-18.", "observation_shape": "text,len=197", "observation_body": null, "event_indices": [18, 21], "msg_indices": [13, 16], "children": []}]}, {"id": "n_0024", "level": 2, "type": "subproblem", "title": "Retrieve DRG codes and OMR records via latest records", "rationale": "Two parallel calls to get latest DRG codes and OMR data with their observations.", "event_indices": [22, 23, 24, 25], "msg_indices": [17, 18, 19], "children": [{"id": "n_0025", "level": 3, "type": "tool_call", "title": "ehr_get_latest_records", "tool": "ehr_get_latest_records", "args": {"subject_id": "13998457", "table_name": "drgcodes"}, "call_id": "toolu_bdrk_01LF5hMpVTKS7tiEjJ1gW8Jw", "observation_summary": "Confirmed that the `drgcodes` table has no timestamp column and cannot be queried for latest records.", "observation_shape": "text,len=85", "observation_body": null, "event_indices": [22, 24], "msg_indices": [17, 18], "children": []}, {"id": "n_0026", "level": 3, "type": "tool_call", "title": "ehr_get_latest_records", "tool": "ehr_get_latest_records", "args": {"subject_id": "13998457", "table_name": "omr"}, "call_id": "toolu_bdrk_01TXGvMtfd9svLwCePy3KbRb", "observation_summary": "Latest OMR records show the patient's BMI is 19.0 kg/m², height 77 inches, and weight 160 lbs as of 2162-07-11.", "observation_shape": "text,len=271", "observation_body": null, "event_indices": [23, 25], "msg_indices": [17, 19], "children": []}]}, {"id": "n_0027", "level": 2, "type": "subproblem", "title": "SQL query for DRG codes", "rationale": "Direct SQL query to retrieve DRG codes after time-based filtering failed.", "event_indices": [26, 27], "msg_indices": [20, 21], "children": [{"id": "n_0028", "level": 3, "type": "tool_call", "title": "ehr_run_sql_query", "tool": "ehr_run_sql_query", "args": {"subject_id": "13998457", "sql_query": "SELECT * FROM drgcodes"}, "call_id": "toolu_bdrk_018MYuYTVufGzXTh3xnyWD8n", "observation_summary": "DRG codes show the patient had cardiac valve procedures with complex principal diagnosis (APR-DRG 162, severity 3/mortality 2) and HCFA-DRG 217 for cardiac valve/major cardiothoracic procedures with cardiac catheterization and complications.", "observation_shape": "text,len=377", "observation_body": null, "event_indices": [26, 27], "msg_indices": [20, 21], "children": []}]}]}, {"id": "n_0029", "level": 1, "type": "subproblem", "title": "Search CCS candidates for primary cardiac and presenting diagnoses", "rationale": "Look up CCS diagnosis candidates matching the major conditions identified: aortic stenosis, coronary disease, atrial fibrillation, heart failure, alcohol use, syncope, heart valve disorders, and hypertension.", "event_indices": [28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48], "msg_indices": [22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33], "children": [{"id": "n_0030", "level": 2, "type": "subproblem", "title": "Search CCS candidates for aortic stenosis, coronary atherosclerosis, atrial fibrillation, heart failure, and alcohol", "rationale": "First batch of parallel keyword searches covering the primary cardiac conditions and alcohol use disorder.", "event_indices": [28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38], "msg_indices": [22, 23, 24, 25, 26, 27], "children": [{"id": "n_0031", "level": 3, "type": "reason", "title": "reasoning note", "rationale": "Now let me search for CCS diagnosis candidates matching the patient's conditions:", "event_indices": [], "msg_indices": [], "children": []}, {"id": "n_0032", "level": 3, "type": "tool_call", "title": "ehr_get_candidates_by_keyword", "tool": "ehr_get_candidates_by_keyword", "args": {"table_name": "diagnoses_ccs_candidates", "keyword": "aortic stenosis"}, "call_id": "toolu_bdrk_019MvoxB5c15XXbhewuc9R38", "observation_summary": "No CCS candidate was found for the keyword 'aortic stenosis' in the diagnoses lookup table.", "observation_shape": "text,len=94", "observation_body": null, "event_indices": [29, 34], "msg_indices": [22, 23], "children": []}, {"id": "n_0033", "level": 3, "type": "tool_call", "title": "ehr_get_candidates_by_keyword", "tool": "ehr_get_candidates_by_keyword", "args": {"table_name": "diagnoses_ccs_candidates", "keyword": "coronary atherosclerosis"}, "call_id": "toolu_bdrk_01FQsfw7E5D4hbNW255RCmTB", "observation_summary": "Semantic search matched 'coronary atherosclerosis' to CCS category 'Coronary atherosclerosis and other heart disease' (ICD-9 code 4110) with similarity score 33.", "observation_shape": "text,len=175", "observation_body": null, "event_indices": [30, 35], "msg_indices": [22, 24], "children": []}, {"id": "n_0034", "level": 3, "type": "tool_call", "title": "ehr_get_candidates_by_keyword", "tool": "ehr_get_candidates_by_keyword", "args": {"table_name": "diagnoses_ccs_candidates", "keyword": "atrial fibrillation"}, "call_id": "toolu_bdrk_01SvLyXXEQsw5V5tbCsCXGzk", "observation_summary": "No candidate CCS diagnosis was found for the keyword 'atrial fibrillation'.", "observation_shape": "text,len=98", "observation_body": null, "event_indices": [31, 36], "msg_indices": [22, 25], "children": []}, {"id": "n_0035", "level": 3, "type": "tool_call", "title": "ehr_get_candidates_by_keyword", "tool": "ehr_get_candidates_by_keyword", "args": {"table_name": "diagnoses_ccs_candidates", "keyword": "congestive heart failure"}, "call_id": "toolu_bdrk_01Gf365MJDNe5891qxVUuhPN", "observation_summary": "Found CCS candidate 'Congestive heart failure; nonhypertensive' (ICD9 39891, similarity 43) for keyword 'congestive heart failure'.", "observation_shape": "text,len=161", "observation_body": null, "event_indices": [32, 37], "msg_indices": [22, 26], "children": []}, {"id": "n_0036", "level": 3, "type": "tool_call", "title": "ehr_get_candidates_by_keyword", "tool": "ehr_get_candidates_by_keyword", "args": {"table_name": "diagnoses_ccs_candidates", "keyword": "alcohol"}, "call_id": "toolu_bdrk_01BhFkoHUxhQobEFZSrsXV1h", "observation_summary": "Found CCS candidate 'Alcohol-related disorders' (ICD9 2910, similarity 36) for keyword 'alcohol'.", "observation_shape": "text,len=129", "observation_body": null, "event_indices": [33, 38], "msg_indices": [22, 27], "children": []}]}, {"id": "n_0037", "level": 2, "type": "subproblem", "title": "Search CCS candidates for dysrhythmia, hypertension, syncope, heart valve disorders, and hyperlipidemia", "rationale": "Second batch of parallel keyword searches covering remaining conditions identified in the patient history.", "event_indices": [39, 40, 41, 42, 43, 44, 45, 46, 47, 48], "msg_indices": [28, 29, 30, 31, 32, 33], "children": [{"id": "n_0038", "level": 3, "type": "tool_call", "title": "ehr_get_candidates_by_keyword", "tool": "ehr_get_candidates_by_keyword", "args": {"table_name": "diagnoses_ccs_candidates", "keyword": "cardiac dysrhythmia"}, "call_id": "toolu_bdrk_01FCktWVnUzFpyzNKfGEsS3U", "observation_summary": "Found CCS candidate 'Cardiac dysrhythmias' (ICD9 4270, similarity 31) for keyword 'cardiac dysrhythmia'.", "observation_shape": "text,len=119", "observation_body": null, "event_indices": [39, 44], "msg_indices": [28, 29], "children": []}, {"id": "n_0039", "level": 3, "type": "tool_call", "title": "ehr_get_candidates_by_keyword", "tool": "ehr_get_candidates_by_keyword", "args": {"table_name": "diagnoses_ccs_candidates", "keyword": "hypertension"}, "call_id": "toolu_bdrk_017U1re8DbNmqjG3BHMsxLxQ", "observation_summary": "Found three hypertension-related CCS candidates: 'Hypertension with complications and secondary hypertension' (4010), 'Essential hypertension' (4011), and pregnancy-related hypertension (64200).", "observation_shape": "text,len=423", "observation_body": null, "event_indices": [40, 45], "msg_indices": [28, 30], "children": []}, {"id": "n_0040", "level": 3, "type": "tool_call", "title": "ehr_get_candidates_by_keyword", "tool": "ehr_get_candidates_by_keyword", "args": {"table_name": "diagnoses_ccs_candidates", "keyword": "syncope"}, "call_id": "toolu_bdrk_012MLCJGh5U4efmJzTgMUt5q", "observation_summary": "Found CCS candidate 'Syncope' (ICD9 7802, similarity 23) for keyword 'syncope'.", "observation_shape": "text,len=97", "observation_body": null, "event_indices": [41, 46], "msg_indices": [28, 31], "children": []}, {"id": "n_0041", "level": 3, "type": "tool_call", "title": "ehr_get_candidates_by_keyword", "tool": "ehr_get_candidates_by_keyword", "args": {"table_name": "diagnoses_ccs_candidates", "keyword": "heart valve"}, "call_id": "toolu_bdrk_015iebTUFeu3sQ5TR4dPSPXS", "observation_summary": "Found CCS candidate 'Heart valve disorders' (ICD9 3940, similarity 40) for keyword 'heart valve'.", "observation_shape": "text,len=121", "observation_body": null, "event_indices": [42, 47], "msg_indices": [28, 32], "children": []}, {"id": "n_0042", "level": 3, "type": "tool_call", "title": "ehr_get_candidates_by_keyword", "tool": "ehr_get_candidates_by_keyword", "args": {"table_name": "diagnoses_ccs_candidates", "keyword": "hyperlipidemia"}, "call_id": "toolu_bdrk_01BVzi3fh7KMrYjwhrtpAWtp", "observation_summary": "No candidate CCS diagnosis was found for the keyword 'hyperlipidemia'.", "observation_shape": "text,len=93", "observation_body": null, "event_indices": [43, 48], "msg_indices": [28, 33], "children": []}]}]}, {"id": "n_0043", "level": 1, "type": "subproblem", "title": "Search CCS candidates for secondary and complication-related diagnoses", "rationale": "Look up additional CCS candidates for lipid disorders, anemia, electrolyte imbalance, pleural effusion, conduction disorders, postoperative complications, and device complications.", "event_indices": [49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66], "msg_indices": [34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46], "children": [{"id": "n_0044", "level": 2, "type": "subproblem", "title": "Keyword searches for lipid, hyponatremia, anemia, pleural effusion, and conduction disorders", "rationale": "Initial batch of keyword-based CCS candidate lookups for secondary diagnoses.", "event_indices": [49, 50, 51, 52, 53, 54, 55, 56, 57, 58], "msg_indices": [34, 35, 36, 37, 38, 39], "children": [{"id": "n_0045", "level": 3, "type": "subproblem", "title": "Keyword search for lipid disorders", "rationale": "Lookup of CCS candidates matching 'lipid' keyword and its result.", "event_indices": [49, 54], "msg_indices": [34, 35], "children": [{"id": "n_0046", "level": 4, "type": "tool_call", "title": "ehr_get_candidates_by_keyword", "tool": "ehr_get_candidates_by_keyword", "args": {"table_name": "diagnoses_ccs_candidates", "keyword": "lipid"}, "call_id": "toolu_bdrk_01H9BWmd2TAWka7prkxDSJVe", "observation_summary": "Found CCS candidate 'Disorders of lipid metabolism' (ICD9 2720, similarity 33) for keyword 'lipid'.", "observation_shape": "text,len=137", "observation_body": null, "event_indices": [49, 54], "msg_indices": [34, 35], "children": []}]}, {"id": "n_0047", "level": 3, "type": "subproblem", "title": "Keyword search for hyponatremia", "rationale": "Lookup of CCS candidates matching 'hyponatremia' keyword and its empty result.", "event_indices": [50, 55], "msg_indices": [34, 36], "children": [{"id": "n_0048", "level": 4, "type": "tool_call", "title": "ehr_get_candidates_by_keyword", "tool": "ehr_get_candidates_by_keyword", "args": {"table_name": "diagnoses_ccs_candidates", "keyword": "hyponatremia"}, "call_id": "toolu_bdrk_01LvRcguoqSDajAiihTqyEbA", "observation_summary": "No candidate CCS diagnosis was found for the keyword 'hyponatremia'.", "observation_shape": "text,len=91", "observation_body": null, "event_indices": [50, 55], "msg_indices": [34, 36], "children": []}]}, {"id": "n_0049", "level": 3, "type": "subproblem", "title": "Keyword search for anemia", "rationale": "Lookup of CCS candidates matching 'anemia' keyword and its results.", "event_indices": [51, 56], "msg_indices": [34, 37], "children": [{"id": "n_0050", "level": 4, "type": "tool_call", "title": "ehr_get_candidates_by_keyword", "tool": "ehr_get_candidates_by_keyword", "args": {"table_name": "diagnoses_ccs_candidates", "keyword": "anemia"}, "call_id": "toolu_bdrk_01QUfivo98tSKdPFcDtrLeA9", "observation_summary": "Found 3 anemia-related CCS candidates: Deficiency and other anemia (35), Sickle cell anemia (27), and Acute posthemorrhagic anemia (34).", "observation_shape": "text,len=271", "observation_body": null, "event_indices": [51, 56], "msg_indices": [34, 37], "children": []}]}, {"id": "n_0051", "level": 3, "type": "subproblem", "title": "Keyword search for pleural effusion", "rationale": "Lookup of CCS candidates matching 'pleural effusion' keyword and its empty result.", "event_indices": [52, 57], "msg_indices": [34, 38], "children": [{"id": "n_0052", "level": 4, "type": "tool_call", "title": "ehr_get_candidates_by_keyword", "tool": "ehr_get_candidates_by_keyword", "args": {"table_name": "diagnoses_ccs_candidates", "keyword": "pleural effusion"}, "call_id": "toolu_bdrk_019K1mUJkpGaSuZUe4bsDe1H", "observation_summary": "No candidates found in the diagnoses CCS table for the keyword 'pleural effusion'.", "observation_shape": "text,len=95", "observation_body": null, "event_indices": [52, 57], "msg_indices": [34, 38], "children": []}]}, {"id": "n_0053", "level": 3, "type": "subproblem", "title": "Keyword search for conduction disorders", "rationale": "Lookup of CCS candidates matching 'conduction' keyword and its result.", "event_indices": [53, 58], "msg_indices": [34, 39], "children": [{"id": "n_0054", "level": 4, "type": "tool_call", "title": "ehr_get_candidates_by_keyword", "tool": "ehr_get_candidates_by_keyword", "args": {"table_name": "diagnoses_ccs_candidates", "keyword": "conduction"}, "call_id": "toolu_bdrk_01W66ac2Qm4MXyuvsrqqfcZ4", "observation_summary": "Found one CCS candidate for 'conduction': Conduction disorders with similarity score 31.", "observation_shape": "text,len=119", "observation_body": null, "event_indices": [53, 58], "msg_indices": [34, 39], "children": []}]}]}, {"id": "n_0055", "level": 2, "type": "subproblem", "title": "Semantic similarity search for aortic valve, electrolyte, postoperative, pleural, alcohol, and pacemaker candidates", "rationale": "First semantic similarity search to find CCS candidates not found by keyword.", "event_indices": [59, 60], "msg_indices": [40, 41], "children": [{"id": "n_0056", "level": 3, "type": "tool_call", "title": "ehr_get_candidates_by_semantic_similarity", "tool": "ehr_get_candidates_by_semantic_similarity", "args": {"table_name": "diagnoses_ccs_candidates", "query": ["aortic valve stenosis bicuspid", "electrolyte imbalance hyponatremia", "postoperative bleeding hemorrhage", "pleural effusion respiratory", "alcohol withdrawal delirium", "pacemaker implant cardiac device"]}, "call_id": "toolu_bdrk_01DeduB4LX1MMDUAqT1zFBaq", "observation_summary": "No semantic match for 'aortic valve stenosis bicuspid'; 'electrolyte imbalance hyponatremia' mapped to Fluid and electrolyte disorders (0.729); 'postoperative bleeding hemorrhage' mapped to Complications of surgical procedures; and alcohol withdrawal mapped to Alcohol-related disorders.", "observation_shape": "text,len=1617", "observation_body": null, "event_indices": [59, 60], "msg_indices": [40, 41], "children": []}]}, {"id": "n_0057", "level": 2, "type": "subproblem", "title": "Semantic search for heart valve and posthemorrhagic anemia plus keyword search for complications", "rationale": "Second round of semantic and keyword searches targeting valve disease, blood loss anemia, respiratory failure, and device complications.", "event_indices": [61, 62, 63, 64], "msg_indices": [42, 43, 44], "children": [{"id": "n_0058", "level": 3, "type": "tool_call", "title": "ehr_get_candidates_by_semantic_similarity", "tool": "ehr_get_candidates_by_semantic_similarity", "args": {"table_name": "diagnoses_ccs_candidates", "query": ["heart valve disease aortic stenosis", "acute posthemorrhagic anemia postoperative blood loss", "respiratory failure post cardiac surgery", "complication of cardiac device pacemaker"]}, "call_id": "toolu_bdrk_011fDbwDxCroBqxfrKFGhcdg", "observation_summary": "Semantic search mapped 'heart valve disease aortic stenosis' to Heart valve disorders (0.589), 'acute posthemorrhagic anemia' matched strongly (0.812), no match for respiratory failure post cardiac surgery, and 'complication of cardiac device pacemaker' found 2 candidates (truncated).", "observation_shape": "text,len=1180", "observation_body": null, "event_indices": [61, 63], "msg_indices": [42, 43], "children": []}, {"id": "n_0059", "level": 3, "type": "tool_call", "title": "ehr_get_candidates_by_keyword", "tool": "ehr_get_candidates_by_keyword", "args": {"table_name": "diagnoses_ccs_candidates", "keyword": "complication"}, "call_id": "toolu_bdrk_01M78v2ywBDNsSpVs9MLcEHT", "observation_summary": "Found multiple complication-related CCS candidates including 'Complication of device; implant or graft', 'Complications of surgical procedures or medical care', and diabetes/hypertension with complications.", "observation_shape": "text,len=1109", "observation_body": null, "event_indices": [62, 64], "msg_indices": [42, 44], "children": []}]}, {"id": "n_0060", "level": 2, "type": "subproblem", "title": "Semantic search for delirium, mitral regurgitation, and peripheral vascular disease", "rationale": "Final semantic similarity search for remaining secondary diagnoses.", "event_indices": [65, 66], "msg_indices": [45, 46], "children": [{"id": "n_0061", "level": 3, "type": "tool_call", "title": "ehr_get_candidates_by_semantic_similarity", "tool": "ehr_get_candidates_by_semantic_similarity", "args": {"table_name": "diagnoses_ccs_candidates", "query": ["delirium dementia cognitive disorders", "mitral regurgitation", "peripheral vascular disease atherosclerosis"]}, "call_id": "toolu_bdrk_013vFfpVPAr7m7gBSVMu79AD", "observation_summary": "Semantic search mapped 'delirium dementia cognitive disorders' to Delirium (0.626) and Schizophrenia/psychotic disorders (0.607), 'mitral regurgitation' to Heart valve disorders (0.675), and 'peripheral vascular disease atherosclerosis' to 2 candidates (truncated).", "observation_shape": "text,len=1211", "observation_body": null, "event_indices": [65, 66], "msg_indices": [45, 46], "children": []}]}]}, {"id": "n_0062", "level": 1, "type": "subproblem", "title": "Final verification searches and diagnosis compilation", "rationale": "Perform remaining keyword searches for hemorrhage, respiratory, and device-related CCS codes, then compile and submit the final diagnosis list.", "event_indices": [67, 68, 69, 70, 71, 72, 73, 74, 75], "msg_indices": [47, 49, 50, 51, 52, 53, 54, 56], "children": [{"id": "n_0063", "level": 2, "type": "subproblem", "title": "Initial diagnostic reasoning and compilation", "rationale": "The agent reasons through the primary diagnoses based on clinical findings before searching for additional CCS codes.", "event_indices": [67], "msg_indices": [47], "children": [{"id": "n_0064", "level": 3, "type": "reason", "title": "reasoning note", "rationale": "Now let me compile all the plausible diagnoses based on the patient's clinical picture:\n\n1. **Heart valve disorders** - Severe aortic stenosis (bicuspid aortic valve), mild mitral regurgitation → had AVR\n2. **Coronary atherosclerosis and other heart disease** - 90% mid LAD stenosis, 80% right PDA stenosis → had CABG x2\n3. **Cardiac dysrhythmias** - Atrial fibrillation, atrial flutter, SVT, sick sinus syndrome, bradycardia\n4. **Conduction disorders** - Sick sinus syndrome with pauses, required permanent pacemaker\n5. **Congestive heart failure; nonhypertensive** - Chronic systolic heart failure with EF 30%\n6. **Essential hypertension** - Known history\n7. **Disorders of lipid metabolism** - Hyperlipidemia\n8. **Alcohol-related disorders** - Alcohol abuse history\n9. **Syncope** - Chief complaint, found down\n10. **Complications of surgical procedures or medical care** - Postoperative bleeding requiring mediastinal exploration, postoperative pleural effusions\n11. **Acute posthemorrhagic anemia** - Significant postoperative bleeding with low Hgb/Hct\n12. **Fluid and electrolyte disorders** - Hyponatremia (Na 128-129)\n13. **Delirium** - Nocturnal hallucinations postoperatively (could be delirium or alcohol-related)\n14. **Deficiency and other anemia** - Admission Hgb 9.0, low iron (24)\n\nLet me also check if there are more specific items I should consider.\n", "event_indices": [], "msg_indices": [], "children": []}]}, {"id": "n_0065", "level": 2, "type": "subproblem", "title": "Keyword searches for hemorrhage and respiratory CCS codes", "rationale": "Two parallel keyword searches are performed for hemorrhage and respiratory-related CCS candidates, with their corresponding observations.", "event_indices": [68, 69, 70, 71], "msg_indices": [49, 50, 51], "children": [{"id": "n_0066", "level": 3, "type": "tool_call", "title": "ehr_get_candidates_by_keyword", "tool": "ehr_get_candidates_by_keyword", "args": {"table_name": "diagnoses_ccs_candidates", "keyword": "hemorrhage"}, "call_id": "toolu_bdrk_01YNQZrnVT8n5tki1wda4tU4", "observation_summary": "Found 3 hemorrhage-related CCS candidates: gastrointestinal hemorrhage (similarity 45), gastroduodenal ulcer except hemorrhage (28), and hemorrhage during pregnancy (30).", "observation_shape": "text,len=411", "observation_body": null, "event_indices": [68, 70], "msg_indices": [49, 50], "children": []}, {"id": "n_0067", "level": 3, "type": "tool_call", "title": "ehr_get_candidates_by_keyword", "tool": "ehr_get_candidates_by_keyword", "args": {"table_name": "diagnoses_ccs_candidates", "keyword": "respiratory"}, "call_id": "toolu_bdrk_01EPUS1eiWG5Q86uH8dbqAnz", "observation_summary": "Found 6 respiratory-related CCS candidates including upper/lower respiratory disease, respiratory failure, respiratory distress syndrome, and respiratory cancers.", "observation_shape": "text,len=629", "observation_body": null, "event_indices": [69, 71], "msg_indices": [49, 51], "children": []}]}, {"id": "n_0068", "level": 2, "type": "subproblem", "title": "Keyword search for device implant CCS codes", "rationale": "A search for device/implant-related CCS candidates is performed but returns no results.", "event_indices": [72, 73], "msg_indices": [52, 53], "children": [{"id": "n_0069", "level": 3, "type": "tool_call", "title": "ehr_get_candidates_by_keyword", "tool": "ehr_get_candidates_by_keyword", "args": {"table_name": "diagnoses_ccs_candidates", "keyword": "device implant"}, "call_id": "toolu_bdrk_01Dd6QTFcJaychJ13CEHAU5a", "observation_summary": "No candidates found in the diagnoses CCS table for the keyword 'device implant'.", "observation_shape": "text,len=93", "observation_body": null, "event_indices": [72, 73], "msg_indices": [52, 53], "children": []}]}, {"id": "n_0070", "level": 2, "type": "subproblem", "title": "Final diagnosis list compilation and submission", "rationale": "The agent finalizes its diagnostic reasoning and submits the complete list of plausible CCS diagnoses.", "event_indices": [74, 75], "msg_indices": [54, 56], "children": [{"id": "n_0071", "level": 3, "type": "reason", "title": "reasoning note", "rationale": "Let me finalize my diagnosis list. Based on the comprehensive review of the patient's records:\n\n**Primary diagnoses (current admission):**\n1. Heart valve disorders - severe aortic stenosis (bicuspid valve), s/p AVR\n2. Coronary atherosclerosis and other heart disease - multi-vessel CAD, s/p CABG\n3. Cardiac dysrhythmias - atrial fibrillation, atrial flutter, SVT, sick sinus syndrome\n4. Conduction disorders - sick sinus syndrome, s/p permanent pacemaker\n5. Congestive heart failure; nonhypertensive - chronic systolic HF, EF 30%\n6. Syncope - chief complaint\n\n**Comorbidities:**\n7. Essential hypertension\n8. Disorders of lipid metabolism\n9. Alcohol-related disorders\n\n**Complications/additional:**\n10. Complications of surgical procedures or medical care - postop bleeding, mediastinal exploration\n11. Acute posthemorrhagic anemia - postop bleeding requiring re-exploration\n12. Fluid and electrolyte disorders - hyponatremia\n13. Deficiency and other anemia - admission anemia with low iron\n\nI should also consider whether \"Delirium\" should be included given the nocturnal hallucinations. The discharge notes mention hallucinations resolved with Seroquel. This could be postoperative delirium.\n\nLet me include the most clinically relevant diagnoses.\n", "event_indices": [], "msg_indices": [], "children": []}, {"id": "n_0072", "level": 3, "type": "finish", "title": "finish", "answer": ["Heart valve disorders", "Coronary atherosclerosis and other heart disease", "Cardiac dysrhythmias", "Conduction disorders", "Congestive heart failure; nonhypertensive", "Syncope", "Essential hypertension", "Disorders of lipid metabolism", "Alcohol-related disorders", "Complications of surgical procedures or medical care", "Acute posthemorrhagic anemia", "Fluid and electrolyte disorders", "Deficiency and other anemia", "Complication of device; implant or graft"], "event_indices": [75], "msg_indices": [56], "children": []}]}]}]};</script>
+<script>
+(function() {
+  const DATA = window.__TREE__;
+  const NODES = [];
+  const EDGES = [];
+
+  // Assign stable numeric ids and collapsed flags
+  let nid = 0;
+  function walk(n, parent) {
+    n.__nid = nid++;
+    n.__parent = parent ? parent.__nid : null;
+    n.__collapsed = false;
+    (n.children || []).forEach(c => walk(c, n));
+  }
+  walk(DATA, null);
+
+  // ── Layout (simple Reingold-Tilford: leaves get consecutive y slots,
+  //          internal nodes sit at the midpoint of their children's y) ───
+  const DX = 60;   // vertical step per leaf slot
+  const DY = 270;  // horizontal step per depth level
+  const NODE_W = 240, NODE_H = 54;
+
+  function layout(root) {
+    let leafSlot = 0;
+    function visit(n, depth) {
+      n.__depth = depth;
+      const kids = (n.__collapsed ? [] : (n.children || []));
+      if (kids.length === 0) {
+        n.__y = leafSlot * DX;
+        leafSlot++;
+      } else {
+        kids.forEach(c => visit(c, depth + 1));
+        const ys = kids.map(c => c.__y);
+        n.__y = (Math.min.apply(null, ys) + Math.max.apply(null, ys)) / 2;
+      }
+      n.__x = depth * DY;
+    }
+    visit(root, 0);
+  }
+
+  function flatten(root) {
+    NODES.length = 0; EDGES.length = 0;
+    function rec(n) {
+      NODES.push(n);
+      const kids = (n.__collapsed ? [] : (n.children || []));
+      kids.forEach(c => { EDGES.push([n, c]); rec(c); });
+    }
+    rec(root);
+  }
+
+  // ── Labels ────────────────────────────────────────────────────────────
+  function shortTitle(n) {
+    const t = n.type;
+    if (t === "root") return "ROOT";
+    if (t === "subproblem") return (n.title || "").trim();
+    if (t === "tool_call")  return (n.tool || "tool");
+    if (t === "reason")     return "reason";
+    if (t === "finish")     return "FINISH";
+    return t;
+  }
+  function subLabel(n) {
+    const t = n.type;
+    if (t === "root") return (n.title || "").trim();
+    if (t === "subproblem") return (n.rationale || "").trim();
+    if (t === "tool_call")  return (n.observation_summary || "").trim();
+    if (t === "reason")     return (n.rationale || "").trim();
+    if (t === "finish") {
+      const a = n.answer;
+      if (a == null) return "";
+      const s = typeof a === "string" ? a : JSON.stringify(a);
+      return s;
+    }
+    return "";
+  }
+  function truncate(s, n) {
+    s = (s || "").replace(/\s+/g, " ");
+    return s.length > n ? s.slice(0, n - 1) + "…" : s;
+  }
+  function countHiddenDescendants(n) {
+    if (!n.__collapsed) return 0;
+    let c = 0;
+    function rec(x) {
+      (x.children || []).forEach(k => { c++; rec(k); });
+    }
+    rec(n);
+    return c;
+  }
+
+  // ── Render ────────────────────────────────────────────────────────────
+  const svg = document.getElementById("canvas");
+  const viewport = document.getElementById("viewport");
+  let selectedNid = null;
+
+  function render() {
+    layout(DATA);
+    flatten(DATA);
+    viewport.innerHTML = "";
+
+    // Compute bounding box
+    const xs = NODES.map(n => n.__x);
+    const ys = NODES.map(n => n.__y);
+    const xmin = Math.min.apply(null, xs), xmax = Math.max.apply(null, xs);
+    const ymin = Math.min.apply(null, ys), ymax = Math.max.apply(null, ys);
+    const W = (xmax - xmin) + NODE_W + 40;
+    const H = (ymax - ymin) + NODE_H + 40;
+    // Re-base so everything starts at (20, 20)
+    const ox = 20 - xmin, oy = 20 - ymin;
+
+    // Edges
+    for (const [p, c] of EDGES) {
+      const x1 = p.__x + ox + NODE_W;
+      const y1 = p.__y + oy + NODE_H / 2;
+      const x2 = c.__x + ox;
+      const y2 = c.__y + oy + NODE_H / 2;
+      const mx = (x1 + x2) / 2;
+      const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      path.setAttribute("class", "link");
+      path.setAttribute("d", `M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`);
+      viewport.appendChild(path);
+    }
+
+    // Nodes
+    for (const n of NODES) {
+      const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+      g.setAttribute("class",
+        `node type-${n.type}` +
+        (n.__collapsed ? " has-hidden" : "") +
+        (n.__nid === selectedNid ? " selected" : ""));
+      g.setAttribute("transform",
+        `translate(${n.__x + ox}, ${n.__y + oy})`);
+      g.setAttribute("data-nid", n.__nid);
+
+      const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+      rect.setAttribute("width", NODE_W);
+      rect.setAttribute("height", NODE_H);
+      rect.setAttribute("rx", 4);
+      g.appendChild(rect);
+
+      // Left colored bar
+      const bar = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+      bar.setAttribute("class", "bar");
+      bar.setAttribute("width", 5);
+      bar.setAttribute("height", NODE_H);
+      bar.setAttribute("rx", 2);
+      g.appendChild(bar);
+
+      // Main label (row 1)
+      const t1 = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      t1.setAttribute("x", 12);
+      t1.setAttribute("y", 16);
+      t1.setAttribute("font-weight", "600");
+      t1.textContent = truncate(shortTitle(n), 32);
+      g.appendChild(t1);
+
+      // Sub label (row 2) — full width, no overlap
+      const t2 = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      t2.setAttribute("x", 12);
+      t2.setAttribute("y", 32);
+      t2.setAttribute("fill", "#6b7280");
+      t2.textContent = truncate(subLabel(n), 38);
+      g.appendChild(t2);
+
+      // Footer row (row 3): event range left-aligned, hidden-count badge right
+      if (n.event_indices && n.event_indices.length) {
+        const ev = n.event_indices;
+        const er = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        er.setAttribute("x", 12);
+        er.setAttribute("y", 47);
+        er.setAttribute("fill", "#9ca3af");
+        er.setAttribute("font-size", "10");
+        er.textContent = ev.length === 1
+          ? `E${String(ev[0]).padStart(3,"0")}`
+          : `E${String(ev[0]).padStart(3,"0")}–E${String(ev[ev.length-1]).padStart(3,"0")}`;
+        g.appendChild(er);
+      }
+      if (n.__collapsed) {
+        const hc = countHiddenDescendants(n);
+        const tb = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        tb.setAttribute("class", "collapsed-badge");
+        tb.setAttribute("x", NODE_W - 10);
+        tb.setAttribute("y", 47);
+        tb.setAttribute("text-anchor", "end");
+        tb.setAttribute("font-size", "10");
+        tb.textContent = `+${hc} hidden`;
+        g.appendChild(tb);
+      }
+
+      g.addEventListener("click", ev => {
+        ev.stopPropagation();
+        if (ev.shiftKey || ev.detail === 2) {
+          // Shift+click or double-click: toggle collapse (only if has children)
+          if (n.children && n.children.length) {
+            n.__collapsed = !n.__collapsed;
+            render();
+          }
+          return;
+        }
+        selectedNid = n.__nid;
+        renderSidebar(n);
+        render();
+      });
+      viewport.appendChild(g);
+    }
+
+    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+    svg.__bbox = { W, H };
+  }
+
+  // ── Sidebar ───────────────────────────────────────────────────────────
+  const sidebarBody = document.getElementById("sidebar-body");
+  const sidebarTab = document.getElementById("sidebar-tab-title");
+
+  function h(tag, attrs, children) {
+    const e = document.createElement(tag);
+    for (const k in (attrs || {})) {
+      if (k === "class") e.className = attrs[k];
+      else if (k === "html") e.innerHTML = attrs[k];
+      else e.setAttribute(k, attrs[k]);
+    }
+    (children || []).forEach(c => {
+      if (typeof c === "string") e.appendChild(document.createTextNode(c));
+      else if (c) e.appendChild(c);
+    });
+    return e;
+  }
+  function pretty(v) {
+    if (v == null) return "";
+    if (typeof v === "string") return v;
+    try { return JSON.stringify(v, null, 2); }
+    catch (e) { return String(v); }
+  }
+  function renderSidebar(n) {
+    sidebarTab.innerHTML = "";
+    sidebarTab.appendChild(h("span", {}, [
+      h("span", {class: `badge badge-${n.type}`}, [n.type.toUpperCase()]),
+      " ",
+      (n.id || "")
+    ]));
+    const body = sidebarBody;
+    body.innerHTML = "";
+
+    // Title
+    body.appendChild(h("h2", {}, [shortTitle(n) || n.type]));
+    if (n.type === "subproblem" && n.title) {
+      body.appendChild(h("div", {class: "kv"}, [n.title]));
+    }
+    if (n.type === "root" && n.title) {
+      body.appendChild(h("div", {class: "kv"}, [n.title]));
+    }
+
+    // Rationale
+    if (n.rationale) {
+      body.appendChild(h("span", {class: "label"}, ["rationale"]));
+      body.appendChild(h("div", {class: "kv"}, [n.rationale]));
+    }
+
+    // Event / msg references
+    const meta = [];
+    if (n.level !== undefined) meta.push(`level=${n.level}`);
+    if (n.event_indices && n.event_indices.length)
+      meta.push(`events=${n.event_indices.join(",")}`);
+    if (n.msg_indices && n.msg_indices.length)
+      meta.push(`messages=${n.msg_indices.join(",")}`);
+    if ((n.children || []).length)
+      meta.push(`children=${n.children.length}`);
+    if (meta.length) {
+      body.appendChild(h("span", {class: "label"}, ["metadata"]));
+      body.appendChild(h("div", {class: "kv"}, [meta.join(" · ")]));
+    }
+
+    if (n.type === "root") {
+      if (n.root_task) {
+        body.appendChild(h("span", {class: "label"}, ["root task"]));
+        body.appendChild(h("pre", {}, [n.root_task]));
+      }
+    }
+    if (n.type === "tool_call") {
+      body.appendChild(h("span", {class: "label"}, ["tool"]));
+      body.appendChild(h("div", {class: "kv"}, [n.tool || ""]));
+      body.appendChild(h("span", {class: "label"}, ["arguments"]));
+      body.appendChild(h("pre", {}, [pretty(n.args)]));
+      if (n.call_id) {
+        body.appendChild(h("span", {class: "label"}, ["call id"]));
+        body.appendChild(h("div", {class: "kv"}, [n.call_id]));
+      }
+      body.appendChild(h("span", {class: "label"}, ["observation shape"]));
+      body.appendChild(h("div", {class: "kv"}, [n.observation_shape || "—"]));
+      body.appendChild(h("span", {class: "label"}, ["observation summary"]));
+      body.appendChild(h("div", {class: "kv"},
+        [n.observation_summary || "(no summary)"]));
+    }
+    if (n.type === "reason") {
+      body.appendChild(h("span", {class: "label"}, ["reasoning text"]));
+      body.appendChild(h("pre", {}, [n.rationale || ""]));
+    }
+    if (n.type === "finish") {
+      body.appendChild(h("span", {class: "label"}, ["final answer"]));
+      body.appendChild(h("pre", {}, [pretty(n.answer)]));
+    }
+  }
+  function resetSidebar() {
+    sidebarTab.textContent = "Details";
+    sidebarBody.innerHTML =
+      '<div class="placeholder">Click a node to see details. ' +
+      'Shift+click or double-click a node to collapse/expand its subtree.</div>';
+  }
+  resetSidebar();
+
+  // ── Zoom & pan ────────────────────────────────────────────────────────
+  let tx = 0, ty = 0, scale = 1;
+  function applyTransform() {
+    viewport.setAttribute("transform",
+      `translate(${tx}, ${ty}) scale(${scale})`);
+  }
+  function fit() {
+    const bbox = svg.__bbox;
+    if (!bbox) return;
+    const cw = svg.clientWidth, ch = svg.clientHeight;
+    const sx = cw / bbox.W, sy = ch / bbox.H;
+    scale = Math.min(sx, sy, 1.0);
+    tx = (cw - bbox.W * scale) / 2;
+    ty = (ch - bbox.H * scale) / 2;
+    applyTransform();
+  }
+  svg.addEventListener("wheel", ev => {
+    ev.preventDefault();
+    const r = svg.getBoundingClientRect();
+    const mx = ev.clientX - r.left, my = ev.clientY - r.top;
+    const wx = (mx - tx) / scale, wy = (my - ty) / scale;
+    const k = ev.deltaY < 0 ? 1.12 : 1 / 1.12;
+    scale = Math.max(0.15, Math.min(3.0, scale * k));
+    tx = mx - wx * scale;
+    ty = my - wy * scale;
+    applyTransform();
+  }, { passive: false });
+
+  let dragging = false, dragStart = null;
+  svg.addEventListener("mousedown", ev => {
+    if (ev.target.closest(".node")) return;
+    dragging = true; svg.classList.add("dragging");
+    dragStart = { x: ev.clientX - tx, y: ev.clientY - ty };
+  });
+  document.addEventListener("mousemove", ev => {
+    if (!dragging) return;
+    tx = ev.clientX - dragStart.x;
+    ty = ev.clientY - dragStart.y;
+    applyTransform();
+  });
+  document.addEventListener("mouseup", () => {
+    dragging = false; svg.classList.remove("dragging");
+  });
+
+  // Controls
+  document.getElementById("ctl-fit").addEventListener("click", fit);
+  document.getElementById("ctl-zoom-in").addEventListener("click", () => {
+    scale = Math.min(3.0, scale * 1.25); applyTransform();
+  });
+  document.getElementById("ctl-zoom-out").addEventListener("click", () => {
+    scale = Math.max(0.15, scale / 1.25); applyTransform();
+  });
+  document.getElementById("ctl-expand-all").addEventListener("click", () => {
+    function rec(n) { n.__collapsed = false; (n.children||[]).forEach(rec); }
+    rec(DATA); render(); fit();
+  });
+  document.getElementById("ctl-collapse-deep").addEventListener("click", () => {
+    // Collapse at depth 2 (keep root + level-1 subproblems expanded)
+    function rec(n, d) {
+      n.__collapsed = (d >= 2 && (n.children||[]).length > 0);
+      (n.children||[]).forEach(c => rec(c, d + 1));
+    }
+    rec(DATA, 0); render(); fit();
+  });
+
+  render();
+  // Initial fit after DOM has laid out
+  requestAnimationFrame(fit);
+})();
+</script>
+</body>
+</html>

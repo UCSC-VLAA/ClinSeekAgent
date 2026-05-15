@@ -1,0 +1,480 @@
+{
+  "models": [
+    "claude_opus_4_6",
+    "claude_sonnet_4_6",
+    "kimi_k2_5",
+    "qwen3_235b"
+  ],
+  "near_tie_tolerance": 0.05,
+  "low_f1_threshold": 0.3,
+  "selection": {
+    "diagnoses_ccs": {
+      "tier_a": [
+        {
+          "qid": "diagnoses_ccs_15399406_20322842",
+          "f1": {
+            "claude_opus_4_6": 0.7000000000000001,
+            "claude_sonnet_4_6": 0.6923076923076924,
+            "kimi_k2_5": 0.25,
+            "qwen3_235b": 0.0
+          },
+          "tier_a_score": 0.5711538461538462,
+          "all_bad": false,
+          "max_f1": 0.7000000000000001
+        },
+        {
+          "qid": "diagnoses_ccs_19296551_22150274",
+          "f1": {
+            "claude_opus_4_6": 0.8571428571428571,
+            "claude_sonnet_4_6": 0.6666666666666665,
+            "kimi_k2_5": 0.588235294117647,
+            "qwen3_235b": 0.0
+          },
+          "tier_a_score": 0.4677871148459384,
+          "all_bad": false,
+          "max_f1": 0.8571428571428571
+        },
+        {
+          "qid": "diagnoses_ccs_15395480_21593958",
+          "f1": {
+            "claude_opus_4_6": 0.7272727272727273,
+            "claude_sonnet_4_6": 0.7500000000000001,
+            "kimi_k2_5": 0.6451612903225806,
+            "qwen3_235b": 0.0
+          },
+          "tier_a_score": 0.41605571847507344,
+          "all_bad": false,
+          "max_f1": 0.7500000000000001
+        }
+      ],
+      "tier_b": [
+        {
+          "qid": "diagnoses_ccs_10955196_23848033",
+          "f1": {
+            "claude_opus_4_6": 0.0,
+            "claude_sonnet_4_6": 0.14285714285714288,
+            "kimi_k2_5": 0.0,
+            "qwen3_235b": 0.0
+          },
+          "tier_a_score": -0.36428571428571427,
+          "all_bad": true,
+          "max_f1": 0.14285714285714288
+        },
+        {
+          "qid": "diagnoses_ccs_18278405_29990014",
+          "f1": {
+            "claude_opus_4_6": 0.28571428571428575,
+            "claude_sonnet_4_6": 0.1818181818181818,
+            "kimi_k2_5": 0.0,
+            "qwen3_235b": 0.0
+          },
+          "tier_a_score": 0.22662337662337667,
+          "all_bad": true,
+          "max_f1": 0.28571428571428575
+        },
+        {
+          "qid": "diagnoses_ccs_15958514_26931698",
+          "f1": {
+            "claude_opus_4_6": 0.25,
+            "claude_sonnet_4_6": 0.2105263157894737,
+            "kimi_k2_5": 0.23529411764705882,
+            "qwen3_235b": 0.3333333333333333
+          },
+          "tier_a_score": -1.0,
+          "all_bad": false,
+          "max_f1": 0.3333333333333333
+        }
+      ]
+    },
+    "labevents": {
+      "tier_a": [
+        {
+          "qid": "labevents_17608514",
+          "f1": {
+            "claude_opus_4_6": 0.611111111111111,
+            "claude_sonnet_4_6": 0.34545454545454546,
+            "kimi_k2_5": 0.028985507246376812,
+            "qwen3_235b": 0.037037037037037035
+          },
+          "tier_a_score": 0.44527155614112135,
+          "all_bad": false,
+          "max_f1": 0.611111111111111
+        },
+        {
+          "qid": "labevents_10868709",
+          "f1": {
+            "claude_opus_4_6": 0.6938775510204082,
+            "claude_sonnet_4_6": 0.6194690265486725,
+            "kimi_k2_5": 0.39999999999999997,
+            "qwen3_235b": 0.04444444444444444
+          },
+          "tier_a_score": 0.43445106656231813,
+          "all_bad": false,
+          "max_f1": 0.6938775510204082
+        },
+        {
+          "qid": "labevents_15770556",
+          "f1": {
+            "claude_opus_4_6": 0.6428571428571428,
+            "claude_sonnet_4_6": 0.611111111111111,
+            "kimi_k2_5": 0.3518518518518519,
+            "qwen3_235b": 0.09523809523809525
+          },
+          "tier_a_score": 0.4034391534391534,
+          "all_bad": false,
+          "max_f1": 0.6428571428571428
+        }
+      ],
+      "tier_b": [
+        {
+          "qid": "labevents_18125231",
+          "f1": {
+            "claude_opus_4_6": 0.0,
+            "claude_sonnet_4_6": 0.0,
+            "kimi_k2_5": 0.0,
+            "qwen3_235b": 0.0
+          },
+          "tier_a_score": -1.0,
+          "all_bad": true,
+          "max_f1": 0.0
+        },
+        {
+          "qid": "labevents_16909197",
+          "f1": {
+            "claude_opus_4_6": 0.0,
+            "claude_sonnet_4_6": 0.0,
+            "kimi_k2_5": 0.0,
+            "qwen3_235b": 0.0
+          },
+          "tier_a_score": -1.0,
+          "all_bad": true,
+          "max_f1": 0.0
+        },
+        {
+          "qid": "labevents_13599990",
+          "f1": {
+            "claude_opus_4_6": 0.025316455696202535,
+            "claude_sonnet_4_6": 0.018691588785046728,
+            "kimi_k2_5": 0.0,
+            "qwen3_235b": 0.0
+          },
+          "tier_a_score": -1.0,
+          "all_bad": true,
+          "max_f1": 0.025316455696202535
+        }
+      ]
+    },
+    "microbiologyevents": {
+      "tier_a": [
+        {
+          "qid": "microbiologyevents_12978316",
+          "f1": {
+            "claude_opus_4_6": 0.7999999999999999,
+            "claude_sonnet_4_6": 0.782608695652174,
+            "kimi_k2_5": 0.47058823529411764,
+            "qwen3_235b": 0.15384615384615383
+          },
+          "tier_a_score": 0.4790871532559512,
+          "all_bad": false,
+          "max_f1": 0.7999999999999999
+        },
+        {
+          "qid": "microbiologyevents_10645763",
+          "f1": {
+            "claude_opus_4_6": 0.47058823529411764,
+            "claude_sonnet_4_6": 0.4444444444444445,
+            "kimi_k2_5": 0.0,
+            "qwen3_235b": 0.0
+          },
+          "tier_a_score": 0.4575163398692811,
+          "all_bad": false,
+          "max_f1": 0.47058823529411764
+        },
+        {
+          "qid": "microbiologyevents_18632052",
+          "f1": {
+            "claude_opus_4_6": 0.4444444444444445,
+            "claude_sonnet_4_6": 0.39999999999999997,
+            "kimi_k2_5": 0.0,
+            "qwen3_235b": 0.0
+          },
+          "tier_a_score": 0.4222222222222222,
+          "all_bad": false,
+          "max_f1": 0.4444444444444445
+        }
+      ],
+      "tier_b": [
+        {
+          "qid": "microbiologyevents_13856925",
+          "f1": {
+            "claude_opus_4_6": 0.0,
+            "claude_sonnet_4_6": 0.0,
+            "kimi_k2_5": 0.0,
+            "qwen3_235b": 0.0
+          },
+          "tier_a_score": -1.0,
+          "all_bad": true,
+          "max_f1": 0.0
+        },
+        {
+          "qid": "microbiologyevents_13198676",
+          "f1": {
+            "claude_opus_4_6": 0.0,
+            "claude_sonnet_4_6": 0.0,
+            "kimi_k2_5": 0.0,
+            "qwen3_235b": 0.0
+          },
+          "tier_a_score": -1.0,
+          "all_bad": true,
+          "max_f1": 0.0
+        },
+        {
+          "qid": "microbiologyevents_17678357",
+          "f1": {
+            "claude_opus_4_6": 0.0,
+            "claude_sonnet_4_6": 0.0,
+            "kimi_k2_5": 0.0,
+            "qwen3_235b": 0.0
+          },
+          "tier_a_score": -1.0,
+          "all_bad": true,
+          "max_f1": 0.0
+        }
+      ]
+    },
+    "prescriptions": {
+      "tier_a": [
+        {
+          "qid": "prescriptions_14709541",
+          "f1": {
+            "claude_opus_4_6": 0.631578947368421,
+            "claude_sonnet_4_6": 0.47619047619047616,
+            "kimi_k2_5": 0.0,
+            "qwen3_235b": 0.0
+          },
+          "tier_a_score": 0.5538847117794485,
+          "all_bad": false,
+          "max_f1": 0.631578947368421
+        },
+        {
+          "qid": "prescriptions_19771418",
+          "f1": {
+            "claude_opus_4_6": 0.5714285714285714,
+            "claude_sonnet_4_6": 0.5333333333333333,
+            "kimi_k2_5": 0.0,
+            "qwen3_235b": 0.0
+          },
+          "tier_a_score": 0.5523809523809524,
+          "all_bad": false,
+          "max_f1": 0.5714285714285714
+        },
+        {
+          "qid": "prescriptions_18669933",
+          "f1": {
+            "claude_opus_4_6": 0.588235294117647,
+            "claude_sonnet_4_6": 0.4444444444444444,
+            "kimi_k2_5": 0.0,
+            "qwen3_235b": 0.0
+          },
+          "tier_a_score": 0.5163398692810457,
+          "all_bad": false,
+          "max_f1": 0.588235294117647
+        }
+      ],
+      "tier_b": [
+        {
+          "qid": "prescriptions_11526191",
+          "f1": {
+            "claude_opus_4_6": 0.0,
+            "claude_sonnet_4_6": 0.0,
+            "kimi_k2_5": 0.0,
+            "qwen3_235b": 0.0
+          },
+          "tier_a_score": -1.0,
+          "all_bad": true,
+          "max_f1": 0.0
+        },
+        {
+          "qid": "prescriptions_16938216",
+          "f1": {
+            "claude_opus_4_6": 0.0,
+            "claude_sonnet_4_6": 0.0,
+            "kimi_k2_5": 0.0,
+            "qwen3_235b": 0.0
+          },
+          "tier_a_score": -1.0,
+          "all_bad": true,
+          "max_f1": 0.0
+        },
+        {
+          "qid": "prescriptions_17180509",
+          "f1": {
+            "claude_opus_4_6": 0.0,
+            "claude_sonnet_4_6": 0.0,
+            "kimi_k2_5": 0.0,
+            "qwen3_235b": 0.0
+          },
+          "tier_a_score": -1.0,
+          "all_bad": true,
+          "max_f1": 0.0
+        }
+      ]
+    },
+    "procedures_ccs": {
+      "tier_a": [
+        {
+          "qid": "procedures_ccs_12734570",
+          "f1": {
+            "claude_opus_4_6": 0.7499999999999999,
+            "claude_sonnet_4_6": 0.4,
+            "kimi_k2_5": 0.0,
+            "qwen3_235b": 0.0
+          },
+          "tier_a_score": 0.575,
+          "all_bad": false,
+          "max_f1": 0.7499999999999999
+        },
+        {
+          "qid": "procedures_ccs_10852744",
+          "f1": {
+            "claude_opus_4_6": 0.5714285714285715,
+            "claude_sonnet_4_6": 0.22222222222222224,
+            "kimi_k2_5": 0.0,
+            "qwen3_235b": 0.0
+          },
+          "tier_a_score": 0.39682539682539686,
+          "all_bad": false,
+          "max_f1": 0.5714285714285715
+        },
+        {
+          "qid": "procedures_ccs_19466296",
+          "f1": {
+            "claude_opus_4_6": 0.4,
+            "claude_sonnet_4_6": 0.2857142857142857,
+            "kimi_k2_5": 0.0,
+            "qwen3_235b": 0.0
+          },
+          "tier_a_score": 0.34285714285714286,
+          "all_bad": false,
+          "max_f1": 0.4
+        }
+      ],
+      "tier_b": [
+        {
+          "qid": "procedures_ccs_15090495",
+          "f1": {
+            "claude_opus_4_6": 0.0,
+            "claude_sonnet_4_6": 0.0,
+            "kimi_k2_5": 0.0,
+            "qwen3_235b": 0.0
+          },
+          "tier_a_score": -1.0,
+          "all_bad": true,
+          "max_f1": 0.0
+        },
+        {
+          "qid": "procedures_ccs_12803426",
+          "f1": {
+            "claude_opus_4_6": 0.0,
+            "claude_sonnet_4_6": 0.0,
+            "kimi_k2_5": 0.0,
+            "qwen3_235b": 0.0
+          },
+          "tier_a_score": -1.0,
+          "all_bad": true,
+          "max_f1": 0.0
+        },
+        {
+          "qid": "procedures_ccs_18609470",
+          "f1": {
+            "claude_opus_4_6": 0.0,
+            "claude_sonnet_4_6": 0.13333333333333333,
+            "kimi_k2_5": 0.0,
+            "qwen3_235b": 0.0
+          },
+          "tier_a_score": -0.35,
+          "all_bad": true,
+          "max_f1": 0.13333333333333333
+        }
+      ]
+    },
+    "transfers": {
+      "tier_a": [
+        {
+          "qid": "transfers_17810802",
+          "f1": {
+            "claude_opus_4_6": 0.6666666666666666,
+            "claude_sonnet_4_6": 0.33333333333333337,
+            "kimi_k2_5": 0.0,
+            "qwen3_235b": 0.0
+          },
+          "tier_a_score": 0.5,
+          "all_bad": false,
+          "max_f1": 0.6666666666666666
+        },
+        {
+          "qid": "transfers_15577009",
+          "f1": {
+            "claude_opus_4_6": 0.4,
+            "claude_sonnet_4_6": 0.4,
+            "kimi_k2_5": 0.0,
+            "qwen3_235b": 0.0
+          },
+          "tier_a_score": 0.4,
+          "all_bad": false,
+          "max_f1": 0.4
+        },
+        {
+          "qid": "transfers_13791947",
+          "f1": {
+            "claude_opus_4_6": 0.33333333333333337,
+            "claude_sonnet_4_6": 0.33333333333333337,
+            "kimi_k2_5": 0.0,
+            "qwen3_235b": 0.0
+          },
+          "tier_a_score": 0.33333333333333337,
+          "all_bad": false,
+          "max_f1": 0.33333333333333337
+        }
+      ],
+      "tier_b": [
+        {
+          "qid": "transfers_15905118",
+          "f1": {
+            "claude_opus_4_6": 0.0,
+            "claude_sonnet_4_6": 0.0,
+            "kimi_k2_5": 0.0,
+            "qwen3_235b": 0.0
+          },
+          "tier_a_score": -1.0,
+          "all_bad": true,
+          "max_f1": 0.0
+        },
+        {
+          "qid": "transfers_10994378",
+          "f1": {
+            "claude_opus_4_6": 0.0,
+            "claude_sonnet_4_6": 0.0,
+            "kimi_k2_5": 0.0,
+            "qwen3_235b": 0.0
+          },
+          "tier_a_score": -1.0,
+          "all_bad": true,
+          "max_f1": 0.0
+        },
+        {
+          "qid": "transfers_14402927",
+          "f1": {
+            "claude_opus_4_6": 0.0,
+            "claude_sonnet_4_6": 0.0,
+            "kimi_k2_5": 0.0,
+            "qwen3_235b": 0.0
+          },
+          "tier_a_score": -1.0,
+          "all_bad": true,
+          "max_f1": 0.0
+        }
+      ]
+    }
+  }
+}

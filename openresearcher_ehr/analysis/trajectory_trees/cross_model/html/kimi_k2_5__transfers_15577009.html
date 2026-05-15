@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>transfers_15577009 — transfers — kimi_k2_5</title>
+<style>
+:root {
+  --border: #d1d5db;
+  --muted: #6b7280;
+  --text: #111827;
+  --bg: #fafafa;
+  --panel: #ffffff;
+  --link: #9ca3af;
+  --link-dim: #e5e7eb;
+  --root: #1e40af;
+  --sub:  #3b82f6;
+  --tool: #10b981;
+  --reason: #f59e0b;
+  --finish: #ec4899;
+  --selected: #111827;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+               "Helvetica Neue", Arial, sans-serif;
+  background: var(--bg); color: var(--text); font-size: 13px;
+}
+.header {
+  padding: 10px 16px; border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+.header h1 { margin: 0; font-size: 15px; font-weight: 600; }
+.header .meta { margin-top: 2px; color: var(--muted); font-size: 11px; }
+.header .meta span { margin-right: 14px; }
+.outcome {
+  margin-top: 6px; border: 1px solid var(--border); border-radius: 3px;
+  background: var(--bg);
+}
+.outcome > summary {
+  list-style: none; cursor: pointer; padding: 3px 8px;
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  font-size: 11px;
+}
+.outcome > summary::-webkit-details-marker { display: none; }
+.outcome > summary::before {
+  content: "▸"; color: var(--muted); width: 9px; font-size: 10px;
+  transition: transform .12s; display: inline-block;
+}
+.outcome[open] > summary::before { transform: rotate(90deg); }
+.outcome .pill {
+  display: inline-block; font-size: 10px; padding: 1px 6px;
+  border-radius: 8px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.pill.f1-high { background: #d1fae5; color: #065f46; }
+.pill.f1-mid  { background: #fef3c7; color: #92400e; }
+.pill.f1-low  { background: #fee2e2; color: #991b1b; }
+.pill.metric  { background: #e5e7eb; color: #374151; }
+.outcome-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
+  padding: 2px 8px 8px 8px;
+}
+.outcome-grid .col {
+  border: 1px solid var(--border); border-radius: 3px; background: var(--panel);
+  padding: 4px 8px; min-height: 0; max-height: 140px; overflow: auto;
+}
+.outcome-grid h3 {
+  margin: 0 0 3px 0; font-size: 10px; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .04em;
+}
+.outcome-grid ul { margin: 0; padding-left: 16px; }
+.outcome-grid li {
+  font-size: 11.5px; padding: 0; line-height: 1.35; word-break: break-word;
+}
+.outcome-grid li.hit     { color: #065f46; }
+.outcome-grid li.missing { color: #991b1b; }
+.outcome-grid li.extra   { color: #92400e; }
+.outcome-grid li .marker { display: inline-block; width: 14px; }
+.outcome-grid li.hit .marker     { color: #10b981; }
+.outcome-grid li.missing .marker { color: #ef4444; }
+.outcome-grid li.extra .marker   { color: #f59e0b; }
+.outcome-grid .empty { color: var(--muted); font-style: italic; font-size: 12px; }
+.app {
+  display: flex; flex: 1; min-height: 0;
+}
+.page {
+  display: flex; flex-direction: column; height: 100%;
+}
+.canvas-wrap {
+  flex: 1; position: relative; overflow: hidden; background: var(--bg);
+}
+#canvas { width: 100%; height: 100%; cursor: grab; user-select: none; }
+#canvas.dragging { cursor: grabbing; }
+
+.controls {
+  position: absolute; top: 8px; left: 8px; z-index: 10;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 4px;
+  padding: 4px; display: flex; gap: 2px; box-shadow: 0 1px 2px rgba(0,0,0,.06);
+}
+.controls button {
+  font: inherit; font-size: 11px; padding: 3px 8px; cursor: pointer;
+  background: white; border: 1px solid var(--border); border-radius: 3px;
+}
+.controls button:hover { background: #f3f4f6; }
+.legend {
+  position: absolute; bottom: 8px; left: 8px; z-index: 10;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 4px;
+  padding: 6px 10px; font-size: 11px; color: var(--muted);
+  display: flex; gap: 12px; box-shadow: 0 1px 2px rgba(0,0,0,.06);
+}
+.legend .swatch {
+  display: inline-block; width: 10px; height: 10px; border-radius: 2px;
+  vertical-align: middle; margin-right: 4px;
+}
+
+/* Nodes */
+.node rect {
+  stroke: var(--border); stroke-width: 1;
+  fill: var(--panel); cursor: pointer;
+}
+.node text {
+  pointer-events: none; font-size: 11px; fill: var(--text);
+}
+.node .bar {
+  stroke: none;
+}
+.node.type-root   .bar { fill: var(--root);   }
+.node.type-subproblem .bar { fill: var(--sub); }
+.node.type-tool_call  .bar { fill: var(--tool); }
+.node.type-reason .bar { fill: var(--reason); }
+.node.type-finish .bar { fill: var(--finish); }
+
+.node.has-hidden rect { stroke-dasharray: 3 3; }
+.node.selected rect { stroke: var(--selected); stroke-width: 2; }
+
+.node .collapsed-badge {
+  fill: var(--text); font-size: 10px; font-weight: 600;
+}
+
+.link {
+  fill: none; stroke: var(--link); stroke-width: 1;
+}
+.link.dim { stroke: var(--link-dim); }
+
+/* Sidebar */
+.sidebar {
+  width: 420px; min-width: 320px; border-left: 1px solid var(--border);
+  background: var(--panel); display: flex; flex-direction: column;
+  flex-shrink: 0;
+}
+.sidebar .tab {
+  padding: 8px 12px; border-bottom: 1px solid var(--border);
+  font-weight: 600; font-size: 12px; display: flex; justify-content: space-between;
+  align-items: center;
+}
+.sidebar .body {
+  padding: 10px 14px; overflow-y: auto; flex: 1; line-height: 1.5;
+}
+.sidebar .placeholder { color: var(--muted); font-style: italic; }
+.sidebar h2 {
+  font-size: 13px; margin: 12px 0 4px 0; color: #374151;
+}
+.sidebar h2:first-child { margin-top: 0; }
+.sidebar .kv { margin: 4px 0; font-size: 12px; }
+.sidebar .label {
+  color: var(--muted); font-size: 10px; text-transform: uppercase;
+  letter-spacing: .04em; display: block; margin-top: 8px;
+}
+.sidebar pre {
+  margin: 4px 0; padding: 8px 10px; background: #f3f4f6; border-radius: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px; white-space: pre-wrap; word-break: break-word;
+  max-height: 40vh; overflow: auto;
+}
+.sidebar .badge {
+  display: inline-block; font-size: 10px; padding: 1px 6px;
+  border-radius: 10px; color: white; margin-right: 4px;
+  text-transform: uppercase; letter-spacing: .04em;
+}
+.badge-root   { background: var(--root); }
+.badge-subproblem { background: var(--sub); }
+.badge-tool_call  { background: var(--tool); }
+.badge-reason { background: var(--reason); }
+.badge-finish { background: var(--finish); }
+</style>
+</head>
+<body>
+<div class="page">
+<div class="header">
+  <h1>transfers_15577009</h1>
+  <div class="meta">
+    <span><strong>task:</strong> transfers</span>
+    <span><strong>model:</strong> kimi_k2_5</span>
+    <span><strong>status:</strong> success</span>
+    <span><strong>events:</strong> 69</span>
+    <span><strong>nodes:</strong> 66</span>
+    <span><strong>depth:</strong> 4</span>
+    <span><span class="pill f1-low">F1 0.00</span></span>
+  </div>
+  <details class="outcome">
+  <summary><strong>Outcome</strong><span class="pill f1-low">F1 0.00</span><span class="pill metric">P 0.00</span><span class="pill metric">R 0.00</span><span class="pill metric">0 hit · 1 miss · 5 extra</span></summary>
+  <div class="outcome-grid">
+    <div class="col">
+      <h3>Gold label · 1 item(s)</h3>
+      <ul><li class="missing"><span class="marker">✗</span>Neurology</li></ul>
+    </div>
+    <div class="col">
+      <h3>Prediction · 5 item(s)</h3>
+      <ul><li class="extra"><span class="marker">+</span>Med/Surg</li><li class="extra"><span class="marker">+</span>Medicine</li><li class="extra"><span class="marker">+</span>Medicine/Cardiology Intermediate</li><li class="extra"><span class="marker">+</span>Neuro Intermediate</li><li class="extra"><span class="marker">+</span>Neuro Stepdown</li></ul>
+    </div>
+  </div>
+</details>
+</div>
+<div class="app">
+  <div class="canvas-wrap">
+    <div class="controls">
+      <button id="ctl-fit" title="Fit to window">Fit</button>
+      <button id="ctl-zoom-in">+</button>
+      <button id="ctl-zoom-out">−</button>
+      <button id="ctl-expand-all" title="Expand every node">Expand all</button>
+      <button id="ctl-collapse-deep" title="Collapse everything below depth 2">
+        Collapse deep
+      </button>
+    </div>
+    <div class="legend">
+      <span><span class="swatch" style="background:var(--root)"></span>root</span>
+      <span><span class="swatch" style="background:var(--sub)"></span>subproblem</span>
+      <span><span class="swatch" style="background:var(--tool)"></span>tool call</span>
+      <span><span class="swatch" style="background:var(--reason)"></span>reason</span>
+      <span><span class="swatch" style="background:var(--finish)"></span>finish</span>
+      <span style="color:#9ca3af">· drag to pan · wheel to zoom · click node for details · shift+click or double-click to collapse</span>
+    </div>
+    <svg id="canvas"><g id="viewport"></g></svg>
+  </div>
+  <div class="sidebar">
+    <div class="tab" id="sidebar-tab">
+      <span id="sidebar-tab-title">Details</span>
+    </div>
+    <div class="body" id="sidebar-body"></div>
+  </div>
+</div>
+<script>window.__TREE__ = {"id": "n_0001", "level": 0, "type": "root", "title": "<task_instruction>\nYour current task is to act as a hospital care coordinator and clinical decision-maker.\n\nYour objective is to determine the most appropriate care unit for patient transfer by analyz…", "root_task": "<task_instruction>\nYour current task is to act as a hospital care coordinator and clinical decision-maker.\n\nYour objective is to determine the most appropriate care unit for patient transfer by analyzing their current clinical condition, medical history, severity of illness, and care requirements.\n\nYou must consider the patient's current location, clinical stability, required level of monitoring, and specialized care needs to recommend the optimal transfer destination.\n\nYou must find the most likely official care unit candidates using the **`transfers_candidates`** reference data or semantic matching tools.\n\nWhen you need medical knowledge or clinical information to support your transfer planning, use the `browser.search` tool to find authoritative medical information from reliable sources.\n\nPresent your final answer as a **list format** with `finish` tool calling, which must contain **multiple plausible care units**. Each item in the list must be a string representing an official care unit name, and **must not contain any codes or other additional information**.\n</task_instruction>\n\n<patient_info>\nCurrent Time: 2162-10-02 18:28:37\nPatient Subject ID: 15577009\n</patient_info>", "event_indices": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68], "msg_indices": [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49], "children": [{"id": "n_0002", "level": 1, "type": "subproblem", "title": "Load patient EHR data and identify available tables", "rationale": "Initial setup to load the patient's electronic health record and understand what data sources are available for clinical analysis.", "event_indices": [0, 1, 2, 3], "msg_indices": [2, 3, 4, 5], "children": [{"id": "n_0003", "level": 2, "type": "tool_call", "title": "load_ehr", "tool": "load_ehr", "args": {"subject_id": "15577009", "timestamp": "2162-10-02 18:28:37"}, "call_id": "functions.ehr.load_ehr:0", "observation_summary": "Loaded EHR data for subject 15577009 as of 2162-10-02, including 182 lab events, 97 POE orders, 28 pharmacy records, 10 pyxis dispensings, 3 vital signs, 47 ingredient events, radiology/microbiology candidates, and multiple other tables.", "observation_shape": "text,len=1595", "observation_body": null, "event_indices": [0, 1], "msg_indices": [2, 3], "children": []}, {"id": "n_0004", "level": 2, "type": "tool_call", "title": "get_table_names", "tool": "get_table_names", "args": {"subject_id": "15577009"}, "call_id": "functions.ehr.get_table_names:1", "observation_summary": "The patient has data across 31 EHR tables and 7 candidate tables, covering admissions, labs, procedures, radiology, prescriptions, and more.", "observation_shape": "text,len=608", "observation_body": null, "event_indices": [2, 3], "msg_indices": [4, 5], "children": []}]}, {"id": "n_0005", "level": 1, "type": "subproblem", "title": "Gather patient clinical data including transfers, vitals, labs, and procedures", "rationale": "Retrieve the patient's current location, vital signs, laboratory results, and procedural history to assess clinical status and severity.", "event_indices": [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14], "msg_indices": [6, 7, 8, 9, 10, 11], "children": [{"id": "n_0006", "level": 2, "type": "subproblem", "title": "Request patient clinical data from multiple tables", "rationale": "The assistant reasons about what data to gather and issues parallel tool calls for transfers, vitals, labs, and column metadata.", "event_indices": [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14], "msg_indices": [6, 7, 8, 9, 10, 11], "children": [{"id": "n_0007", "level": 3, "type": "reason", "title": "reasoning note", "rationale": "Let me first examine the patient's current status and clinical information. I'll check the transfers table, current location, and clinical data.", "event_indices": [], "msg_indices": [], "children": []}, {"id": "n_0008", "level": 3, "type": "tool_call", "title": "get_records_by_time", "tool": "get_records_by_time", "args": {"table_name": "transfers", "start_time": "2162-09-01 00:00:00", "end_time": "2162-10-03 00:00:00", "subject_id": "15577009"}, "call_id": "functions.ehr.get_records_by_time:2", "observation_summary": "The patient was admitted via the ED (intime 2162-09-30 15:28) then transferred to the Surgical ICU (SICU) at 19:11, remaining there until 2162-10-02 18:29.", "observation_shape": "text,len=359", "observation_body": null, "event_indices": [5, 10], "msg_indices": [6, 7], "children": []}, {"id": "n_0009", "level": 3, "type": "tool_call", "title": "get_latest_records", "tool": "get_latest_records", "args": {"table_name": "vitalsign", "subject_id": "15577009"}, "call_id": "functions.ehr.get_latest_records:3", "observation_summary": "The latest vital signs (from the ED on 2162-09-30) showed HR 82, RR 16, O2 sat 99%, BP 139/54, and pain reported as 'ua'.", "observation_shape": "text,len=199", "observation_body": null, "event_indices": [6, 11], "msg_indices": [6, 8], "children": []}, {"id": "n_0010", "level": 3, "type": "tool_call", "title": "get_records_by_time", "tool": "get_records_by_time", "args": {"table_name": "labevents", "start_time": "2162-10-01 00:00:00", "end_time": "2162-10-03 00:00:00", "subject_id": "15577009"}, "call_id": "functions.ehr.get_records_by_time:4", "observation_summary": "Lab events from 2162-10-01 to 2162-10-03 included urine cultures (bacteria), blood chemistry, and hematology panels (e.g., RDW-SD), with many results returned.", "observation_shape": "text,len=32863", "observation_body": null, "event_indices": [7, 12], "msg_indices": [6, 9], "children": []}, {"id": "n_0011", "level": 3, "type": "tool_call", "title": "get_column_names", "tool": "get_column_names", "args": {"table_name": "transfers", "subject_id": "15577009"}, "call_id": "functions.ehr.get_column_names:5", "observation_summary": "The transfers table has columns: subject_id, hadm_id, transfer_id, eventtype, careunit, intime, and outtime.", "observation_shape": "text,len=101", "observation_body": null, "event_indices": [8, 13], "msg_indices": [6, 10], "children": []}, {"id": "n_0012", "level": 3, "type": "tool_call", "title": "get_column_names", "tool": "get_column_names", "args": {"table_name": "transfers_candidates", "subject_id": "15577009"}, "call_id": "functions.ehr.get_column_names:6", "observation_summary": "The transfers_candidates table has two columns: candidate and similarity_score.", "observation_shape": "text,len=69", "observation_body": null, "event_indices": [9, 14], "msg_indices": [6, 11], "children": []}]}]}, {"id": "n_0013", "level": 1, "type": "subproblem", "title": "Retrieve transfer candidates, chart events, and procedural data", "rationale": "Obtain the list of possible care unit destinations and additional clinical monitoring data from chart events and procedures.", "event_indices": [15, 16, 17, 18, 19, 20, 21], "msg_indices": [12, 13, 14, 15], "children": [{"id": "n_0014", "level": 2, "type": "subproblem", "title": "Plan retrieval of candidates and clinical data", "rationale": "The assistant reasons about what data to retrieve next.", "event_indices": [15], "msg_indices": [12], "children": [{"id": "n_0015", "level": 3, "type": "reason", "title": "reasoning note", "rationale": "Let me now look at the available care unit candidates and get more clinical information about the patient:", "event_indices": [], "msg_indices": [], "children": []}]}, {"id": "n_0016", "level": 2, "type": "subproblem", "title": "Retrieve transfer candidate care units", "rationale": "Query the transfers_candidates table and receive the list of possible care unit destinations.", "event_indices": [16, 19], "msg_indices": [12, 13], "children": [{"id": "n_0017", "level": 3, "type": "tool_call", "title": "get_candidates_by_keyword", "tool": "get_candidates_by_keyword", "args": {"table_name": "transfers_candidates", "keyword": ""}, "call_id": "functions.ehr.get_candidates_by_keyword:7", "observation_summary": "The transfers_candidates table lists care unit options such as Transplant, Med/Surg, Surgery/Trauma, Medicine/Cardiology, Psychiatry, Emergency Department Observation, Hematology/Oncology, Vascular, and others with similarity scores.", "observation_shape": "text,len=2612", "observation_body": null, "event_indices": [16, 19], "msg_indices": [12, 13], "children": []}]}, {"id": "n_0018", "level": 2, "type": "subproblem", "title": "Retrieve chart events for clinical monitoring data", "rationale": "Query chartevents for the patient's vitals and clinical observations on the current day.", "event_indices": [17, 20], "msg_indices": [12, 14], "children": [{"id": "n_0019", "level": 3, "type": "tool_call", "title": "get_records_by_time", "tool": "get_records_by_time", "args": {"table_name": "chartevents", "start_time": "2162-10-02 00:00:00", "end_time": "2162-10-03 00:00:00", "subject_id": "15577009"}, "call_id": "functions.ehr.get_records_by_time:8", "observation_summary": "Chart events on 2162-10-02 showed extensive vital signs and nursing documentation, including a heart rate of 59 bpm at 07:00.", "observation_shape": "text,len=50045", "observation_body": null, "event_indices": [17, 20], "msg_indices": [12, 14], "children": []}]}, {"id": "n_0020", "level": 2, "type": "subproblem", "title": "Retrieve procedure events for recent interventions", "rationale": "Query procedureevents to identify recent procedures performed on the patient.", "event_indices": [18, 21], "msg_indices": [12, 15], "children": [{"id": "n_0021", "level": 3, "type": "tool_call", "title": "get_records_by_time", "tool": "get_records_by_time", "args": {"table_name": "procedureevents", "start_time": "2162-09-30 00:00:00", "end_time": "2162-10-03 00:00:00", "subject_id": "15577009"}, "call_id": "functions.ehr.get_records_by_time:9", "observation_summary": "Procedure events during the ICU stay included a transthoracic echo on 2162-10-02 and at least one other procedure; patient weight was 60.5 kg.", "observation_shape": "text,len=2264", "observation_body": null, "event_indices": [18, 21], "msg_indices": [12, 15], "children": []}]}]}, {"id": "n_0022", "level": 1, "type": "subproblem", "title": "Gather diagnosis, ED stay, triage, and radiology information", "rationale": "Collect the primary diagnosis, emergency department presentation details, and imaging findings to fully characterize the patient's condition.", "event_indices": [22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32], "msg_indices": [16, 17, 18, 19, 20, 21, 22], "children": [{"id": "n_0023", "level": 2, "type": "subproblem", "title": "Query diagnosis, ED stays, triage, and radiology records", "rationale": "The assistant issues four parallel data retrieval calls and receives their observations (diagnosis, edstays, triage error, and radiology note).", "event_indices": [22, 23, 24, 25, 26, 27, 28, 29, 30], "msg_indices": [16, 17, 18, 19, 20], "children": [{"id": "n_0024", "level": 3, "type": "reason", "title": "reasoning note", "rationale": "Let me get more information on the patient's diagnosis and current status:", "event_indices": [], "msg_indices": [], "children": []}, {"id": "n_0025", "level": 3, "type": "tool_call", "title": "get_records_by_time", "tool": "get_records_by_time", "args": {"table_name": "diagnosis", "start_time": "2162-09-01 00:00:00", "end_time": "2162-10-03 00:00:00", "subject_id": "15577009"}, "call_id": "functions.ehr.get_records_by_time:10", "observation_summary": "The patient had a single diagnosis of cerebral infarction (unspecified, ICD-10 I639) charted on 2162-09-30.", "observation_shape": "text,len=203", "observation_body": null, "event_indices": [23, 27], "msg_indices": [16, 17], "children": []}, {"id": "n_0026", "level": 3, "type": "tool_call", "title": "get_records_by_time", "tool": "get_records_by_time", "args": {"table_name": "edstays", "start_time": "2162-09-30 00:00:00", "end_time": "2162-10-02 00:00:00", "subject_id": "15577009"}, "call_id": "functions.ehr.get_records_by_time:11", "observation_summary": "Patient (female, White) arrived by ambulance to the ED on 2162-09-30 at 15:28, was admitted, and transferred out of the ED to SICU at 19:11 the same day.", "observation_shape": "text,len=227", "observation_body": null, "event_indices": [24, 28], "msg_indices": [16, 18], "children": []}, {"id": "n_0027", "level": 3, "type": "tool_call", "title": "get_records_by_time", "tool": "get_records_by_time", "args": {"table_name": "triage", "start_time": "2162-09-30 00:00:00", "end_time": "2162-10-01 00:00:00", "subject_id": "15577009"}, "call_id": "functions.ehr.get_records_by_time:12", "observation_summary": "Confirmed that the triage table has no timestamp column and cannot be filtered by time.", "observation_shape": "text,len=74", "observation_body": null, "event_indices": [25, 29], "msg_indices": [16, 19], "children": []}, {"id": "n_0028", "level": 3, "type": "tool_call", "title": "get_records_by_time", "tool": "get_records_by_time", "args": {"table_name": "radiology", "start_time": "2162-09-30 00:00:00", "end_time": "2162-10-03 00:00:00", "subject_id": "15577009"}, "call_id": "functions.ehr.get_records_by_time:13", "observation_summary": "Retrieved radiology reports from the admission showing findings consistent with posterior reversible encephalopathy syndrome and mild cardiomegaly on chest radiograph.", "observation_shape": "text,len=24354", "observation_body": null, "event_indices": [26, 30], "msg_indices": [16, 20], "children": []}]}, {"id": "n_0029", "level": 2, "type": "subproblem", "title": "Synthesize clinical findings from retrieved records", "rationale": "The assistant uses a think action to consolidate the diagnosis, imaging, and ED data into a coherent clinical picture.", "event_indices": [31, 32], "msg_indices": [21, 22], "children": [{"id": "n_0030", "level": 3, "type": "tool_call", "title": "think", "tool": "think", "args": {"response": "Let me analyze this patient's clinical condition systematically:\n\n**Patient Background:**\n- Subject ID: 15577009\n- Current Location: Surgical Intensive Care Unit (SICU) - intime 2162-09-30 19:11:00, outtime 2162-10-02 18:29:37 (current time is 2162-10-02 18:28:37 - patient is about to be transferred OUT of SICU)\n\n**Primary Diagnosis:**\n- Cerebral infarction (Stroke) - ICD code I639\n- Posterior reversible encephalopathy syndrome (PRES) - from radiology findings\n- Bilateral parietal/occipital infarctions with hemorrhagic conversion\n- Cerebellar edema with small acute infarctions\n- Right upper lobe pneumonia\n\n**Key Clinical Findings:**\n1. **Neurological:**\n   - GCS 15 (Eye opening: 4, Verbal: 5, Motor: 6)\n   - Alert and calm (Richmond-RAS Scale: 0)\n   - Oriented to person, place, time\n   - Full resistance strength in all limbs\n   - Normal speech\n   - No facial droop, no visual field cut, no pronator drift\n   - Pupils equal and reactive (3mm, brisk)\n\n2. **Vitals (at 07:00 on 10/02):**\n   - HR: 59 bpm (Sinus bradycardia)\n   - BP: 118/50, MAP: 66 mmHg\n   - RR: 19/min\n   - SpO2: 99% on 3L/min O2 via nasal cannula\n\n3. **Lab Abnormalities:**\n   - Anemia: Hgb 8.5-9.6 g/dL, Hct 28.3-32%\n   - Thrombocytopenia: Platelets 354K (stable)\n   - Coagulopathy: INR 1.2, PT 12.8s, PTT 32.3s (mildly elevated)\n   - Elevated WBC: 18.5→12.0 K/uL\n   - Elevated glucose: 151→91 mg/dL (controlled)\n   - Elevated Troponin T: 0.05→0.04→0.03 (trending down, but elevated)\n\n4. **Imaging:**\n   - CTA: Patent vasculature, no occlusion or aneurysm\n   - MRI: PRES pattern with bilateral parietal/occipital vasogenic edema, small areas of cytotoxic edema, hemorrhagic conversion (7x5mm)\n   - CXR: Right upper lobe pneumonia with moderate right pleural effusion\n\n5. **Current Care:**\n   - Vancomycin 13.1 ug/mL on 10/02 (therapeutic range)\n   - Peripheral IV line (20 Gauge)\n   - O2 via nasal cannula\n   - Pulse oximetry monitoring\n   - ST segment monitoring on\n   - Antiembolic device (compression sleeves)\n   - Walker for ambulation\n   - Weak gait/transferring\n\n**Clinical Status Assessment:**\nThe patient is now approximately 2 days post-stroke with:\n1. Stable neurology (GCS 15, alert, oriented, no deficits)\n2. Stable vitals (low BP but stable)\n3. Persistent but treated pneumonia\n4. Anemia requiring monitoring\n5. Slightly elevated troponin (cardiac enzyme)\n\n**Transfer Considerations:**\nPatient has been in SICU but appears clinically stable enough for step-down. The ICU care requirements have been:\n- Hemodynamic monitoring (stable)\n- Frequent neuro checks (stable)\n- Antibiotic therapy (continued)\n- Oxygen support (minimal - nasal cannula)\n\nRecommended care units should provide:\n- Cardiac monitoring (given elevated troponin)\n- Neuro monitoring (post-stroke)\n- Step-down level care (no longer needs full ICU)\n- Medical/surgical care capability"}, "call_id": "functions.ehr.think:14", "observation_summary": "Agent reasoned about the patient's clinical background: cerebral infarction (I639), PRES from radiology, current SICU stay from 2162-09-30 to 2162-10-02, with imminent transfer out of SICU.", "observation_shape": "text,len=15", "observation_body": null, "event_indices": [31, 32], "msg_indices": [21, 22], "children": []}]}]}, {"id": "n_0031", "level": 1, "type": "subproblem", "title": "Search medical literature for stroke and PRES transfer criteria", "rationale": "Use web search to find clinical guidelines on appropriate care unit placement for stroke/PRES patients transitioning out of ICU.", "event_indices": [33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43], "msg_indices": [23, 24, 25, 26, 27, 28, 29, 30, 31], "children": [{"id": "n_0032", "level": 2, "type": "subproblem", "title": "Initial parallel searches for PRES and stroke ICU transfer criteria", "rationale": "The assistant performed two parallel web searches for PRES stroke care unit transfer criteria and ischemic stroke ICU discharge criteria.", "event_indices": [33, 34, 35, 36, 37], "msg_indices": [23, 24, 25], "children": [{"id": "n_0033", "level": 3, "type": "reason", "title": "reasoning note", "rationale": "Now let me search for medical guidelines on stroke patient transfer and appropriate care units:", "event_indices": [], "msg_indices": [], "children": []}, {"id": "n_0034", "level": 3, "type": "tool_call", "title": "search", "tool": "search", "args": {"query": "posterior reversible encephalopathy syndrome stroke care unit transfer criteria step-down", "topn": 10}, "call_id": "functions.browser.search:15", "observation_summary": "Web search returned results on PRES (posterior reversible encephalopathy syndrome) including StatPearls and Frontiers articles, with a snippet mentioning 'step-down or neurocrit' care in the context of PRES management.", "observation_shape": "text,len=2848", "observation_body": null, "event_indices": [34, 36], "msg_indices": [23, 24], "children": []}, {"id": "n_0035", "level": 3, "type": "tool_call", "title": "search", "tool": "search", "args": {"query": "ischemic stroke patient discharge from ICU to step-down unit criteria", "topn": 10}, "call_id": "functions.browser.search:16", "observation_summary": "Web search returned results on discharge patterns for ischemic/hemorrhagic stroke patients, ICU stroke management, and the 2026 AHA guideline, but no specific ICU-to-step-down transfer criteria were directly extracted.", "observation_shape": "text,len=2878", "observation_body": null, "event_indices": [35, 37], "msg_indices": [23, 25], "children": []}]}, {"id": "n_0036", "level": 2, "type": "subproblem", "title": "Review AHA stroke guideline for early management", "rationale": "The assistant opened the AHA/ASA 2026 guideline article to review stroke management recommendations.", "event_indices": [38, 39], "msg_indices": [26, 27], "children": [{"id": "n_0037", "level": 3, "type": "tool_call", "title": "open", "tool": "open", "args": {"id": 1, "loc": 0, "source": "web", "view_source": false}, "call_id": "functions.browser.open:17", "observation_summary": "Opened the 2026 AHA/ASA Guideline for Early Management of Acute Ischemic Stroke, which provides comprehensive updated recommendations for AIS management including transport and care pathways.", "observation_shape": "text,len=4198", "observation_body": null, "event_indices": [38, 39], "msg_indices": [26, 27], "children": []}]}, {"id": "n_0038", "level": 2, "type": "subproblem", "title": "Search and review step-down unit criteria for stroke patients", "rationale": "The assistant searched for step-down unit criteria with telemetry monitoring requirements and then opened a PMC article on the role of stepdown beds.", "event_indices": [40, 41, 42, 43], "msg_indices": [28, 29, 30, 31], "children": [{"id": "n_0039", "level": 3, "type": "tool_call", "title": "search", "tool": "search", "args": {"query": "step-down unit criteria stroke patient telemetry monitoring requirements", "topn": 8}, "call_id": "functions.browser.search:18", "observation_summary": "Web search returned results about step-down unit criteria including CDPH definitions, telemetry placement guidelines, and the role of stepdown beds in hospital care.", "observation_shape": "text,len=2774", "observation_body": null, "event_indices": [40, 41], "msg_indices": [28, 29], "children": []}, {"id": "n_0040", "level": 3, "type": "tool_call", "title": "open", "tool": "open", "args": {"id": 2, "source": "web", "view_source": false}, "call_id": "functions.browser.open:19", "observation_summary": "Retrieved a PMC article describing stepdown beds as providing intermediate care between ICU and general ward, with models including stand-alone units, ICU-incorporated beds, and ward-incorporated beds for step-up or stepdown transitions.", "observation_shape": "text,len=4553", "observation_body": null, "event_indices": [42, 43], "msg_indices": [30, 31], "children": []}]}]}, {"id": "n_0041", "level": 1, "type": "subproblem", "title": "Match patient needs to available care unit candidates", "rationale": "Use semantic and fuzzy matching to identify which available care units best match the patient's neurological, cardiac, and medical needs.", "event_indices": [44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58], "msg_indices": [32, 33, 34, 35, 36, 37, 38, 39, 40, 41], "children": [{"id": "n_0042", "level": 2, "type": "subproblem", "title": "Semantic similarity search for care unit candidates", "rationale": "Initial semantic similarity searches for neuro, cardiac, and step-down units all returned no results above threshold.", "event_indices": [44, 45, 46, 47, 48, 49, 50], "msg_indices": [32, 33, 34, 35], "children": [{"id": "n_0043", "level": 3, "type": "subproblem", "title": "Semantic similarity searches for neuro/cardiac/step-down units", "rationale": "This is a single reasoning step followed by three parallel tool calls and their observations, representing atomic work that cannot be further split.", "event_indices": [44, 45, 46, 47, 48, 49, 50], "msg_indices": [32, 33, 34, 35], "children": [{"id": "n_0044", "level": 4, "type": "reason", "title": "reasoning note", "rationale": "Now let me examine the available care unit candidates and search for stroke-specific care unit recommendations:", "event_indices": [], "msg_indices": [], "children": []}, {"id": "n_0045", "level": 4, "type": "tool_call", "title": "get_candidates_by_semantic_similarity", "tool": "get_candidates_by_semantic_similarity", "args": {"table_name": "transfers_candidates", "query": "neuro intermediate stroke step-down"}, "call_id": "functions.ehr.get_candidates_by_semantic_similarity:20", "observation_summary": "No semantically similar candidates were found in the transfers_candidates table for 'neuro intermediate stroke step-down' at the 0.5 threshold.", "observation_shape": "text,len=108", "observation_body": null, "event_indices": [45, 48], "msg_indices": [32, 33], "children": []}, {"id": "n_0046", "level": 4, "type": "tool_call", "title": "get_candidates_by_semantic_similarity", "tool": "get_candidates_by_semantic_similarity", "args": {"table_name": "transfers_candidates", "query": "telemetry cardiac monitoring stroke"}, "call_id": "functions.ehr.get_candidates_by_semantic_similarity:21", "observation_summary": "Semantic similarity search for 'telemetry cardiac monitoring stroke' returned no candidates above the 0.5 threshold.", "observation_shape": "text,len=108", "observation_body": null, "event_indices": [46, 49], "msg_indices": [32, 34], "children": []}, {"id": "n_0047", "level": 4, "type": "tool_call", "title": "get_candidates_by_semantic_similarity", "tool": "get_candidates_by_semantic_similarity", "args": {"table_name": "transfers_candidates", "query": "medical surgical step-down post-ICU"}, "call_id": "functions.ehr.get_candidates_by_semantic_similarity:22", "observation_summary": "Semantic similarity search for 'medical surgical step-down post-ICU' returned no candidates above the 0.5 threshold.", "observation_shape": "text,len=108", "observation_body": null, "event_indices": [47, 50], "msg_indices": [32, 35], "children": []}]}]}, {"id": "n_0048", "level": 2, "type": "subproblem", "title": "Fuzzy matching search for care unit candidates", "rationale": "Fuzzy matching with neurology, medicine, and cardiac keywords to identify available care units from the transfers_candidates table.", "event_indices": [51, 52, 53, 54, 55, 56], "msg_indices": [36, 37, 38, 39], "children": [{"id": "n_0049", "level": 3, "type": "subproblem", "title": "Fuzzy match for Neuro/Neurology/Stroke care units", "rationale": "First fuzzy matching call with neurology-related keywords and its corresponding observation results.", "event_indices": [51, 54], "msg_indices": [36, 37], "children": [{"id": "n_0050", "level": 4, "type": "tool_call", "title": "get_candidates_by_fuzzy_matching", "tool": "get_candidates_by_fuzzy_matching", "args": {"keywords": ["Neuro", "Neurology", "Stroke"], "table_name": "transfers_candidates"}, "call_id": "functions.ehr.get_candidates_by_fuzzy_matching:23", "observation_summary": "Fuzzy matching for 'Neuro', 'Neurology', and 'Stroke' identified Neurology (score 100), Neuro Stepdown (score 53), and Neuro Intermediate (score 43) as relevant candidates; no strong match was found for 'Stroke'.", "observation_shape": "text,len=850", "observation_body": null, "event_indices": [51, 54], "msg_indices": [36, 37], "children": []}]}, {"id": "n_0051", "level": 3, "type": "subproblem", "title": "Fuzzy match for Med/Medicine/Surgical care units", "rationale": "Second fuzzy matching call with medicine-related keywords and its corresponding observation results.", "event_indices": [52, 55], "msg_indices": [36, 38], "children": [{"id": "n_0052", "level": 4, "type": "tool_call", "title": "get_candidates_by_fuzzy_matching", "tool": "get_candidates_by_fuzzy_matching", "args": {"keywords": ["Med", "Medicine", "Surgical"], "table_name": "transfers_candidates"}, "call_id": "functions.ehr.get_candidates_by_fuzzy_matching:24", "observation_summary": "Fuzzy matching for 'Med', 'Medicine', and 'Surgical' identified relevant candidates including Med/Surg (score 55), Medicine (score 100), Medicine/Cardiology (score 59), and Medicine/Cardiology Intermediate (score 40).", "observation_shape": "text,len=1005", "observation_body": null, "event_indices": [52, 55], "msg_indices": [36, 38], "children": []}]}, {"id": "n_0053", "level": 3, "type": "subproblem", "title": "Failed fuzzy match for Cardiac/Telemetry/CCU/Cardiology care units", "rationale": "Third fuzzy matching call with cardiac-related keywords that resulted in a JSON parsing error.", "event_indices": [53, 56], "msg_indices": [36, 39], "children": [{"id": "n_0054", "level": 4, "type": "tool_call", "title": "get_candidates_by_fuzzy_matching", "tool": "get_candidates_by_fuzzy_matching", "args": {"_raw": "{\"keywords\": [\"Cardiac\",\"Telemetry\",\"CCU\",\"Cardiology\"], \"table_name"}, "call_id": "functions.ehr.get_candidates_by_fuzzy_matching:25", "observation_summary": "The fuzzy matching call failed due to a malformed JSON argument (unterminated string).", "observation_shape": "text,len=113", "observation_body": null, "event_indices": [53, 56], "msg_indices": [36, 39], "children": []}]}]}, {"id": "n_0055", "level": 2, "type": "subproblem", "title": "Web search for PRES care level requirements", "rationale": "Browser search to understand the monitoring and nursing care requirements for PRES patients to inform unit selection.", "event_indices": [57, 58], "msg_indices": [40, 41], "children": [{"id": "n_0056", "level": 3, "type": "tool_call", "title": "search", "tool": "search", "args": {"query": "PRES posterior reversible encephalopathy syndrome patient nursing care requirements level monitoring", "topn": 8}, "call_id": "functions.browser.search:26", "observation_summary": "Web search confirmed that PRES patients require frequent neurologic and mental status assessments, blood pressure monitoring, and that more severely affected patients need ICU-level care while milder cases can be managed at intermediate/step-down levels.", "observation_shape": "text,len=2793", "observation_body": null, "event_indices": [57, 58], "msg_indices": [40, 41], "children": []}]}]}, {"id": "n_0057", "level": 1, "type": "subproblem", "title": "Final clinical reasoning and transfer recommendation", "rationale": "Synthesize all clinical data, guidelines, and available units to determine the most appropriate transfer destinations and deliver the final answer.", "event_indices": [59, 60, 61, 62, 63, 64, 65, 66, 67, 68], "msg_indices": [42, 43, 44, 45, 46, 47, 48, 49], "children": [{"id": "n_0058", "level": 2, "type": "subproblem", "title": "Clinical reasoning about patient transfer needs", "rationale": "The assistant synthesizes the patient's clinical data to identify key care requirements for transfer destination selection.", "event_indices": [59, 60, 61], "msg_indices": [42, 43], "children": [{"id": "n_0059", "level": 3, "type": "reason", "title": "reasoning note", "rationale": "Based on my clinical assessment, let me compile the most appropriate care units for this patient. The patient has:\n\n1. **Neurological condition:** PRES with bilateral parietal/occipital infarctions, cerebellar edema, hemorrhagic conversion\n2. **Respiratory:** Right upper lobe pneumonia with pleural effusion\n3. **Cardiac:** Elevated troponin (possible cardiac involvement/monitoring needed)\n4. **Current status:** Stable, GCS 15, alert, hemodynamically stable, on minimal O2\n\nSince the patient is about to be transferred out of SICU but still requires:\n- Neurological monitoring (post-stroke)\n- Cardiac monitoring (elevated troponin, sinus bradycardia)\n- Ongoing infection management (pneumonia)\n- Close monitoring for complications\n\nLet me look at the available candidates and make a final determination:", "event_indices": [], "msg_indices": [], "children": []}, {"id": "n_0060", "level": 3, "type": "tool_call", "title": "think", "tool": "think", "args": {"response": "Based on my comprehensive analysis of the patient's clinical data and medical knowledge, here are the key considerations for unit transfer:\n\n**Patient Summary:**\n- Diagnosis: Cerebral infarction (I639), PRES, bilateral parietal/occipital infarctions with hemorrhage\n- Currently in SICU for ~2 days\n- Stable neurological status: GCS 15, alert, oriented, full strength\n- Hemodynamically stable: BP 118/50, HR 59 (sinus bradycardia), RR 19, SpO2 99% on 3L NC\n- Ongoing pneumonia with right pleural effusion\n- Elevated troponin T (0.03-0.05, trending down but elevated)\n- Anemia (Hgb 8.5-9.6 g/dL)\n- Coagulopathy (INR 1.2)\n\n**Care Requirements:**\n1. Neurological monitoring capability (post-stroke, risk of deterioration)\n2. Cardiac telemetry (elevated troponin, bradycardia)\n3. Infection management capability (ongoing pneumonia)\n4. Step-down level monitoring (more than general ward, less than ICU)\n\n**Appropriate Transfer Destinations from Available Candidates:**\n\n1. **Neuro Intermediate** - Ideal for patients recovering from neurologic conditions that no longer require ICU but need neuro monitoring\n\n2. **Neuro Stepdown** - Specifically designed for neurologic patients transitioning from ICU\n\n3. **Med/Surg** - General medical/surgical unit - less acute monitoring but could work if no neuro-specific units available\n\n4. **Medicine** - General medical unit for stable medical patients\n\n5. **Observation** - For patients requiring continued evaluation before final disposition\n\nThe BEST options are Neuro Stepdown or Neuro Intermediate, as they provide the specialized neuro monitoring needed for this post-stroke patient with PRES. The patient has elevated troponin suggesting cardiac involvement/bleeding, but primary diagnosis is neurological.\n\nHowever, I need to check what exact candidates are available from the transfer_candidates table to ensure I'm using recognized unit names."}, "call_id": "functions.ehr.think:27", "observation_summary": "The agent synthesized the patient's stable neurological and hemodynamic status (GCS 15, BP 118/50, HR 59, SpO2 99% on 3L NC) while noting ongoing pneumonia to narrow down appropriate step-down unit options.", "observation_shape": "text,len=15", "observation_body": null, "event_indices": [60, 61], "msg_indices": [42, 43], "children": []}]}, {"id": "n_0061", "level": 2, "type": "subproblem", "title": "Retrieval of available transfer candidate units", "rationale": "Query the transfers_candidates reference data to get the full list of official care unit options.", "event_indices": [62, 63], "msg_indices": [44, 45], "children": [{"id": "n_0062", "level": 3, "type": "tool_call", "title": "run_sql_query", "tool": "run_sql_query", "args": {"sql_query": "SELECT DISTINCT candidate FROM transfers_candidates ORDER BY candidate", "subject_id": "15577009"}, "call_id": "functions.ehr.run_sql_query:28", "observation_summary": "Retrieved the full list of available candidate transfer units, which includes options such as Cardiac Surgery, CVICU, Cardiology, CCU, Med/Surg, MICU, Neurology, Neuro Stepdown, Neuro Intermediate, and many others.", "observation_shape": "text,len=1910", "observation_body": null, "event_indices": [62, 63], "msg_indices": [44, 45], "children": []}]}, {"id": "n_0063", "level": 2, "type": "subproblem", "title": "Matching patient needs to available units and delivering final answer", "rationale": "Analyze the patient's condition against available units, rank them by appropriateness, and submit the final transfer recommendation.", "event_indices": [64, 65, 66, 67, 68], "msg_indices": [46, 47, 48, 49], "children": [{"id": "n_0064", "level": 3, "type": "reason", "title": "reasoning note", "rationale": "Now I have the full list of available care units. Let me analyze and determine the most appropriate options for this patient:", "event_indices": [], "msg_indices": [], "children": []}, {"id": "n_0065", "level": 3, "type": "tool_call", "title": "think", "tool": "think", "args": {"response": "Analyzing the patient's condition against available care units:\n\n**Patient Profile:**\n- Post-stroke with PRES (posterior reversible encephalopathy syndrome)\n- Bilateral parietal/occipital infarctions with hemorrhagic conversion\n- Cerebellar edema with small acute infarctions\n- Right upper lobe pneumonia with moderate pleural effusion\n- Elevated troponin (0.03-0.05 ng/mL suggesting myocardial involvement)\n- Sinus bradycardia (59 bpm)\n- Anemia (Hgb 8.5-9.6 g/dL)\n- Stable hemodynamics, GCS 15\n- Currently on nasal cannula O2 at 3L/min\n\n**Care Unit Rankings:**\n\n**1. Neuro Stepdown** - BEST OPTION\n   - Specialized unit for neurology patients transitioning from ICU\n   - Provides neuro monitoring and frequent assessments\n   - Can monitor for complications of PRES (seizures, recurrent stroke)\n   - Most appropriate level of care for this patient\n\n**2. Neuro Intermediate** - SECOND BEST OPTION\n   - Another specialized neuro unit providing intermediate care\n   - Excellent for post-stroke patients needing monitoring\n   - Similar to stepdown but potentially more medical focus\n\n**3. Medicine/Cardiology Intermediate** - THIRD OPTION\n   - The patient has elevated troponin (0.03-0.05)\n   - Sinus bradycardia\n   - Combined with general medical needs (pneumonia, anemia)\n   - This unit can provide cardiac monitoring while managing medical conditions\n\n**4. Med/Surg** - FOURTH OPTION\n   - General medical/surgical unit\n   - Can handle stable post-stroke patients\n   - Appropriate if patient is stable and no specialized units available\n\n**5. Medicine** - FIFTH OPTION\n   - General medicine unit\n   - For stable medical patients\n   - Would have basic monitoring\n\nThe patient no longer needs SICU but still requires:\n- Neurological monitoring (post-PRES, risk of seizure, stroke progression)\n- Cardiac monitoring (elevated troponin, bradycardia)\n- Infection management (pneumonia)\n\nBest picks: Neuro Stepdown, Neuro Intermediate, Medicine/Cardiology Intermediate, Med/Surg, Medicine"}, "call_id": "functions.ehr.think:29", "observation_summary": "The agent reasoned about the patient's complex profile (post-stroke with PRES, hemorrhagic conversion, cerebellar edema, pneumonia, elevated troponin, bradycardia, anemia) to determine appropriate care unit options.", "observation_shape": "text,len=15", "observation_body": null, "event_indices": [65, 66], "msg_indices": [46, 47], "children": []}, {"id": "n_0066", "level": 3, "type": "tool_call", "title": "finish", "tool": "finish", "args": {"response": ["Neuro Stepdown", "Neuro Intermediate", "Medicine/Cardiology Intermediate", "Med/Surg", "Medicine"]}, "call_id": "functions.ehr.finish:30", "observation_summary": "The agent returned its final answer recommending five candidate care units: Neuro Stepdown, Neuro Intermediate, Medicine/Cardiology Intermediate, Med/Surg, and Medicine.", "observation_shape": "text,len=6", "observation_body": null, "event_indices": [67, 68], "msg_indices": [48, 49], "children": []}]}]}]};</script>
+<script>
+(function() {
+  const DATA = window.__TREE__;
+  const NODES = [];
+  const EDGES = [];
+
+  // Assign stable numeric ids and collapsed flags
+  let nid = 0;
+  function walk(n, parent) {
+    n.__nid = nid++;
+    n.__parent = parent ? parent.__nid : null;
+    n.__collapsed = false;
+    (n.children || []).forEach(c => walk(c, n));
+  }
+  walk(DATA, null);
+
+  // ── Layout (simple Reingold-Tilford: leaves get consecutive y slots,
+  //          internal nodes sit at the midpoint of their children's y) ───
+  const DX = 60;   // vertical step per leaf slot
+  const DY = 270;  // horizontal step per depth level
+  const NODE_W = 240, NODE_H = 54;
+
+  function layout(root) {
+    let leafSlot = 0;
+    function visit(n, depth) {
+      n.__depth = depth;
+      const kids = (n.__collapsed ? [] : (n.children || []));
+      if (kids.length === 0) {
+        n.__y = leafSlot * DX;
+        leafSlot++;
+      } else {
+        kids.forEach(c => visit(c, depth + 1));
+        const ys = kids.map(c => c.__y);
+        n.__y = (Math.min.apply(null, ys) + Math.max.apply(null, ys)) / 2;
+      }
+      n.__x = depth * DY;
+    }
+    visit(root, 0);
+  }
+
+  function flatten(root) {
+    NODES.length = 0; EDGES.length = 0;
+    function rec(n) {
+      NODES.push(n);
+      const kids = (n.__collapsed ? [] : (n.children || []));
+      kids.forEach(c => { EDGES.push([n, c]); rec(c); });
+    }
+    rec(root);
+  }
+
+  // ── Labels ────────────────────────────────────────────────────────────
+  function shortTitle(n) {
+    const t = n.type;
+    if (t === "root") return "ROOT";
+    if (t === "subproblem") return (n.title || "").trim();
+    if (t === "tool_call")  return (n.tool || "tool");
+    if (t === "reason")     return "reason";
+    if (t === "finish")     return "FINISH";
+    return t;
+  }
+  function subLabel(n) {
+    const t = n.type;
+    if (t === "root") return (n.title || "").trim();
+    if (t === "subproblem") return (n.rationale || "").trim();
+    if (t === "tool_call")  return (n.observation_summary || "").trim();
+    if (t === "reason")     return (n.rationale || "").trim();
+    if (t === "finish") {
+      const a = n.answer;
+      if (a == null) return "";
+      const s = typeof a === "string" ? a : JSON.stringify(a);
+      return s;
+    }
+    return "";
+  }
+  function truncate(s, n) {
+    s = (s || "").replace(/\s+/g, " ");
+    return s.length > n ? s.slice(0, n - 1) + "…" : s;
+  }
+  function countHiddenDescendants(n) {
+    if (!n.__collapsed) return 0;
+    let c = 0;
+    function rec(x) {
+      (x.children || []).forEach(k => { c++; rec(k); });
+    }
+    rec(n);
+    return c;
+  }
+
+  // ── Render ────────────────────────────────────────────────────────────
+  const svg = document.getElementById("canvas");
+  const viewport = document.getElementById("viewport");
+  let selectedNid = null;
+
+  function render() {
+    layout(DATA);
+    flatten(DATA);
+    viewport.innerHTML = "";
+
+    // Compute bounding box
+    const xs = NODES.map(n => n.__x);
+    const ys = NODES.map(n => n.__y);
+    const xmin = Math.min.apply(null, xs), xmax = Math.max.apply(null, xs);
+    const ymin = Math.min.apply(null, ys), ymax = Math.max.apply(null, ys);
+    const W = (xmax - xmin) + NODE_W + 40;
+    const H = (ymax - ymin) + NODE_H + 40;
+    // Re-base so everything starts at (20, 20)
+    const ox = 20 - xmin, oy = 20 - ymin;
+
+    // Edges
+    for (const [p, c] of EDGES) {
+      const x1 = p.__x + ox + NODE_W;
+      const y1 = p.__y + oy + NODE_H / 2;
+      const x2 = c.__x + ox;
+      const y2 = c.__y + oy + NODE_H / 2;
+      const mx = (x1 + x2) / 2;
+      const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      path.setAttribute("class", "link");
+      path.setAttribute("d", `M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`);
+      viewport.appendChild(path);
+    }
+
+    // Nodes
+    for (const n of NODES) {
+      const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+      g.setAttribute("class",
+        `node type-${n.type}` +
+        (n.__collapsed ? " has-hidden" : "") +
+        (n.__nid === selectedNid ? " selected" : ""));
+      g.setAttribute("transform",
+        `translate(${n.__x + ox}, ${n.__y + oy})`);
+      g.setAttribute("data-nid", n.__nid);
+
+      const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+      rect.setAttribute("width", NODE_W);
+      rect.setAttribute("height", NODE_H);
+      rect.setAttribute("rx", 4);
+      g.appendChild(rect);
+
+      // Left colored bar
+      const bar = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+      bar.setAttribute("class", "bar");
+      bar.setAttribute("width", 5);
+      bar.setAttribute("height", NODE_H);
+      bar.setAttribute("rx", 2);
+      g.appendChild(bar);
+
+      // Main label (row 1)
+      const t1 = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      t1.setAttribute("x", 12);
+      t1.setAttribute("y", 16);
+      t1.setAttribute("font-weight", "600");
+      t1.textContent = truncate(shortTitle(n), 32);
+      g.appendChild(t1);
+
+      // Sub label (row 2) — full width, no overlap
+      const t2 = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      t2.setAttribute("x", 12);
+      t2.setAttribute("y", 32);
+      t2.setAttribute("fill", "#6b7280");
+      t2.textContent = truncate(subLabel(n), 38);
+      g.appendChild(t2);
+
+      // Footer row (row 3): event range left-aligned, hidden-count badge right
+      if (n.event_indices && n.event_indices.length) {
+        const ev = n.event_indices;
+        const er = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        er.setAttribute("x", 12);
+        er.setAttribute("y", 47);
+        er.setAttribute("fill", "#9ca3af");
+        er.setAttribute("font-size", "10");
+        er.textContent = ev.length === 1
+          ? `E${String(ev[0]).padStart(3,"0")}`
+          : `E${String(ev[0]).padStart(3,"0")}–E${String(ev[ev.length-1]).padStart(3,"0")}`;
+        g.appendChild(er);
+      }
+      if (n.__collapsed) {
+        const hc = countHiddenDescendants(n);
+        const tb = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        tb.setAttribute("class", "collapsed-badge");
+        tb.setAttribute("x", NODE_W - 10);
+        tb.setAttribute("y", 47);
+        tb.setAttribute("text-anchor", "end");
+        tb.setAttribute("font-size", "10");
+        tb.textContent = `+${hc} hidden`;
+        g.appendChild(tb);
+      }
+
+      g.addEventListener("click", ev => {
+        ev.stopPropagation();
+        if (ev.shiftKey || ev.detail === 2) {
+          // Shift+click or double-click: toggle collapse (only if has children)
+          if (n.children && n.children.length) {
+            n.__collapsed = !n.__collapsed;
+            render();
+          }
+          return;
+        }
+        selectedNid = n.__nid;
+        renderSidebar(n);
+        render();
+      });
+      viewport.appendChild(g);
+    }
+
+    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+    svg.__bbox = { W, H };
+  }
+
+  // ── Sidebar ───────────────────────────────────────────────────────────
+  const sidebarBody = document.getElementById("sidebar-body");
+  const sidebarTab = document.getElementById("sidebar-tab-title");
+
+  function h(tag, attrs, children) {
+    const e = document.createElement(tag);
+    for (const k in (attrs || {})) {
+      if (k === "class") e.className = attrs[k];
+      else if (k === "html") e.innerHTML = attrs[k];
+      else e.setAttribute(k, attrs[k]);
+    }
+    (children || []).forEach(c => {
+      if (typeof c === "string") e.appendChild(document.createTextNode(c));
+      else if (c) e.appendChild(c);
+    });
+    return e;
+  }
+  function pretty(v) {
+    if (v == null) return "";
+    if (typeof v === "string") return v;
+    try { return JSON.stringify(v, null, 2); }
+    catch (e) { return String(v); }
+  }
+  function renderSidebar(n) {
+    sidebarTab.innerHTML = "";
+    sidebarTab.appendChild(h("span", {}, [
+      h("span", {class: `badge badge-${n.type}`}, [n.type.toUpperCase()]),
+      " ",
+      (n.id || "")
+    ]));
+    const body = sidebarBody;
+    body.innerHTML = "";
+
+    // Title
+    body.appendChild(h("h2", {}, [shortTitle(n) || n.type]));
+    if (n.type === "subproblem" && n.title) {
+      body.appendChild(h("div", {class: "kv"}, [n.title]));
+    }
+    if (n.type === "root" && n.title) {
+      body.appendChild(h("div", {class: "kv"}, [n.title]));
+    }
+
+    // Rationale
+    if (n.rationale) {
+      body.appendChild(h("span", {class: "label"}, ["rationale"]));
+      body.appendChild(h("div", {class: "kv"}, [n.rationale]));
+    }
+
+    // Event / msg references
+    const meta = [];
+    if (n.level !== undefined) meta.push(`level=${n.level}`);
+    if (n.event_indices && n.event_indices.length)
+      meta.push(`events=${n.event_indices.join(",")}`);
+    if (n.msg_indices && n.msg_indices.length)
+      meta.push(`messages=${n.msg_indices.join(",")}`);
+    if ((n.children || []).length)
+      meta.push(`children=${n.children.length}`);
+    if (meta.length) {
+      body.appendChild(h("span", {class: "label"}, ["metadata"]));
+      body.appendChild(h("div", {class: "kv"}, [meta.join(" · ")]));
+    }
+
+    if (n.type === "root") {
+      if (n.root_task) {
+        body.appendChild(h("span", {class: "label"}, ["root task"]));
+        body.appendChild(h("pre", {}, [n.root_task]));
+      }
+    }
+    if (n.type === "tool_call") {
+      body.appendChild(h("span", {class: "label"}, ["tool"]));
+      body.appendChild(h("div", {class: "kv"}, [n.tool || ""]));
+      body.appendChild(h("span", {class: "label"}, ["arguments"]));
+      body.appendChild(h("pre", {}, [pretty(n.args)]));
+      if (n.call_id) {
+        body.appendChild(h("span", {class: "label"}, ["call id"]));
+        body.appendChild(h("div", {class: "kv"}, [n.call_id]));
+      }
+      body.appendChild(h("span", {class: "label"}, ["observation shape"]));
+      body.appendChild(h("div", {class: "kv"}, [n.observation_shape || "—"]));
+      body.appendChild(h("span", {class: "label"}, ["observation summary"]));
+      body.appendChild(h("div", {class: "kv"},
+        [n.observation_summary || "(no summary)"]));
+    }
+    if (n.type === "reason") {
+      body.appendChild(h("span", {class: "label"}, ["reasoning text"]));
+      body.appendChild(h("pre", {}, [n.rationale || ""]));
+    }
+    if (n.type === "finish") {
+      body.appendChild(h("span", {class: "label"}, ["final answer"]));
+      body.appendChild(h("pre", {}, [pretty(n.answer)]));
+    }
+  }
+  function resetSidebar() {
+    sidebarTab.textContent = "Details";
+    sidebarBody.innerHTML =
+      '<div class="placeholder">Click a node to see details. ' +
+      'Shift+click or double-click a node to collapse/expand its subtree.</div>';
+  }
+  resetSidebar();
+
+  // ── Zoom & pan ────────────────────────────────────────────────────────
+  let tx = 0, ty = 0, scale = 1;
+  function applyTransform() {
+    viewport.setAttribute("transform",
+      `translate(${tx}, ${ty}) scale(${scale})`);
+  }
+  function fit() {
+    const bbox = svg.__bbox;
+    if (!bbox) return;
+    const cw = svg.clientWidth, ch = svg.clientHeight;
+    const sx = cw / bbox.W, sy = ch / bbox.H;
+    scale = Math.min(sx, sy, 1.0);
+    tx = (cw - bbox.W * scale) / 2;
+    ty = (ch - bbox.H * scale) / 2;
+    applyTransform();
+  }
+  svg.addEventListener("wheel", ev => {
+    ev.preventDefault();
+    const r = svg.getBoundingClientRect();
+    const mx = ev.clientX - r.left, my = ev.clientY - r.top;
+    const wx = (mx - tx) / scale, wy = (my - ty) / scale;
+    const k = ev.deltaY < 0 ? 1.12 : 1 / 1.12;
+    scale = Math.max(0.15, Math.min(3.0, scale * k));
+    tx = mx - wx * scale;
+    ty = my - wy * scale;
+    applyTransform();
+  }, { passive: false });
+
+  let dragging = false, dragStart = null;
+  svg.addEventListener("mousedown", ev => {
+    if (ev.target.closest(".node")) return;
+    dragging = true; svg.classList.add("dragging");
+    dragStart = { x: ev.clientX - tx, y: ev.clientY - ty };
+  });
+  document.addEventListener("mousemove", ev => {
+    if (!dragging) return;
+    tx = ev.clientX - dragStart.x;
+    ty = ev.clientY - dragStart.y;
+    applyTransform();
+  });
+  document.addEventListener("mouseup", () => {
+    dragging = false; svg.classList.remove("dragging");
+  });
+
+  // Controls
+  document.getElementById("ctl-fit").addEventListener("click", fit);
+  document.getElementById("ctl-zoom-in").addEventListener("click", () => {
+    scale = Math.min(3.0, scale * 1.25); applyTransform();
+  });
+  document.getElementById("ctl-zoom-out").addEventListener("click", () => {
+    scale = Math.max(0.15, scale / 1.25); applyTransform();
+  });
+  document.getElementById("ctl-expand-all").addEventListener("click", () => {
+    function rec(n) { n.__collapsed = false; (n.children||[]).forEach(rec); }
+    rec(DATA); render(); fit();
+  });
+  document.getElementById("ctl-collapse-deep").addEventListener("click", () => {
+    // Collapse at depth 2 (keep root + level-1 subproblems expanded)
+    function rec(n, d) {
+      n.__collapsed = (d >= 2 && (n.children||[]).length > 0);
+      (n.children||[]).forEach(c => rec(c, d + 1));
+    }
+    rec(DATA, 0); render(); fit();
+  });
+
+  render();
+  // Initial fit after DOM has laid out
+  requestAnimationFrame(fit);
+})();
+</script>
+</div>
+</body>
+</html>

@@ -41,6 +41,32 @@ def create_compatible_config(ckpt_dir: str, model_path: str = None) -> str:
         text_dict["architectures"] = ["Qwen3MoeForCausalLM"]
         text_dict["model_type"] = "qwen3_moe"
 
+        # Qwen3.5's text_config nests rope state under `rope_parameters`
+        # (transformers 5.x). verl's Megatron merger (Qwen3MoeConfig path)
+        # expects the legacy flat `rope_theta` / `rope_scaling` attributes.
+        # Promote them so the merger can construct the mcore model.
+        rope_params = text_dict.pop("rope_parameters", None)
+        if isinstance(rope_params, dict):
+            if "rope_theta" not in text_dict and "rope_theta" in rope_params:
+                text_dict["rope_theta"] = rope_params["rope_theta"]
+            # partial_rotary_factor may also live inside rope_parameters.
+            if (
+                "partial_rotary_factor" not in text_dict
+                and "partial_rotary_factor" in rope_params
+            ):
+                text_dict["partial_rotary_factor"] = rope_params["partial_rotary_factor"]
+            # rope_scaling is the optional side channel for long-context
+            # extensions (yarn/linear). Only forward it if present.
+            if "rope_scaling" not in text_dict and rope_params.get("rope_scaling"):
+                text_dict["rope_scaling"] = rope_params["rope_scaling"]
+        # Final safety net — Qwen3Moe's flat default is 10,000 but Qwen3.5
+        # uses 10,000,000; if we still don't have it, fail loudly.
+        if "rope_theta" not in text_dict:
+            raise KeyError(
+                "text_config is missing rope_theta; cannot flatten from "
+                "rope_parameters. Inspect the VL config manually."
+            )
+
         # Create temp dir with modified config
         tmp_dir = tempfile.mkdtemp(prefix="hf_config_")
         with open(os.path.join(tmp_dir, "config.json"), "w") as f:

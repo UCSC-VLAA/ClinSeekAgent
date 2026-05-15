@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>transfers_15577009 — transfers — claude_opus_4_6</title>
+<style>
+:root {
+  --border: #d1d5db;
+  --muted: #6b7280;
+  --text: #111827;
+  --bg: #fafafa;
+  --panel: #ffffff;
+  --link: #9ca3af;
+  --link-dim: #e5e7eb;
+  --root: #1e40af;
+  --sub:  #3b82f6;
+  --tool: #10b981;
+  --reason: #f59e0b;
+  --finish: #ec4899;
+  --selected: #111827;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+               "Helvetica Neue", Arial, sans-serif;
+  background: var(--bg); color: var(--text); font-size: 13px;
+}
+.header {
+  padding: 10px 16px; border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+.header h1 { margin: 0; font-size: 15px; font-weight: 600; }
+.header .meta { margin-top: 2px; color: var(--muted); font-size: 11px; }
+.header .meta span { margin-right: 14px; }
+.outcome {
+  margin-top: 6px; border: 1px solid var(--border); border-radius: 3px;
+  background: var(--bg);
+}
+.outcome > summary {
+  list-style: none; cursor: pointer; padding: 3px 8px;
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  font-size: 11px;
+}
+.outcome > summary::-webkit-details-marker { display: none; }
+.outcome > summary::before {
+  content: "▸"; color: var(--muted); width: 9px; font-size: 10px;
+  transition: transform .12s; display: inline-block;
+}
+.outcome[open] > summary::before { transform: rotate(90deg); }
+.outcome .pill {
+  display: inline-block; font-size: 10px; padding: 1px 6px;
+  border-radius: 8px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.pill.f1-high { background: #d1fae5; color: #065f46; }
+.pill.f1-mid  { background: #fef3c7; color: #92400e; }
+.pill.f1-low  { background: #fee2e2; color: #991b1b; }
+.pill.metric  { background: #e5e7eb; color: #374151; }
+.outcome-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
+  padding: 2px 8px 8px 8px;
+}
+.outcome-grid .col {
+  border: 1px solid var(--border); border-radius: 3px; background: var(--panel);
+  padding: 4px 8px; min-height: 0; max-height: 140px; overflow: auto;
+}
+.outcome-grid h3 {
+  margin: 0 0 3px 0; font-size: 10px; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .04em;
+}
+.outcome-grid ul { margin: 0; padding-left: 16px; }
+.outcome-grid li {
+  font-size: 11.5px; padding: 0; line-height: 1.35; word-break: break-word;
+}
+.outcome-grid li.hit     { color: #065f46; }
+.outcome-grid li.missing { color: #991b1b; }
+.outcome-grid li.extra   { color: #92400e; }
+.outcome-grid li .marker { display: inline-block; width: 14px; }
+.outcome-grid li.hit .marker     { color: #10b981; }
+.outcome-grid li.missing .marker { color: #ef4444; }
+.outcome-grid li.extra .marker   { color: #f59e0b; }
+.outcome-grid .empty { color: var(--muted); font-style: italic; font-size: 12px; }
+.app {
+  display: flex; flex: 1; min-height: 0;
+}
+.page {
+  display: flex; flex-direction: column; height: 100%;
+}
+.canvas-wrap {
+  flex: 1; position: relative; overflow: hidden; background: var(--bg);
+}
+#canvas { width: 100%; height: 100%; cursor: grab; user-select: none; }
+#canvas.dragging { cursor: grabbing; }
+
+.controls {
+  position: absolute; top: 8px; left: 8px; z-index: 10;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 4px;
+  padding: 4px; display: flex; gap: 2px; box-shadow: 0 1px 2px rgba(0,0,0,.06);
+}
+.controls button {
+  font: inherit; font-size: 11px; padding: 3px 8px; cursor: pointer;
+  background: white; border: 1px solid var(--border); border-radius: 3px;
+}
+.controls button:hover { background: #f3f4f6; }
+.legend {
+  position: absolute; bottom: 8px; left: 8px; z-index: 10;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 4px;
+  padding: 6px 10px; font-size: 11px; color: var(--muted);
+  display: flex; gap: 12px; box-shadow: 0 1px 2px rgba(0,0,0,.06);
+}
+.legend .swatch {
+  display: inline-block; width: 10px; height: 10px; border-radius: 2px;
+  vertical-align: middle; margin-right: 4px;
+}
+
+/* Nodes */
+.node rect {
+  stroke: var(--border); stroke-width: 1;
+  fill: var(--panel); cursor: pointer;
+}
+.node text {
+  pointer-events: none; font-size: 11px; fill: var(--text);
+}
+.node .bar {
+  stroke: none;
+}
+.node.type-root   .bar { fill: var(--root);   }
+.node.type-subproblem .bar { fill: var(--sub); }
+.node.type-tool_call  .bar { fill: var(--tool); }
+.node.type-reason .bar { fill: var(--reason); }
+.node.type-finish .bar { fill: var(--finish); }
+
+.node.has-hidden rect { stroke-dasharray: 3 3; }
+.node.selected rect { stroke: var(--selected); stroke-width: 2; }
+
+.node .collapsed-badge {
+  fill: var(--text); font-size: 10px; font-weight: 600;
+}
+
+.link {
+  fill: none; stroke: var(--link); stroke-width: 1;
+}
+.link.dim { stroke: var(--link-dim); }
+
+/* Sidebar */
+.sidebar {
+  width: 420px; min-width: 320px; border-left: 1px solid var(--border);
+  background: var(--panel); display: flex; flex-direction: column;
+  flex-shrink: 0;
+}
+.sidebar .tab {
+  padding: 8px 12px; border-bottom: 1px solid var(--border);
+  font-weight: 600; font-size: 12px; display: flex; justify-content: space-between;
+  align-items: center;
+}
+.sidebar .body {
+  padding: 10px 14px; overflow-y: auto; flex: 1; line-height: 1.5;
+}
+.sidebar .placeholder { color: var(--muted); font-style: italic; }
+.sidebar h2 {
+  font-size: 13px; margin: 12px 0 4px 0; color: #374151;
+}
+.sidebar h2:first-child { margin-top: 0; }
+.sidebar .kv { margin: 4px 0; font-size: 12px; }
+.sidebar .label {
+  color: var(--muted); font-size: 10px; text-transform: uppercase;
+  letter-spacing: .04em; display: block; margin-top: 8px;
+}
+.sidebar pre {
+  margin: 4px 0; padding: 8px 10px; background: #f3f4f6; border-radius: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px; white-space: pre-wrap; word-break: break-word;
+  max-height: 40vh; overflow: auto;
+}
+.sidebar .badge {
+  display: inline-block; font-size: 10px; padding: 1px 6px;
+  border-radius: 10px; color: white; margin-right: 4px;
+  text-transform: uppercase; letter-spacing: .04em;
+}
+.badge-root   { background: var(--root); }
+.badge-subproblem { background: var(--sub); }
+.badge-tool_call  { background: var(--tool); }
+.badge-reason { background: var(--reason); }
+.badge-finish { background: var(--finish); }
+</style>
+</head>
+<body>
+<div class="page">
+<div class="header">
+  <h1>transfers_15577009</h1>
+  <div class="meta">
+    <span><strong>task:</strong> transfers</span>
+    <span><strong>model:</strong> claude_opus_4_6</span>
+    <span><strong>status:</strong> success</span>
+    <span><strong>events:</strong> 49</span>
+    <span><strong>nodes:</strong> 50</span>
+    <span><strong>depth:</strong> 4</span>
+    <span><span class="pill f1-mid">F1 0.40</span></span>
+  </div>
+  <details class="outcome">
+  <summary><strong>Outcome</strong><span class="pill f1-mid">F1 0.40</span><span class="pill metric">P 0.25</span><span class="pill metric">R 1.00</span><span class="pill metric">1 hit · 0 miss · 3 extra</span></summary>
+  <div class="outcome-grid">
+    <div class="col">
+      <h3>Gold label · 1 item(s)</h3>
+      <ul><li class="hit"><span class="marker">✓</span>Neurology</li></ul>
+    </div>
+    <div class="col">
+      <h3>Prediction · 4 item(s)</h3>
+      <ul><li class="extra"><span class="marker">+</span>Medicine/Cardiology Intermediate</li><li class="extra"><span class="marker">+</span>Neuro Intermediate</li><li class="extra"><span class="marker">+</span>Neuro Stepdown</li><li class="hit"><span class="marker">✓</span>Neurology</li></ul>
+    </div>
+  </div>
+</details>
+</div>
+<div class="app">
+  <div class="canvas-wrap">
+    <div class="controls">
+      <button id="ctl-fit" title="Fit to window">Fit</button>
+      <button id="ctl-zoom-in">+</button>
+      <button id="ctl-zoom-out">−</button>
+      <button id="ctl-expand-all" title="Expand every node">Expand all</button>
+      <button id="ctl-collapse-deep" title="Collapse everything below depth 2">
+        Collapse deep
+      </button>
+    </div>
+    <div class="legend">
+      <span><span class="swatch" style="background:var(--root)"></span>root</span>
+      <span><span class="swatch" style="background:var(--sub)"></span>subproblem</span>
+      <span><span class="swatch" style="background:var(--tool)"></span>tool call</span>
+      <span><span class="swatch" style="background:var(--reason)"></span>reason</span>
+      <span><span class="swatch" style="background:var(--finish)"></span>finish</span>
+      <span style="color:#9ca3af">· drag to pan · wheel to zoom · click node for details · shift+click or double-click to collapse</span>
+    </div>
+    <svg id="canvas"><g id="viewport"></g></svg>
+  </div>
+  <div class="sidebar">
+    <div class="tab" id="sidebar-tab">
+      <span id="sidebar-tab-title">Details</span>
+    </div>
+    <div class="body" id="sidebar-body"></div>
+  </div>
+</div>
+<script>window.__TREE__ = {"id": "n_0001", "level": 0, "type": "root", "title": "<task_instruction>\nYour current task is to act as a hospital care coordinator and clinical decision-maker.\n\nYour objective is to determine the most appropriate care unit for patient transfer by analyz…", "root_task": "<task_instruction>\nYour current task is to act as a hospital care coordinator and clinical decision-maker.\n\nYour objective is to determine the most appropriate care unit for patient transfer by analyzing their current clinical condition, medical history, severity of illness, and care requirements.\n\nYou must consider the patient's current location, clinical stability, required level of monitoring, and specialized care needs to recommend the optimal transfer destination.\n\nYou must find the most likely official care unit candidates using the **`transfers_candidates`** reference data or semantic matching tools.\n\nWhen you need medical knowledge or clinical information to support your transfer planning, use the `browser.search` tool to find authoritative medical information from reliable sources.\n\nSubmit your final answer through `ehr.finish` as a **list** containing **multiple plausible care units**. Each item in the list must be a string representing an official care unit name, and **must not contain any codes or other additional information**.\n</task_instruction>\n\n<patient_info>\nCurrent Time: 2162-10-02 18:28:37\nPatient Subject ID: 15577009\n</patient_info>", "event_indices": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48], "msg_indices": [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15, 16, 17, 18, 19, 20, 22, 23, 24, 25, 26, 27, 28, 30, 31, 32, 33, 34, 35, 36, 38], "children": [{"id": "n_0002", "level": 1, "type": "subproblem", "title": "Load patient EHR and gather basic clinical context", "rationale": "Initial loading of EHR data and retrieval of admissions, transfers, ICU stays, diagnosis, triage, services, and patient demographics to establish the clinical baseline.", "event_indices": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18], "msg_indices": [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12], "children": [{"id": "n_0003", "level": 2, "type": "subproblem", "title": "Load EHR and enumerate available tables", "rationale": "Initial EHR loading and retrieval of available table names to understand data scope.", "event_indices": [0, 1, 2, 3, 4], "msg_indices": [2, 3, 4], "children": [{"id": "n_0004", "level": 3, "type": "reason", "title": "reasoning note", "rationale": "I'll start by loading the patient's EHR data and exploring the available tables to understand their clinical situation.", "event_indices": [], "msg_indices": [], "children": []}, {"id": "n_0005", "level": 3, "type": "tool_call", "title": "ehr_load_ehr", "tool": "ehr_load_ehr", "args": {"subject_id": "15577009", "timestamp": "2162-10-02 18:28:37"}, "call_id": "toolu_bdrk_01Hz6ah2j2SQNnVXvaQpXzJp", "observation_summary": "Loaded the EHR for subject 15577009 at the specified timestamp, including multiple tables such as 182 lab events, 171 microbiology events, 963 radiology reports, 38 transfers, 97 POE orders, 28 pharmacy records, 47 ingredient events, and various other clinical data tables.", "observation_shape": "text,len=1595", "observation_body": null, "event_indices": [1, 3], "msg_indices": [2, 3], "children": []}, {"id": "n_0006", "level": 3, "type": "tool_call", "title": "ehr_get_table_names", "tool": "ehr_get_table_names", "args": {"subject_id": "15577009"}, "call_id": "toolu_bdrk_01RDHP3WNbGMHx2BC76Ydmit", "observation_summary": "Listed all available EHR tables (31 tables including admissions, chartevents, labevents, radiology, etc.) and candidate tables for the patient.", "observation_shape": "text,len=608", "observation_body": null, "event_indices": [2, 4], "msg_indices": [2, 4], "children": []}]}, {"id": "n_0007", "level": 2, "type": "subproblem", "title": "Retrieve admissions, transfers, ICU stays, diagnosis, triage, services, and patient demographics", "rationale": "Parallel retrieval of key clinical context tables to establish the patient's baseline condition and current care unit.", "event_indices": [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18], "msg_indices": [5, 6, 7, 8, 9, 10, 11, 12], "children": [{"id": "n_0008", "level": 3, "type": "subproblem", "title": "Retrieve admissions data", "rationale": "Fetch the patient's admission records to understand admission type, location, and timeline.", "event_indices": [5, 12], "msg_indices": [5, 6], "children": [{"id": "n_0009", "level": 4, "type": "tool_call", "title": "ehr_get_latest_records", "tool": "ehr_get_latest_records", "args": {"subject_id": "15577009", "table_name": "admissions"}, "call_id": "toolu_bdrk_01L4Q4c8bdEeMSEvLVXSj7id", "observation_summary": "The admissions record shows the patient was admitted emergently for cerebral infarction with noted blood pressure drop from 213/96 to 85/71 and right arm clonic jerking.", "observation_shape": "text,len=6459", "observation_body": null, "event_indices": [5, 12], "msg_indices": [5, 6], "children": []}]}, {"id": "n_0010", "level": 3, "type": "subproblem", "title": "Retrieve transfers data", "rationale": "Fetch the patient's transfer history to identify current care unit and transfer events.", "event_indices": [6, 13], "msg_indices": [5, 7], "children": [{"id": "n_0011", "level": 4, "type": "tool_call", "title": "ehr_get_latest_records", "tool": "ehr_get_latest_records", "args": {"subject_id": "15577009", "table_name": "transfers"}, "call_id": "toolu_bdrk_01BaApwb5ZFwRWpuudz5dGw1", "observation_summary": "The latest transfer record shows admission to the SICU from 2162-09-30 19:11 to 2162-10-02 18:29.", "observation_shape": "text,len=239", "observation_body": null, "event_indices": [6, 13], "msg_indices": [5, 7], "children": []}]}, {"id": "n_0012", "level": 3, "type": "subproblem", "title": "Retrieve ICU stays data", "rationale": "Fetch ICU stay details to confirm current ICU placement and length of stay.", "event_indices": [7, 14], "msg_indices": [5, 8], "children": [{"id": "n_0013", "level": 4, "type": "tool_call", "title": "ehr_get_latest_records", "tool": "ehr_get_latest_records", "args": {"subject_id": "15577009", "table_name": "icustays"}, "call_id": "toolu_bdrk_01Pv1aoFcMKMxaNRpEPdQURq", "observation_summary": "The patient had a single ICU stay in the SICU from 2162-09-30 19:11 to 2162-10-02 18:29, lasting approximately 2 days.", "observation_shape": "text,len=317", "observation_body": null, "event_indices": [7, 14], "msg_indices": [5, 8], "children": []}]}, {"id": "n_0014", "level": 3, "type": "subproblem", "title": "Retrieve diagnosis data", "rationale": "Fetch diagnosis records to identify the primary clinical condition driving care decisions.", "event_indices": [8, 15], "msg_indices": [5, 9], "children": [{"id": "n_0015", "level": 4, "type": "tool_call", "title": "ehr_get_latest_records", "tool": "ehr_get_latest_records", "args": {"subject_id": "15577009", "table_name": "diagnosis"}, "call_id": "toolu_bdrk_01DhZ651inbba68yBTfN7fVk", "observation_summary": "The patient's most recent ED diagnosis is cerebral infarction, unspecified (ICD-10 I639) from 2162-09-30.", "observation_shape": "text,len=203", "observation_body": null, "event_indices": [8, 15], "msg_indices": [5, 9], "children": []}]}, {"id": "n_0016", "level": 3, "type": "subproblem", "title": "Attempt triage data retrieval", "rationale": "Attempt to fetch triage data, which fails due to missing timestamp column.", "event_indices": [9, 16], "msg_indices": [5, 10], "children": [{"id": "n_0017", "level": 4, "type": "tool_call", "title": "ehr_get_latest_records", "tool": "ehr_get_latest_records", "args": {"subject_id": "15577009", "table_name": "triage"}, "call_id": "toolu_bdrk_017FY1sPfq3An3QUo9bYC2Yf", "observation_summary": "Confirmed that the 'triage' table has no timestamp column and cannot be queried for latest records.", "observation_shape": "text,len=83", "observation_body": null, "event_indices": [9, 16], "msg_indices": [5, 10], "children": []}]}, {"id": "n_0018", "level": 3, "type": "subproblem", "title": "Retrieve services and patient demographics", "rationale": "Fetch service assignment and patient demographic data to complete clinical context.", "event_indices": [10, 11, 17, 18], "msg_indices": [5, 11, 12], "children": [{"id": "n_0019", "level": 4, "type": "tool_call", "title": "ehr_get_latest_records", "tool": "ehr_get_latest_records", "args": {"subject_id": "15577009", "table_name": "services"}, "call_id": "toolu_bdrk_01HpGTgesgDKjGuq9uSQJ3Nw", "observation_summary": "The patient's latest service is NMED (Neurology/Medicine), transferred on 2162-09-30 with no prior service listed.", "observation_shape": "text,len=131", "observation_body": null, "event_indices": [10, 17], "msg_indices": [5, 11], "children": []}, {"id": "n_0020", "level": 4, "type": "tool_call", "title": "ehr_get_latest_records", "tool": "ehr_get_latest_records", "args": {"subject_id": "15577009", "table_name": "patients"}, "call_id": "toolu_bdrk_01XrUvpuMTekse4XtaousACz", "observation_summary": "Confirmed that the 'patients' table has no timestamp column and cannot be queried for latest records.", "observation_shape": "text,len=85", "observation_body": null, "event_indices": [11, 18], "msg_indices": [5, 12], "children": []}]}]}]}, {"id": "n_0021", "level": 1, "type": "subproblem", "title": "Assess current clinical status from recent charting, labs, vitals, and medications", "rationale": "Retrieval of recent chartevents, lab results, vital signs, and prescriptions to evaluate the patient's current clinical stability and care needs.", "event_indices": [19, 20, 21, 22, 23, 24, 25, 26, 27, 28], "msg_indices": [13, 15, 16, 17, 18, 19, 20], "children": [{"id": "n_0022", "level": 2, "type": "subproblem", "title": "Clinical reasoning about patient history and current situation", "rationale": "Initial synthesis of known clinical findings before querying EHR for recent data.", "event_indices": [19], "msg_indices": [13], "children": [{"id": "n_0023", "level": 3, "type": "reason", "title": "reasoning note", "rationale": "Key findings so far:\n- Patient: Female, admitted 2162-09-30 for code stroke\n- Diagnosis: Cerebral infarction, unspecified (ICD I639)\n- History: DM, HTN, tobacco use. Presented with decreased speech, eyes to left. CT showed frontal strokes, cerebellar stroke, small hemorrhage. Afib on monitor. Seizure activity (right arm clonic jerking).\n- Service: NMED (Neurology Medicine)\n- Current location: Surgical Intensive Care Unit (SICU), admitted 2162-09-30 19:11, outtime 2162-10-02 18:29:37 (which is essentially now)\n- The patient is being transferred OUT of SICU now (outtime matches current time)\n- NIHSS score was 15 on admission (moderate-severe stroke)\n- Hospital expire flag: 0 (patient survives)\n- Discharge: 2162-10-05 to Skilled Nursing Facility\n\nSo the patient has been in SICU for ~2 days and is now being transferred. Let me check recent vitals, labs, and clinical status to determine where they should go next.", "event_indices": [], "msg_indices": [], "children": []}]}, {"id": "n_0024", "level": 2, "type": "subproblem", "title": "Retrieve recent chartevents, labs, vitals, and prescriptions", "rationale": "Four parallel EHR queries to gather current clinical data with their corresponding observations.", "event_indices": [20, 21, 22, 23, 24, 25, 26, 27], "msg_indices": [15, 16, 17, 18, 19], "children": [{"id": "n_0025", "level": 3, "type": "tool_call", "title": "ehr_get_records_by_time", "tool": "ehr_get_records_by_time", "args": {"subject_id": "15577009", "table_name": "chartevents", "start_time": "2162-10-02 12:00:00", "end_time": "2162-10-02 18:28:37"}, "call_id": "toolu_bdrk_0141QLDc9V7mGdeznavNCEsT", "observation_summary": "Retrieved extensive chart events from 2162-10-02 12:00–18:28 including vital signs, therapeutic bed settings, compression sleeves, and routine nursing documentation.", "observation_shape": "text,len=99539", "observation_body": null, "event_indices": [20, 24], "msg_indices": [15, 16], "children": []}, {"id": "n_0026", "level": 3, "type": "tool_call", "title": "ehr_get_records_by_time", "tool": "ehr_get_records_by_time", "args": {"subject_id": "15577009", "table_name": "labevents", "start_time": "2162-10-02 00:00:00", "end_time": "2162-10-02 18:28:37"}, "call_id": "toolu_bdrk_018QL66wczZnNmwaNwi3PE9n", "observation_summary": "Retrieved lab events on 2162-10-02 showing abnormalities including elevated bicarbonate (35 mEq/L) and an anion gap of 11, among other chemistry and hematology results.", "observation_shape": "text,len=7123", "observation_body": null, "event_indices": [21, 25], "msg_indices": [15, 17], "children": []}, {"id": "n_0027", "level": 3, "type": "tool_call", "title": "ehr_get_records_by_time", "tool": "ehr_get_records_by_time", "args": {"subject_id": "15577009", "table_name": "vitalsign", "start_time": "2162-09-30 00:00:00", "end_time": "2162-10-02 18:28:37"}, "call_id": "toolu_bdrk_01SKaJuk63WArGwSec4XMeH4", "observation_summary": "Vital signs on 2162-09-30 showed temperature 97.1°F, heart rate 77-83, respiratory rate 16-26, O2 sat 94-99%, and blood pressure ranging 136-145/54-106 mmHg.", "observation_shape": "text,len=403", "observation_body": null, "event_indices": [22, 26], "msg_indices": [15, 18], "children": []}, {"id": "n_0028", "level": 3, "type": "tool_call", "title": "ehr_get_records_by_time", "tool": "ehr_get_records_by_time", "args": {"subject_id": "15577009", "table_name": "prescriptions", "start_time": "2162-10-01 00:00:00", "end_time": "2162-10-02 18:28:37"}, "call_id": "toolu_bdrk_01WAViSQCJzVAyWb3SytJJkS", "observation_summary": "Prescriptions from early October 2162 included Docusate Sodium, and other medications consistent with stroke management during admission 24864246.", "observation_shape": "text,len=10099", "observation_body": null, "event_indices": [23, 27], "msg_indices": [15, 19], "children": []}]}, {"id": "n_0029", "level": 2, "type": "subproblem", "title": "Synthesize clinical status and transfer readiness assessment", "rationale": "Reasoning step integrating all retrieved data to characterize clinical stability and care needs.", "event_indices": [28], "msg_indices": [20], "children": [{"id": "n_0030", "level": 3, "type": "reason", "title": "reasoning note", "rationale": "Let me synthesize the clinical picture:\n\n**Patient Summary:**\n- Female patient with cerebral infarction (stroke) + small hemorrhage\n- Multiple strokes: 2 frontal, 1 cerebellar, small bleed\n- PMH: DM, HTN, tobacco use\n- Found to have Afib on monitor at OSH\n- Had seizure activity (right arm clonic jerking), treated with Keppra and Ativan\n- Service: NMED (Neurology Medicine)\n- Current location: SICU for ~2 days, now being transferred out (outtime = 2162-10-02 18:29:37)\n\n**Current Clinical Status (most recent vitals ~18:00-18:12):**\n- HR: 93 bpm, Sinus Rhythm (was 62-75 earlier, now higher)\n- BP: 147/105 (warning flags, elevated but not critically so)\n- RR: 19 insp/min\n- SpO2: 95% on 2L NC\n- Temp: 98.4°F\n- GCS: 15 (E4V5M6) - fully conscious\n- Neurological: Alert, oriented to person, place, and time; no facial droop, no visual field cut, no pronator drift, full strength all extremities (5/5), normal speech, pupils 3mm bilateral brisk\n- Richmond-RAS: 0 (alert and calm)\n- Pain: Intermittent headache, moderate (5/10)\n\n**Labs (2162-10-02 04:06):**\n- Chemistry largely normal: Na 138, K 3.7, Cr 0.5, Glucose 91, BUN 13\n- Bicarbonate 35 (slightly high - metabolic alkalosis)\n- Hemoglobin 8.5 (low - anemia), Hematocrit 28.3 (low)\n- WBC 12.0 (mildly elevated)\n- INR 1.2 (slightly elevated), PT 12.8 (slightly high)\n- Vancomycin level 13.1 (therapeutic)\n\n**Medications:**\n- Piperacillin-Tazobactam (antibiotics for pneumonia/UTI)\n- Vancomycin (antibiotics)\n- Levetiracetam (anti-epileptic, for seizure)\n- Heparin SC (DVT prophylaxis)\n- Aspirin 81mg (stroke)\n- Clonazepam 0.5mg TID (anxiety/seizure)\n- Metoprolol tartrate IV (rate/BP control, for afib)\n- Furosemide 20mg IV (fluid management)\n- Insulin (for DM)\n- Docusate, Senna (bowel regimen)\n- Ipratropium nebulizer (respiratory)\n- Acetaminophen (for pain/headache)\n\n**Assessment for Transfer:**\nThe patient is clinically improving and ready to step down from SICU:\n1. GCS 15, fully oriented, neurologically stable with no focal deficits on mos", "event_indices": [], "msg_indices": [], "children": []}]}]}, {"id": "n_0031", "level": 1, "type": "subproblem", "title": "Identify candidate transfer care units via semantic and keyword search", "rationale": "Searching the transfers_candidates reference table to find official care unit names matching the patient's neurology/stroke/stepdown needs.", "event_indices": [29, 30, 31, 32, 33, 34, 35, 36, 37], "msg_indices": [22, 23, 24, 25, 26, 27, 28], "children": [{"id": "n_0032", "level": 2, "type": "subproblem", "title": "Semantic and keyword search for neuro-related care units", "rationale": "Performing semantic similarity search for neurology/stroke/stepdown units and keyword search for 'neuro' to identify matching candidates.", "event_indices": [29, 30, 31, 32], "msg_indices": [22, 23, 24], "children": [{"id": "n_0033", "level": 3, "type": "tool_call", "title": "ehr_get_candidates_by_semantic_similarity", "tool": "ehr_get_candidates_by_semantic_similarity", "args": {"table_name": "transfers_candidates", "query": ["neurology step-down unit", "neurology ward", "stroke unit", "medicine step-down", "neuro intermediate care"]}, "call_id": "toolu_bdrk_01Hcg2T5r2roWD3u3vE6u8Hj", "observation_summary": "Semantic search for neurology/stroke-related unit queries found top matches: 'Neurology' (0.655 similarity for 'neurology ward'), 'Neuro SICU' (0.540-0.612), and 'Neuro Stepdown' (0.539).", "observation_shape": "text,len=1575", "observation_body": null, "event_indices": [29, 31], "msg_indices": [22, 23], "children": []}, {"id": "n_0034", "level": 3, "type": "tool_call", "title": "ehr_get_candidates_by_keyword", "tool": "ehr_get_candidates_by_keyword", "args": {"table_name": "transfers_candidates", "keyword": "neuro"}, "call_id": "toolu_bdrk_0144YmptWXVUU3pT77AZwBHC", "observation_summary": "Keyword search for 'neuro' returned candidates: Neurology (21), Neuro SICU (25), Neuro Intermediate (29), and Neuro Stepdown (33).", "observation_shape": "text,len=329", "observation_body": null, "event_indices": [30, 32], "msg_indices": [22, 24], "children": []}]}, {"id": "n_0035", "level": 2, "type": "subproblem", "title": "Keyword search for medicine and stepdown care units", "rationale": "Searching for additional candidate units using 'medicine' and 'stepdown' keywords to broaden the list of plausible transfer destinations.", "event_indices": [33, 34, 35, 36], "msg_indices": [25, 26, 27], "children": [{"id": "n_0036", "level": 3, "type": "tool_call", "title": "ehr_get_candidates_by_keyword", "tool": "ehr_get_candidates_by_keyword", "args": {"table_name": "transfers_candidates", "keyword": "medicine"}, "call_id": "toolu_bdrk_01UXUcJ2EE2LPpHfF9azUEiA", "observation_summary": "Keyword search for 'medicine' returned candidates: Medicine/Cardiology (14), Medicine (11), and Medicine/Cardiology Intermediate (19).", "observation_shape": "text,len=203", "observation_body": null, "event_indices": [33, 35], "msg_indices": [25, 26], "children": []}, {"id": "n_0037", "level": 3, "type": "tool_call", "title": "ehr_get_candidates_by_keyword", "tool": "ehr_get_candidates_by_keyword", "args": {"table_name": "transfers_candidates", "keyword": "stepdown"}, "call_id": "toolu_bdrk_01Awd7uCj3S38nJGxBt3BGhS", "observation_summary": "Keyword search for 'stepdown' in transfers candidates returned 'Neuro Stepdown' with similarity score 33.", "observation_shape": "text,len=65", "observation_body": null, "event_indices": [34, 36], "msg_indices": [25, 27], "children": []}]}, {"id": "n_0038", "level": 2, "type": "subproblem", "title": "Reasoning over candidate units for transfer decision", "rationale": "Synthesizing all search results to evaluate which care units are most appropriate given the patient's clinical needs.", "event_indices": [37], "msg_indices": [28], "children": [{"id": "n_0039", "level": 3, "type": "reason", "title": "reasoning note", "rationale": "Now I have a clear picture of the available care units. Let me determine the most appropriate transfer destinations.\n\nAvailable relevant units:\n1. **Neurology** - General neurology floor\n2. **Neuro Stepdown** - Neurology step-down unit (intermediate level monitoring)\n3. **Neuro Intermediate** - Neurology intermediate care\n4. **Neuro Surgical Intensive Care Unit (Neuro SICU)** - Another ICU level (unlikely since stepping down)\n5. **Medicine** - General medicine\n6. **Medicine/Cardiology** - Med/Cards floor\n7. **Medicine/Cardiology Intermediate** - Intermediate cardiac care\n\nThe patient is a neurology medicine (NMED) service patient transferring out of SICU after 2 days. She has:\n- Cerebral infarction (stroke) with small hemorrhage - needs neuro monitoring\n- Afib - needs cardiac monitoring\n- On IV antibiotics, IV levetiracetam\n- Clinically improving: GCS 15, full strength, normal speech now\n- Still has elevated BP requiring management\n- On O2 via nasal cannula\n\nThe most likely transfer destinations:\n1. **Neuro Stepdown** - Most appropriate for a stroke patient stepping down from ICU who needs continued neuro checks and cardiac monitoring\n2. **Neuro Intermediate** - Similar to stepdown, intermediate level of neuro care\n3. **Neurology** - General neurology floor if patient is stable enough\n4. **Medicine/Cardiology Intermediate** - Given Afib history and need for cardiac monitoring\n\nThe patient is on NMED service, so neurology units are most appropriate. Given the complexity (stroke + afib + seizure history + IV meds + elevated BP), a stepdown or intermediate level is most likely rather than a general floor.\n\nMy top picks would be:\n1. Neuro Stepdown\n2. Neuro Intermediate\n3. Neurology (general floor)\n4. Medicine/Cardiology Intermediate (given Afib)", "event_indices": [], "msg_indices": [], "children": []}]}]}, {"id": "n_0040", "level": 1, "type": "subproblem", "title": "Verify severity and finalize transfer decision", "rationale": "Checking discharge details and DRG codes to confirm illness severity, then synthesizing all information to select the most appropriate transfer destinations.", "event_indices": [38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48], "msg_indices": [30, 31, 32, 33, 34, 35, 36, 38], "children": [{"id": "n_0041", "level": 2, "type": "subproblem", "title": "Attempt to retrieve discharge detail and DRG codes via latest records", "rationale": "Initial attempts to get discharge_detail and drgcodes using get_latest_records, which failed due to missing timestamp columns.", "event_indices": [38, 39, 40, 41, 42], "msg_indices": [30, 31, 32], "children": [{"id": "n_0042", "level": 3, "type": "reason", "title": "reasoning note", "rationale": "Let me also check the discharge detail for any additional context about the patient's hospital course.", "event_indices": [], "msg_indices": [], "children": []}, {"id": "n_0043", "level": 3, "type": "tool_call", "title": "ehr_get_latest_records", "tool": "ehr_get_latest_records", "args": {"subject_id": "15577009", "table_name": "discharge_detail"}, "call_id": "toolu_bdrk_015CcHasgZmFzGdT395QUx6P", "observation_summary": "Confirmed that `discharge_detail` has no timestamp column, so latest-records retrieval is not applicable.", "observation_shape": "text,len=93", "observation_body": null, "event_indices": [39, 41], "msg_indices": [30, 31], "children": []}, {"id": "n_0044", "level": 3, "type": "tool_call", "title": "ehr_get_latest_records", "tool": "ehr_get_latest_records", "args": {"subject_id": "15577009", "table_name": "drgcodes"}, "call_id": "toolu_bdrk_01Xzyb4S7179xXCQQDnzgfGo", "observation_summary": "Confirmed that `drgcodes` has no timestamp column, so latest-records retrieval is not applicable.", "observation_shape": "text,len=85", "observation_body": null, "event_indices": [40, 42], "msg_indices": [30, 32], "children": []}]}, {"id": "n_0045", "level": 2, "type": "subproblem", "title": "SQL query retrieval of discharge detail and DRG codes", "rationale": "Successful SQL queries to retrieve discharge_detail and drgcodes tables, returning DRG severity and diagnosis information.", "event_indices": [43, 44, 45, 46], "msg_indices": [33, 34, 35], "children": [{"id": "n_0046", "level": 3, "type": "tool_call", "title": "ehr_run_sql_query", "tool": "ehr_run_sql_query", "args": {"subject_id": "15577009", "sql_query": "SELECT * FROM discharge_detail"}, "call_id": "toolu_bdrk_01AGZCAVkPeAGBJjnn6ci7sX", "observation_summary": "Discharge detail table only contains a single row with the author field redacted, providing no clinical content.", "observation_shape": "text,len=123", "observation_body": null, "event_indices": [43, 45], "msg_indices": [33, 34], "children": []}, {"id": "n_0047", "level": 3, "type": "tool_call", "title": "ehr_run_sql_query", "tool": "ehr_run_sql_query", "args": {"subject_id": "15577009", "sql_query": "SELECT * FROM drgcodes"}, "call_id": "toolu_bdrk_017EW8zdVHUvQGKdEr6AQnF8", "observation_summary": "Patient had DRG codes indicating CVA/precerebral occlusion with infarct (APR severity 4, mortality 4) and intracranial hemorrhage/cerebral infarction with MCC.", "observation_shape": "text,len=353", "observation_body": null, "event_indices": [44, 46], "msg_indices": [33, 35], "children": []}]}, {"id": "n_0048", "level": 2, "type": "subproblem", "title": "Synthesize severity findings and submit final transfer decision", "rationale": "Interpreting DRG severity scores and clinical context to determine appropriate transfer destinations and submitting the final answer.", "event_indices": [47, 48], "msg_indices": [36, 38], "children": [{"id": "n_0049", "level": 3, "type": "reason", "title": "reasoning note", "rationale": "The DRG codes confirm:\n- APR-DRG 45: CVA & Precerebral Occlusion with Infarct, Severity 4/4, Mortality 4/4 (highest severity)\n- HCFA/MS-DRG 64: Intracranial Hemorrhage or Cerebral Infarction with MCC (Major Complications/Comorbidities)\n\nThis is a very high severity case. The patient has:\n- Cerebral infarction with hemorrhagic component\n- Major complications (afib, seizure, pneumonia, diabetes)\n- Severity 4/4 and Mortality risk 4/4\n\nDespite clinical improvement (GCS 15, neurologically stable), the high severity and need for continued monitoring suggests a stepdown/intermediate unit rather than a general floor.\n\nGiven the neurology service and stroke diagnosis, the top destinations are:\n1. **Neuro Stepdown** - Most likely for SICU step-down of a complex stroke patient\n2. **Neuro Intermediate** - Similar intermediate-level neurology care\n3. **Neurology** - General neurology floor (less likely given severity but possible)\n4. **Medicine/Cardiology Intermediate** - Possible given Afib and need for cardiac monitoring", "event_indices": [], "msg_indices": [], "children": []}, {"id": "n_0050", "level": 3, "type": "finish", "title": "finish", "answer": ["Neuro Stepdown", "Neuro Intermediate", "Neurology", "Medicine/Cardiology Intermediate"], "event_indices": [48], "msg_indices": [38], "children": []}]}]}]};</script>
+<script>
+(function() {
+  const DATA = window.__TREE__;
+  const NODES = [];
+  const EDGES = [];
+
+  // Assign stable numeric ids and collapsed flags
+  let nid = 0;
+  function walk(n, parent) {
+    n.__nid = nid++;
+    n.__parent = parent ? parent.__nid : null;
+    n.__collapsed = false;
+    (n.children || []).forEach(c => walk(c, n));
+  }
+  walk(DATA, null);
+
+  // ── Layout (simple Reingold-Tilford: leaves get consecutive y slots,
+  //          internal nodes sit at the midpoint of their children's y) ───
+  const DX = 60;   // vertical step per leaf slot
+  const DY = 270;  // horizontal step per depth level
+  const NODE_W = 240, NODE_H = 54;
+
+  function layout(root) {
+    let leafSlot = 0;
+    function visit(n, depth) {
+      n.__depth = depth;
+      const kids = (n.__collapsed ? [] : (n.children || []));
+      if (kids.length === 0) {
+        n.__y = leafSlot * DX;
+        leafSlot++;
+      } else {
+        kids.forEach(c => visit(c, depth + 1));
+        const ys = kids.map(c => c.__y);
+        n.__y = (Math.min.apply(null, ys) + Math.max.apply(null, ys)) / 2;
+      }
+      n.__x = depth * DY;
+    }
+    visit(root, 0);
+  }
+
+  function flatten(root) {
+    NODES.length = 0; EDGES.length = 0;
+    function rec(n) {
+      NODES.push(n);
+      const kids = (n.__collapsed ? [] : (n.children || []));
+      kids.forEach(c => { EDGES.push([n, c]); rec(c); });
+    }
+    rec(root);
+  }
+
+  // ── Labels ────────────────────────────────────────────────────────────
+  function shortTitle(n) {
+    const t = n.type;
+    if (t === "root") return "ROOT";
+    if (t === "subproblem") return (n.title || "").trim();
+    if (t === "tool_call")  return (n.tool || "tool");
+    if (t === "reason")     return "reason";
+    if (t === "finish")     return "FINISH";
+    return t;
+  }
+  function subLabel(n) {
+    const t = n.type;
+    if (t === "root") return (n.title || "").trim();
+    if (t === "subproblem") return (n.rationale || "").trim();
+    if (t === "tool_call")  return (n.observation_summary || "").trim();
+    if (t === "reason")     return (n.rationale || "").trim();
+    if (t === "finish") {
+      const a = n.answer;
+      if (a == null) return "";
+      const s = typeof a === "string" ? a : JSON.stringify(a);
+      return s;
+    }
+    return "";
+  }
+  function truncate(s, n) {
+    s = (s || "").replace(/\s+/g, " ");
+    return s.length > n ? s.slice(0, n - 1) + "…" : s;
+  }
+  function countHiddenDescendants(n) {
+    if (!n.__collapsed) return 0;
+    let c = 0;
+    function rec(x) {
+      (x.children || []).forEach(k => { c++; rec(k); });
+    }
+    rec(n);
+    return c;
+  }
+
+  // ── Render ────────────────────────────────────────────────────────────
+  const svg = document.getElementById("canvas");
+  const viewport = document.getElementById("viewport");
+  let selectedNid = null;
+
+  function render() {
+    layout(DATA);
+    flatten(DATA);
+    viewport.innerHTML = "";
+
+    // Compute bounding box
+    const xs = NODES.map(n => n.__x);
+    const ys = NODES.map(n => n.__y);
+    const xmin = Math.min.apply(null, xs), xmax = Math.max.apply(null, xs);
+    const ymin = Math.min.apply(null, ys), ymax = Math.max.apply(null, ys);
+    const W = (xmax - xmin) + NODE_W + 40;
+    const H = (ymax - ymin) + NODE_H + 40;
+    // Re-base so everything starts at (20, 20)
+    const ox = 20 - xmin, oy = 20 - ymin;
+
+    // Edges
+    for (const [p, c] of EDGES) {
+      const x1 = p.__x + ox + NODE_W;
+      const y1 = p.__y + oy + NODE_H / 2;
+      const x2 = c.__x + ox;
+      const y2 = c.__y + oy + NODE_H / 2;
+      const mx = (x1 + x2) / 2;
+      const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      path.setAttribute("class", "link");
+      path.setAttribute("d", `M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`);
+      viewport.appendChild(path);
+    }
+
+    // Nodes
+    for (const n of NODES) {
+      const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+      g.setAttribute("class",
+        `node type-${n.type}` +
+        (n.__collapsed ? " has-hidden" : "") +
+        (n.__nid === selectedNid ? " selected" : ""));
+      g.setAttribute("transform",
+        `translate(${n.__x + ox}, ${n.__y + oy})`);
+      g.setAttribute("data-nid", n.__nid);
+
+      const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+      rect.setAttribute("width", NODE_W);
+      rect.setAttribute("height", NODE_H);
+      rect.setAttribute("rx", 4);
+      g.appendChild(rect);
+
+      // Left colored bar
+      const bar = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+      bar.setAttribute("class", "bar");
+      bar.setAttribute("width", 5);
+      bar.setAttribute("height", NODE_H);
+      bar.setAttribute("rx", 2);
+      g.appendChild(bar);
+
+      // Main label (row 1)
+      const t1 = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      t1.setAttribute("x", 12);
+      t1.setAttribute("y", 16);
+      t1.setAttribute("font-weight", "600");
+      t1.textContent = truncate(shortTitle(n), 32);
+      g.appendChild(t1);
+
+      // Sub label (row 2) — full width, no overlap
+      const t2 = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      t2.setAttribute("x", 12);
+      t2.setAttribute("y", 32);
+      t2.setAttribute("fill", "#6b7280");
+      t2.textContent = truncate(subLabel(n), 38);
+      g.appendChild(t2);
+
+      // Footer row (row 3): event range left-aligned, hidden-count badge right
+      if (n.event_indices && n.event_indices.length) {
+        const ev = n.event_indices;
+        const er = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        er.setAttribute("x", 12);
+        er.setAttribute("y", 47);
+        er.setAttribute("fill", "#9ca3af");
+        er.setAttribute("font-size", "10");
+        er.textContent = ev.length === 1
+          ? `E${String(ev[0]).padStart(3,"0")}`
+          : `E${String(ev[0]).padStart(3,"0")}–E${String(ev[ev.length-1]).padStart(3,"0")}`;
+        g.appendChild(er);
+      }
+      if (n.__collapsed) {
+        const hc = countHiddenDescendants(n);
+        const tb = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        tb.setAttribute("class", "collapsed-badge");
+        tb.setAttribute("x", NODE_W - 10);
+        tb.setAttribute("y", 47);
+        tb.setAttribute("text-anchor", "end");
+        tb.setAttribute("font-size", "10");
+        tb.textContent = `+${hc} hidden`;
+        g.appendChild(tb);
+      }
+
+      g.addEventListener("click", ev => {
+        ev.stopPropagation();
+        if (ev.shiftKey || ev.detail === 2) {
+          // Shift+click or double-click: toggle collapse (only if has children)
+          if (n.children && n.children.length) {
+            n.__collapsed = !n.__collapsed;
+            render();
+          }
+          return;
+        }
+        selectedNid = n.__nid;
+        renderSidebar(n);
+        render();
+      });
+      viewport.appendChild(g);
+    }
+
+    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+    svg.__bbox = { W, H };
+  }
+
+  // ── Sidebar ───────────────────────────────────────────────────────────
+  const sidebarBody = document.getElementById("sidebar-body");
+  const sidebarTab = document.getElementById("sidebar-tab-title");
+
+  function h(tag, attrs, children) {
+    const e = document.createElement(tag);
+    for (const k in (attrs || {})) {
+      if (k === "class") e.className = attrs[k];
+      else if (k === "html") e.innerHTML = attrs[k];
+      else e.setAttribute(k, attrs[k]);
+    }
+    (children || []).forEach(c => {
+      if (typeof c === "string") e.appendChild(document.createTextNode(c));
+      else if (c) e.appendChild(c);
+    });
+    return e;
+  }
+  function pretty(v) {
+    if (v == null) return "";
+    if (typeof v === "string") return v;
+    try { return JSON.stringify(v, null, 2); }
+    catch (e) { return String(v); }
+  }
+  function renderSidebar(n) {
+    sidebarTab.innerHTML = "";
+    sidebarTab.appendChild(h("span", {}, [
+      h("span", {class: `badge badge-${n.type}`}, [n.type.toUpperCase()]),
+      " ",
+      (n.id || "")
+    ]));
+    const body = sidebarBody;
+    body.innerHTML = "";
+
+    // Title
+    body.appendChild(h("h2", {}, [shortTitle(n) || n.type]));
+    if (n.type === "subproblem" && n.title) {
+      body.appendChild(h("div", {class: "kv"}, [n.title]));
+    }
+    if (n.type === "root" && n.title) {
+      body.appendChild(h("div", {class: "kv"}, [n.title]));
+    }
+
+    // Rationale
+    if (n.rationale) {
+      body.appendChild(h("span", {class: "label"}, ["rationale"]));
+      body.appendChild(h("div", {class: "kv"}, [n.rationale]));
+    }
+
+    // Event / msg references
+    const meta = [];
+    if (n.level !== undefined) meta.push(`level=${n.level}`);
+    if (n.event_indices && n.event_indices.length)
+      meta.push(`events=${n.event_indices.join(",")}`);
+    if (n.msg_indices && n.msg_indices.length)
+      meta.push(`messages=${n.msg_indices.join(",")}`);
+    if ((n.children || []).length)
+      meta.push(`children=${n.children.length}`);
+    if (meta.length) {
+      body.appendChild(h("span", {class: "label"}, ["metadata"]));
+      body.appendChild(h("div", {class: "kv"}, [meta.join(" · ")]));
+    }
+
+    if (n.type === "root") {
+      if (n.root_task) {
+        body.appendChild(h("span", {class: "label"}, ["root task"]));
+        body.appendChild(h("pre", {}, [n.root_task]));
+      }
+    }
+    if (n.type === "tool_call") {
+      body.appendChild(h("span", {class: "label"}, ["tool"]));
+      body.appendChild(h("div", {class: "kv"}, [n.tool || ""]));
+      body.appendChild(h("span", {class: "label"}, ["arguments"]));
+      body.appendChild(h("pre", {}, [pretty(n.args)]));
+      if (n.call_id) {
+        body.appendChild(h("span", {class: "label"}, ["call id"]));
+        body.appendChild(h("div", {class: "kv"}, [n.call_id]));
+      }
+      body.appendChild(h("span", {class: "label"}, ["observation shape"]));
+      body.appendChild(h("div", {class: "kv"}, [n.observation_shape || "—"]));
+      body.appendChild(h("span", {class: "label"}, ["observation summary"]));
+      body.appendChild(h("div", {class: "kv"},
+        [n.observation_summary || "(no summary)"]));
+    }
+    if (n.type === "reason") {
+      body.appendChild(h("span", {class: "label"}, ["reasoning text"]));
+      body.appendChild(h("pre", {}, [n.rationale || ""]));
+    }
+    if (n.type === "finish") {
+      body.appendChild(h("span", {class: "label"}, ["final answer"]));
+      body.appendChild(h("pre", {}, [pretty(n.answer)]));
+    }
+  }
+  function resetSidebar() {
+    sidebarTab.textContent = "Details";
+    sidebarBody.innerHTML =
+      '<div class="placeholder">Click a node to see details. ' +
+      'Shift+click or double-click a node to collapse/expand its subtree.</div>';
+  }
+  resetSidebar();
+
+  // ── Zoom & pan ────────────────────────────────────────────────────────
+  let tx = 0, ty = 0, scale = 1;
+  function applyTransform() {
+    viewport.setAttribute("transform",
+      `translate(${tx}, ${ty}) scale(${scale})`);
+  }
+  function fit() {
+    const bbox = svg.__bbox;
+    if (!bbox) return;
+    const cw = svg.clientWidth, ch = svg.clientHeight;
+    const sx = cw / bbox.W, sy = ch / bbox.H;
+    scale = Math.min(sx, sy, 1.0);
+    tx = (cw - bbox.W * scale) / 2;
+    ty = (ch - bbox.H * scale) / 2;
+    applyTransform();
+  }
+  svg.addEventListener("wheel", ev => {
+    ev.preventDefault();
+    const r = svg.getBoundingClientRect();
+    const mx = ev.clientX - r.left, my = ev.clientY - r.top;
+    const wx = (mx - tx) / scale, wy = (my - ty) / scale;
+    const k = ev.deltaY < 0 ? 1.12 : 1 / 1.12;
+    scale = Math.max(0.15, Math.min(3.0, scale * k));
+    tx = mx - wx * scale;
+    ty = my - wy * scale;
+    applyTransform();
+  }, { passive: false });
+
+  let dragging = false, dragStart = null;
+  svg.addEventListener("mousedown", ev => {
+    if (ev.target.closest(".node")) return;
+    dragging = true; svg.classList.add("dragging");
+    dragStart = { x: ev.clientX - tx, y: ev.clientY - ty };
+  });
+  document.addEventListener("mousemove", ev => {
+    if (!dragging) return;
+    tx = ev.clientX - dragStart.x;
+    ty = ev.clientY - dragStart.y;
+    applyTransform();
+  });
+  document.addEventListener("mouseup", () => {
+    dragging = false; svg.classList.remove("dragging");
+  });
+
+  // Controls
+  document.getElementById("ctl-fit").addEventListener("click", fit);
+  document.getElementById("ctl-zoom-in").addEventListener("click", () => {
+    scale = Math.min(3.0, scale * 1.25); applyTransform();
+  });
+  document.getElementById("ctl-zoom-out").addEventListener("click", () => {
+    scale = Math.max(0.15, scale / 1.25); applyTransform();
+  });
+  document.getElementById("ctl-expand-all").addEventListener("click", () => {
+    function rec(n) { n.__collapsed = false; (n.children||[]).forEach(rec); }
+    rec(DATA); render(); fit();
+  });
+  document.getElementById("ctl-collapse-deep").addEventListener("click", () => {
+    // Collapse at depth 2 (keep root + level-1 subproblems expanded)
+    function rec(n, d) {
+      n.__collapsed = (d >= 2 && (n.children||[]).length > 0);
+      (n.children||[]).forEach(c => rec(c, d + 1));
+    }
+    rec(DATA, 0); render(); fit();
+  });
+
+  render();
+  // Initial fit after DOM has laid out
+  requestAnimationFrame(fit);
+})();
+</script>
+</div>
+</body>
+</html>

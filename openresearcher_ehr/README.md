@@ -39,6 +39,22 @@ Web Search/Scrape         MCP Server → Patient EHR DB
 - `ehr.get_candidates_by_semantic_similarity`: Search medical codes
 - `ehr.retrieve_pubmed`: Search PubMed literature
 
+**Multimodal / Image Tools** (6 tools, served by a separate MCP server):
+- `image.image_visualizer`: Render a CXR / image with optional title + caption.
+- `image.dicom_processor`: Read DICOM, apply windowing, return a PNG artifact.
+- `image.chest_xray_classifier`: 18-pathology probabilities (torchxrayvision DenseNet).
+- `image.chest_xray_report_generator`: FINDINGS + IMPRESSION narrative.
+- `image.xray_phrase_grounding`: Phrase grounding / region localization on a CXR.
+- `image.chest_xray_segmentation`: Segment 14 anatomical structures (PSPNet).
+
+The image tools live under [`src/mcp_image/`](../src/mcp_image) and are served
+by **a separate MCP server** (default `http://127.0.0.1:5203/mcp`), started via
+`src/mcp_image/run_image_mcp_server.py`. The multimodal driver is
+[`deploy_agent_mm.py`](deploy_agent_mm.py); tool schemas + system prompt are in
+[`data_utils_mm.py`](data_utils_mm.py); the MCP client that the driver uses is
+[`image_pool.py`](image_pool.py). Launch the whole pipeline (EHR MCP :5103 +
+image MCP :5203 + driver) with [`run_mm_pipeline.sh`](run_mm_pipeline.sh).
+
 ## Prerequisites
 
 ### 1. Dependencies
@@ -67,6 +83,34 @@ python src/run_mcp_server.py \
     --port 5003 \
     --data_path ../data/AgentEHR-Bench/MIMICIVAgentBench
 ```
+
+### 2b. Multimodal (image) MCP Server — *only for MM runs*
+
+All `image.*` tools (CXR classifier / report generator / segmentation / phrase
+grounding / DICOM / visualizer) are served by a **separate** MCP server under
+[`src/mcp_image/`](../src/mcp_image). Start it with:
+
+```bash
+# Uses venvs/mcp_image (fastmcp + torchxrayvision). Default port: 5203
+cd /fsx-shared/juncheng/EHR
+/fsx-shared/juncheng/EHR/venvs/mcp_image/bin/python src/mcp_image/run_image_mcp_server.py \
+    --mode http \
+    --host 127.0.0.1 \
+    --port 5203 \
+    --bench-root /fsx-shared/juncheng/EHR/data/EHR_multimodal_bench
+```
+
+Then point the MM driver at both MCPs:
+
+```bash
+python deploy_agent_mm.py \
+    --enable_ehr   --ehr_mcp_url   http://127.0.0.1:5003/mcp \
+    --enable_image --image_mcp_url http://127.0.0.1:5203/mcp \
+    ...
+```
+
+See [`run_mm_pipeline.sh`](run_mm_pipeline.sh) for a one-shot launcher that
+starts both servers and runs the driver end-to-end.
 
 ### 3. Search Backend (Optional)
 
@@ -300,10 +344,16 @@ The prompt is defined in `data_utils.py` as `DEVELOPER_CONTENT_CLAUDE`.
 ```
 openresearcher_ehr/
 ├── README.md                    # This file
-├── deploy_agent.py              # Main orchestrator
-├── data_utils.py                # Tool schemas and prompts
-├── ehr_pool.py                  # EHR tool pool (MCP client)
+├── deploy_agent.py              # Text-only orchestrator (browser + EHR)
+├── data_utils.py                # Tool schemas and prompts (text-only)
+├── ehr_pool.py                  # EHR tool pool (MCP client, :5003 / :5103)
 ├── browser.py                   # Browser tool implementation
+│
+├── deploy_agent_mm.py           # Multimodal orchestrator (browser + EHR + image)
+├── data_utils_mm.py             # Tool schemas + system prompt (adds image.*)
+├── image_pool.py                # Image tool pool (MCP client, :5203)
+├── run_mm.sh / run_mm_pipeline.sh  # Launch MM pipeline (both MCPs + driver)
+│
 ├── test_integration.sh          # Test script
 ├── test_queries_ehr.jsonl       # EHR test queries
 ├── test_queries_hybrid.jsonl    # Hybrid test queries
@@ -311,15 +361,28 @@ openresearcher_ehr/
 └── test_results/                # Output directory
 ```
 
+The image-tool implementations themselves live **outside** this folder, under
+[`../src/mcp_image/`](../src/mcp_image) — served by its own FastMCP app
+([`fastmcp_app.py`](../src/mcp_image/fastmcp_app.py)) and launcher
+([`run_image_mcp_server.py`](../src/mcp_image/run_image_mcp_server.py)).
+
 ## Integration with Main EHR System
 
-This system uses the same EHR MCP server as the main AgentEHR benchmark:
+This system uses the same EHR MCP server as the main AgentEHR benchmark, plus
+a separate **image MCP server** for CXR/DICOM tools:
 
-- **MCP Server**: `/fsx-shared/juncheng/EHR/src/run_mcp_server.py`
-- **MCP Tools**: `/fsx-shared/juncheng/EHR/src/agentlite/mcp_tools/`
-- **Data**: `data/AgentEHR-Bench/MIMICIVAgentBench/`
+- **EHR MCP server**: `/fsx-shared/juncheng/EHR/src/run_mcp_server.py`
+  (EHR tools at `/fsx-shared/juncheng/EHR/src/agentlite/mcp_tools/`)
+- **Image MCP server**: `/fsx-shared/juncheng/EHR/src/mcp_image/run_image_mcp_server.py`
+  (image tools at `/fsx-shared/juncheng/EHR/src/mcp_image/tools/` — one file
+  per `image.*` tool: `chest_xray_classifier.py`, `chest_xray_report_generator.py`,
+  `chest_xray_segmentation.py`, `xray_phrase_grounding.py`, `dicom_processor.py`,
+  `image_visualizer.py`)
+- **EHR data**: `data/AgentEHR-Bench/MIMICIVAgentBench/`
+- **MM data**: `data/EHR_multimodal_bench/` (chest X-rays + reports)
 
-No modifications are needed to the original EHR system.
+No modifications are needed to the original EHR system; the image MCP server
+is a separate process (see §2b above for how to launch it).
 
 ## Future Enhancements
 

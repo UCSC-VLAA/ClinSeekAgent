@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>labevents_13599990 — labevents — claude_opus_4_6</title>
+<style>
+:root {
+  --border: #d1d5db;
+  --muted: #6b7280;
+  --text: #111827;
+  --bg: #fafafa;
+  --panel: #ffffff;
+  --link: #9ca3af;
+  --link-dim: #e5e7eb;
+  --root: #1e40af;
+  --sub:  #3b82f6;
+  --tool: #10b981;
+  --reason: #f59e0b;
+  --finish: #ec4899;
+  --selected: #111827;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+               "Helvetica Neue", Arial, sans-serif;
+  background: var(--bg); color: var(--text); font-size: 13px;
+}
+.header {
+  padding: 10px 16px; border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+.header h1 { margin: 0; font-size: 15px; font-weight: 600; }
+.header .meta { margin-top: 2px; color: var(--muted); font-size: 11px; }
+.header .meta span { margin-right: 14px; }
+.outcome {
+  margin-top: 6px; border: 1px solid var(--border); border-radius: 3px;
+  background: var(--bg);
+}
+.outcome > summary {
+  list-style: none; cursor: pointer; padding: 3px 8px;
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  font-size: 11px;
+}
+.outcome > summary::-webkit-details-marker { display: none; }
+.outcome > summary::before {
+  content: "▸"; color: var(--muted); width: 9px; font-size: 10px;
+  transition: transform .12s; display: inline-block;
+}
+.outcome[open] > summary::before { transform: rotate(90deg); }
+.outcome .pill {
+  display: inline-block; font-size: 10px; padding: 1px 6px;
+  border-radius: 8px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.pill.f1-high { background: #d1fae5; color: #065f46; }
+.pill.f1-mid  { background: #fef3c7; color: #92400e; }
+.pill.f1-low  { background: #fee2e2; color: #991b1b; }
+.pill.metric  { background: #e5e7eb; color: #374151; }
+.outcome-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
+  padding: 2px 8px 8px 8px;
+}
+.outcome-grid .col {
+  border: 1px solid var(--border); border-radius: 3px; background: var(--panel);
+  padding: 4px 8px; min-height: 0; max-height: 140px; overflow: auto;
+}
+.outcome-grid h3 {
+  margin: 0 0 3px 0; font-size: 10px; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .04em;
+}
+.outcome-grid ul { margin: 0; padding-left: 16px; }
+.outcome-grid li {
+  font-size: 11.5px; padding: 0; line-height: 1.35; word-break: break-word;
+}
+.outcome-grid li.hit     { color: #065f46; }
+.outcome-grid li.missing { color: #991b1b; }
+.outcome-grid li.extra   { color: #92400e; }
+.outcome-grid li .marker { display: inline-block; width: 14px; }
+.outcome-grid li.hit .marker     { color: #10b981; }
+.outcome-grid li.missing .marker { color: #ef4444; }
+.outcome-grid li.extra .marker   { color: #f59e0b; }
+.outcome-grid .empty { color: var(--muted); font-style: italic; font-size: 12px; }
+.app {
+  display: flex; flex: 1; min-height: 0;
+}
+.page {
+  display: flex; flex-direction: column; height: 100%;
+}
+.canvas-wrap {
+  flex: 1; position: relative; overflow: hidden; background: var(--bg);
+}
+#canvas { width: 100%; height: 100%; cursor: grab; user-select: none; }
+#canvas.dragging { cursor: grabbing; }
+
+.controls {
+  position: absolute; top: 8px; left: 8px; z-index: 10;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 4px;
+  padding: 4px; display: flex; gap: 2px; box-shadow: 0 1px 2px rgba(0,0,0,.06);
+}
+.controls button {
+  font: inherit; font-size: 11px; padding: 3px 8px; cursor: pointer;
+  background: white; border: 1px solid var(--border); border-radius: 3px;
+}
+.controls button:hover { background: #f3f4f6; }
+.legend {
+  position: absolute; bottom: 8px; left: 8px; z-index: 10;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 4px;
+  padding: 6px 10px; font-size: 11px; color: var(--muted);
+  display: flex; gap: 12px; box-shadow: 0 1px 2px rgba(0,0,0,.06);
+}
+.legend .swatch {
+  display: inline-block; width: 10px; height: 10px; border-radius: 2px;
+  vertical-align: middle; margin-right: 4px;
+}
+
+/* Nodes */
+.node rect {
+  stroke: var(--border); stroke-width: 1;
+  fill: var(--panel); cursor: pointer;
+}
+.node text {
+  pointer-events: none; font-size: 11px; fill: var(--text);
+}
+.node .bar {
+  stroke: none;
+}
+.node.type-root   .bar { fill: var(--root);   }
+.node.type-subproblem .bar { fill: var(--sub); }
+.node.type-tool_call  .bar { fill: var(--tool); }
+.node.type-reason .bar { fill: var(--reason); }
+.node.type-finish .bar { fill: var(--finish); }
+
+.node.has-hidden rect { stroke-dasharray: 3 3; }
+.node.selected rect { stroke: var(--selected); stroke-width: 2; }
+
+.node .collapsed-badge {
+  fill: var(--text); font-size: 10px; font-weight: 600;
+}
+
+.link {
+  fill: none; stroke: var(--link); stroke-width: 1;
+}
+.link.dim { stroke: var(--link-dim); }
+
+/* Sidebar */
+.sidebar {
+  width: 420px; min-width: 320px; border-left: 1px solid var(--border);
+  background: var(--panel); display: flex; flex-direction: column;
+  flex-shrink: 0;
+}
+.sidebar .tab {
+  padding: 8px 12px; border-bottom: 1px solid var(--border);
+  font-weight: 600; font-size: 12px; display: flex; justify-content: space-between;
+  align-items: center;
+}
+.sidebar .body {
+  padding: 10px 14px; overflow-y: auto; flex: 1; line-height: 1.5;
+}
+.sidebar .placeholder { color: var(--muted); font-style: italic; }
+.sidebar h2 {
+  font-size: 13px; margin: 12px 0 4px 0; color: #374151;
+}
+.sidebar h2:first-child { margin-top: 0; }
+.sidebar .kv { margin: 4px 0; font-size: 12px; }
+.sidebar .label {
+  color: var(--muted); font-size: 10px; text-transform: uppercase;
+  letter-spacing: .04em; display: block; margin-top: 8px;
+}
+.sidebar pre {
+  margin: 4px 0; padding: 8px 10px; background: #f3f4f6; border-radius: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px; white-space: pre-wrap; word-break: break-word;
+  max-height: 40vh; overflow: auto;
+}
+.sidebar .badge {
+  display: inline-block; font-size: 10px; padding: 1px 6px;
+  border-radius: 10px; color: white; margin-right: 4px;
+  text-transform: uppercase; letter-spacing: .04em;
+}
+.badge-root   { background: var(--root); }
+.badge-subproblem { background: var(--sub); }
+.badge-tool_call  { background: var(--tool); }
+.badge-reason { background: var(--reason); }
+.badge-finish { background: var(--finish); }
+</style>
+</head>
+<body>
+<div class="page">
+<div class="header">
+  <h1>labevents_13599990</h1>
+  <div class="meta">
+    <span><strong>task:</strong> labevents</span>
+    <span><strong>model:</strong> claude_opus_4_6</span>
+    <span><strong>status:</strong> success</span>
+    <span><strong>events:</strong> 71</span>
+    <span><strong>nodes:</strong> 78</span>
+    <span><strong>depth:</strong> 4</span>
+    <span><span class="pill f1-low">F1 0.03</span></span>
+  </div>
+  <details class="outcome">
+  <summary><strong>Outcome</strong><span class="pill f1-low">F1 0.03</span><span class="pill metric">P 0.01</span><span class="pill metric">R 0.25</span><span class="pill metric">1 hit · 3 miss · 74 extra</span></summary>
+  <div class="outcome-grid">
+    <div class="col">
+      <h3>Gold label · 4 item(s)</h3>
+      <ul><li class="hit"><span class="marker">✓</span>C-Reactive Protein</li><li class="missing"><span class="marker">✗</span>H</li><li class="missing"><span class="marker">✗</span>I</li><li class="missing"><span class="marker">✗</span>L</li></ul>
+    </div>
+    <div class="col">
+      <h3>Prediction · 75 item(s)</h3>
+      <ul><li class="extra"><span class="marker">+</span>% Hemoglobin A1c</li><li class="extra"><span class="marker">+</span>25-OH Vitamin D</li><li class="extra"><span class="marker">+</span>Absolute Lymphocyte Count</li><li class="extra"><span class="marker">+</span>Alanine Aminotransferase (ALT)</li><li class="extra"><span class="marker">+</span>Albumin</li><li class="extra"><span class="marker">+</span>Alkaline Phosphatase</li><li class="extra"><span class="marker">+</span>Anion Gap</li><li class="extra"><span class="marker">+</span>Anti-Thyroglobulin Antibodies</li><li class="extra"><span class="marker">+</span>Anticardiolipin Antibody IgG</li><li class="extra"><span class="marker">+</span>Anticardiolipin Antibody IgM</li><li class="extra"><span class="marker">+</span>Antithrombin III</li><li class="extra"><span class="marker">+</span>Asparate Aminotransferase (AST)</li><li class="extra"><span class="marker">+</span>Basophils</li><li class="extra"><span class="marker">+</span>Bicarbonate</li><li class="extra"><span class="marker">+</span>Bilirubin, Direct</li><li class="extra"><span class="marker">+</span>Bilirubin, Total</li><li class="hit"><span class="marker">✓</span>C-Reactive Protein</li><li class="extra"><span class="marker">+</span>Calcium, Total</li><li class="extra"><span class="marker">+</span>Chloride</li><li class="extra"><span class="marker">+</span>Cholesterol, HDL</li><li class="extra"><span class="marker">+</span>Cholesterol, LDL, Calculated</li><li class="extra"><span class="marker">+</span>Cholesterol, Total</li><li class="extra"><span class="marker">+</span>Creatinine</li><li class="extra"><span class="marker">+</span>D-Dimer</li><li class="extra"><span class="marker">+</span>Eosinophils</li><li class="extra"><span class="marker">+</span>Estimated GFR (MDRD equation)</li><li class="extra"><span class="marker">+</span>Ferritin</li><li class="extra"><span class="marker">+</span>Fibrinogen</li><li class="extra"><span class="marker">+</span>Folate</li><li class="extra"><span class="marker">+</span>Free Calcium</li><li class="extra"><span class="marker">+</span>Gamma Glutamyltransferase</li><li class="extra"><span class="marker">+</span>Glucose</li><li class="extra"><span class="marker">+</span>Hematocrit</li><li class="extra"><span class="marker">+</span>Hemoglobin</li><li class="extra"><span class="marker">+</span>Homocysteine</li><li class="extra"><span class="marker">+</span>Immunoglobulin A</li><li class="extra"><span class="marker">+</span>INR(PT)</li><li class="extra"><span class="marker">+</span>Iron</li><li class="extra"><span class="marker">+</span>Iron Binding Capacity, Total</li><li class="extra"><span class="marker">+</span>Lactate Dehydrogenase (LD)</li><li class="extra"><span class="marker">+</span>Lipase</li><li class="extra"><span class="marker">+</span>Lupus Anticoagulant</li><li class="extra"><span class="marker">+</span>Lymphocytes</li><li class="extra"><span class="marker">+</span>Magnesium</li><li class="extra"><span class="marker">+</span>MCH</li><li class="extra"><span class="marker">+</span>MCHC</li><li class="extra"><span class="marker">+</span>MCV</li><li class="extra"><span class="marker">+</span>Monocytes</li><li class="extra"><span class="marker">+</span>Neutrophils</li><li class="extra"><span class="marker">+</span>Parathyroid Hormone</li><li class="extra"><span class="marker">+</span>Phosphate</li><li class="extra"><span class="marker">+</span>Platelet Count</li><li class="extra"><span class="marker">+</span>Potassium</li><li class="extra"><span class="marker">+</span>Protein C, Functional</li><li class="extra"><span class="marker">+</span>Protein S, Functional</li><li class="extra"><span class="marker">+</span>Protein, Total</li><li class="extra"><span class="marker">+</span>PT</li><li class="extra"><span class="marker">+</span>PTT</li><li class="extra"><span class="marker">+</span>RDW</li><li class="extra"><span class="marker">+</span>Red Blood Cells</li><li class="extra"><span class="marker">+</span>Sedimentation Rate</li><li class="extra"><span class="marker">+</span>Sodium</li><li class="extra"><span class="marker">+</span>Thyroglobulin</li><li class="extra"><span class="marker">+</span>Thyroid Stimulating Hormone</li><li class="extra"><span class="marker">+</span>Thyroxine (T4)</li><li class="extra"><span class="marker">+</span>Thyroxine (T4), Free</li><li class="extra"><span class="marker">+</span>Tissue Transglutaminase Ab, IgA</li><li class="extra"><span class="marker">+</span>Transferrin</li><li class="extra"><span class="marker">+</span>Transferrin Saturation</li><li class="extra"><span class="marker">+</span>Triglycerides</li><li class="extra"><span class="marker">+</span>Triiodothyronine (T3)</li><li class="extra"><span class="marker">+</span>Urea Nitrogen</li><li class="extra"><span class="marker">+</span>Uric Acid</li><li class="extra"><span class="marker">+</span>Vitamin B12</li><li class="extra"><span class="marker">+</span>White Blood Cells</li></ul>
+    </div>
+  </div>
+</details>
+</div>
+<div class="app">
+  <div class="canvas-wrap">
+    <div class="controls">
+      <button id="ctl-fit" title="Fit to window">Fit</button>
+      <button id="ctl-zoom-in">+</button>
+      <button id="ctl-zoom-out">−</button>
+      <button id="ctl-expand-all" title="Expand every node">Expand all</button>
+      <button id="ctl-collapse-deep" title="Collapse everything below depth 2">
+        Collapse deep
+      </button>
+    </div>
+    <div class="legend">
+      <span><span class="swatch" style="background:var(--root)"></span>root</span>
+      <span><span class="swatch" style="background:var(--sub)"></span>subproblem</span>
+      <span><span class="swatch" style="background:var(--tool)"></span>tool call</span>
+      <span><span class="swatch" style="background:var(--reason)"></span>reason</span>
+      <span><span class="swatch" style="background:var(--finish)"></span>finish</span>
+      <span style="color:#9ca3af">· drag to pan · wheel to zoom · click node for details · shift+click or double-click to collapse</span>
+    </div>
+    <svg id="canvas"><g id="viewport"></g></svg>
+  </div>
+  <div class="sidebar">
+    <div class="tab" id="sidebar-tab">
+      <span id="sidebar-tab-title">Details</span>
+    </div>
+    <div class="body" id="sidebar-body"></div>
+  </div>
+</div>
+<script>window.__TREE__ = {"id": "n_0001", "level": 0, "type": "root", "title": "<task_instruction>\nYour current task is to act as a laboratory medicine specialist.\n\nYour objective is to determine all necessary laboratory tests for the patient by analyzing their complete medical h…", "root_task": "<task_instruction>\nYour current task is to act as a laboratory medicine specialist.\n\nYour objective is to determine all necessary laboratory tests for the patient by analyzing their complete medical history, current clinical condition, and established diagnoses.\n\nYou should provide as many laboratory tests as possible to cover the patient's current clinical condition.\n\nYou must find the most likely official laboratory test candidates using the **`labevents_candidates`** reference table.\n\nWhen you need medical knowledge or clinical information to support your laboratory planning, use the `browser.search` tool to find authoritative medical information from reliable sources.\n\nSubmit your final answer through `ehr.finish` as a **list** containing **multiple plausible laboratory tests**. Each item in the list must be a string representing an official laboratory test name, and **must not contain any codes or other additional information**.\n</task_instruction>\n\n<patient_info>\nCurrent Time: 2187-10-12 15:19:00\nPatient Subject ID: 13599990\n</patient_info>", "event_indices": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70], "msg_indices": [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 49], "children": [{"id": "n_0002", "level": 1, "type": "subproblem", "title": "Load patient EHR and identify available data tables", "rationale": "Initial setup to load the patient's electronic health record and discover what data tables are available for analysis.", "event_indices": [0, 1, 2, 3, 4], "msg_indices": [2, 3, 4], "children": [{"id": "n_0003", "level": 2, "type": "reason", "title": "reasoning note", "rationale": "I'll start by loading the patient's EHR data and exploring their medical history to determine appropriate laboratory tests.", "event_indices": [], "msg_indices": [], "children": []}, {"id": "n_0004", "level": 2, "type": "tool_call", "title": "ehr_load_ehr", "tool": "ehr_load_ehr", "args": {"subject_id": "13599990", "timestamp": "2187-10-12 15:19:00"}, "call_id": "toolu_bdrk_01WaWUJBTCaJhGrNnXMRwoyR", "observation_summary": "Loaded the full EHR snapshot at timestamp 2187-10-12 15:19:00, including 534 lab events, 83 OMR entries, 69 POE orders, 30 emar records, multiple candidate tables (e.g., 87,103 diagnoses_ccs_candidates), and other clinical data across numerous tables.", "observation_shape": "text,len=1300", "observation_body": null, "event_indices": [1, 3], "msg_indices": [2, 3], "children": []}, {"id": "n_0005", "level": 2, "type": "tool_call", "title": "ehr_get_table_names", "tool": "ehr_get_table_names", "args": {"subject_id": "13599990"}, "call_id": "toolu_bdrk_0146y3xsynXm2CcTjHrJitiA", "observation_summary": "Listed all available EHR tables and candidate tables for patient 13599990, including admissions, labevents, prescriptions, radiology, diagnoses_icd, and various candidate mapping tables.", "observation_shape": "text,len=493", "observation_body": null, "event_indices": [2, 4], "msg_indices": [2, 4], "children": []}]}, {"id": "n_0006", "level": 1, "type": "subproblem", "title": "Gather patient demographics, admissions, diagnoses, and clinical observations", "rationale": "Retrieve core patient information including demographics, admission history, diagnoses, medications, triage data, and vital signs to understand the clinical picture.", "event_indices": [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18], "msg_indices": [5, 6, 7, 8, 9, 10, 11, 12], "children": [{"id": "n_0007", "level": 2, "type": "subproblem", "title": "Retrieve admissions history", "rationale": "Fetch the patient's admission records to understand hospitalization context.", "event_indices": [5, 12], "msg_indices": [5, 6], "children": [{"id": "n_0008", "level": 3, "type": "tool_call", "title": "ehr_get_latest_records", "tool": "ehr_get_latest_records", "args": {"subject_id": "13599990", "table_name": "admissions"}, "call_id": "toolu_bdrk_01CH5aRNN6HZQsUTTnJWzPZA", "observation_summary": "Retrieved the latest admission record showing the patient was admitted on 2187-05-25 as an observation admit via physician referral, discharged home the next day, with no in-hospital death.", "observation_shape": "text,len=469", "observation_body": null, "event_indices": [5, 12], "msg_indices": [5, 6], "children": []}]}, {"id": "n_0009", "level": 2, "type": "subproblem", "title": "Retrieve ICD diagnoses from admissions", "rationale": "Fetch ICD-coded diagnoses linked to hospital admissions to identify clinical conditions.", "event_indices": [6, 13], "msg_indices": [5, 7], "children": [{"id": "n_0010", "level": 3, "type": "tool_call", "title": "ehr_get_latest_records", "tool": "ehr_get_latest_records", "args": {"subject_id": "13599990", "table_name": "diagnoses_icd"}, "call_id": "toolu_bdrk_01QC7dYjY9p9yDVuLBmSKx2k", "observation_summary": "The most recent hospital diagnoses (May 2187, hadm 27740462) include intrauterine fetal death at 35 weeks gestation, single stillbirth, and fetal malpresentation.", "observation_shape": "text,len=1203", "observation_body": null, "event_indices": [6, 13], "msg_indices": [5, 7], "children": []}]}, {"id": "n_0011", "level": 2, "type": "subproblem", "title": "Retrieve ED diagnosis", "rationale": "Fetch emergency department diagnosis to identify presenting complaints.", "event_indices": [7, 14], "msg_indices": [5, 8], "children": [{"id": "n_0012", "level": 3, "type": "tool_call", "title": "ehr_get_latest_records", "tool": "ehr_get_latest_records", "args": {"subject_id": "13599990", "table_name": "diagnosis"}, "call_id": "toolu_bdrk_01QpjYcMDz5nfSNzMUwUekVD", "observation_summary": "The most recent ED diagnosis (Jan 2185) was 'Other chest pain' (ICD-10 R07.89).", "observation_shape": "text,len=171", "observation_body": null, "event_indices": [7, 14], "msg_indices": [5, 8], "children": []}]}, {"id": "n_0013", "level": 2, "type": "subproblem", "title": "Attempt to retrieve patient demographics", "rationale": "Attempt to get patient demographic data, which failed due to missing timestamp column.", "event_indices": [8, 15], "msg_indices": [5, 9], "children": [{"id": "n_0014", "level": 3, "type": "tool_call", "title": "ehr_get_latest_records", "tool": "ehr_get_latest_records", "args": {"subject_id": "13599990", "table_name": "patients"}, "call_id": "toolu_bdrk_01GdLCEeV36MkHms7A6z2zgM", "observation_summary": "Confirmed that the patients table has no timestamp column, so latest-record retrieval is not supported.", "observation_shape": "text,len=85", "observation_body": null, "event_indices": [8, 15], "msg_indices": [5, 9], "children": []}]}, {"id": "n_0015", "level": 2, "type": "subproblem", "title": "Retrieve medication reconciliation", "rationale": "Fetch home medications to understand the patient's chronic conditions and treatment.", "event_indices": [9, 16], "msg_indices": [5, 10], "children": [{"id": "n_0016", "level": 3, "type": "tool_call", "title": "ehr_get_latest_records", "tool": "ehr_get_latest_records", "args": {"subject_id": "13599990", "table_name": "medrecon"}, "call_id": "toolu_bdrk_01WwALVFgCeFnQdGGWwRK8uB", "observation_summary": "The patient's most recent medication reconciliation (Jan 2185) lists Levoxyl (synthetic T4/thyroxine), indicating hypothyroidism treatment.", "observation_shape": "text,len=247", "observation_body": null, "event_indices": [9, 16], "msg_indices": [5, 10], "children": []}]}, {"id": "n_0017", "level": 2, "type": "subproblem", "title": "Retrieve triage and vital signs", "rationale": "Fetch triage data (which errored) and vital signs to assess the patient's physiological status.", "event_indices": [10, 11, 17, 18], "msg_indices": [5, 11, 12], "children": [{"id": "n_0018", "level": 3, "type": "tool_call", "title": "ehr_get_latest_records", "tool": "ehr_get_latest_records", "args": {"subject_id": "13599990", "table_name": "triage"}, "call_id": "toolu_bdrk_01Xru1G2cHzRQc5tWbMTycWW", "observation_summary": "Confirmed that the triage table has no timestamp column, so latest-record retrieval is not supported.", "observation_shape": "text,len=83", "observation_body": null, "event_indices": [10, 17], "msg_indices": [5, 11], "children": []}, {"id": "n_0019", "level": 3, "type": "tool_call", "title": "ehr_get_latest_records", "tool": "ehr_get_latest_records", "args": {"subject_id": "13599990", "table_name": "vitalsign"}, "call_id": "toolu_bdrk_013m9BLrdiN6Yac4JqHoQ1rJ", "observation_summary": "Latest vital signs (Jan 2185, stay 31687798) show temp 98.4, HR 60, RR 16, SpO2 100%, BP 117/65, pain 0.", "observation_shape": "text,len=199", "observation_body": null, "event_indices": [11, 18], "msg_indices": [5, 12], "children": []}]}]}, {"id": "n_0020", "level": 1, "type": "subproblem", "title": "Deep dive into medical history including procedures, prescriptions, labs, and imaging", "rationale": "Query detailed clinical data including full diagnosis history, procedures, prescriptions, outpatient records, lab results, radiology, and microbiology to build a comprehensive clinical profile.", "event_indices": [19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40], "msg_indices": [13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26], "children": [{"id": "n_0021", "level": 2, "type": "subproblem", "title": "Retrieve patient demographics, admissions, triage, and ED stays", "rationale": "Initial queries to gather basic patient information including demographics, admission history, triage vitals, and emergency department visits.", "event_indices": [19, 20, 21, 22, 23, 24, 25, 26], "msg_indices": [13, 14, 15, 16, 17], "children": [{"id": "n_0022", "level": 3, "type": "subproblem", "title": "Query patient demographics", "rationale": "Retrieve basic patient demographic information from the patients table.", "event_indices": [19, 23], "msg_indices": [13, 14], "children": [{"id": "n_0023", "level": 4, "type": "tool_call", "title": "ehr_run_sql_query", "tool": "ehr_run_sql_query", "args": {"subject_id": "13599990", "sql_query": "SELECT * FROM patients"}, "call_id": "toolu_bdrk_01FYWwc8dtXW6xXb7JFy39qb", "observation_summary": "Patient is female, anchor age 30 in 2179 (2008–2010 cohort), with no recorded date of death.", "observation_shape": "text,len=125", "observation_body": null, "event_indices": [19, 23], "msg_indices": [13, 14], "children": []}]}, {"id": "n_0024", "level": 3, "type": "subproblem", "title": "Query admission history", "rationale": "Retrieve all hospital admissions ordered by admission time.", "event_indices": [20, 24], "msg_indices": [13, 15], "children": [{"id": "n_0025", "level": 4, "type": "tool_call", "title": "ehr_run_sql_query", "tool": "ehr_run_sql_query", "args": {"subject_id": "13599990", "sql_query": "SELECT * FROM admissions ORDER BY admittime"}, "call_id": "toolu_bdrk_01FmCpJW4r5VTsmTasVkZc6P", "observation_summary": "Patient had three hospital admissions: a same-day surgical admission in June 2179, an urgent admission in Aug 2181 (2-day stay), and an observation admit in May 2187 (1-day stay), all discharged home with no in-hospital death.", "observation_shape": "text,len=979", "observation_body": null, "event_indices": [20, 24], "msg_indices": [13, 15], "children": []}]}, {"id": "n_0026", "level": 3, "type": "subproblem", "title": "Query triage vitals and chief complaints", "rationale": "Retrieve triage information including vitals, pain scores, and chief complaints.", "event_indices": [21, 25], "msg_indices": [13, 16], "children": [{"id": "n_0027", "level": 4, "type": "tool_call", "title": "ehr_run_sql_query", "tool": "ehr_run_sql_query", "args": {"subject_id": "13599990", "sql_query": "SELECT * FROM triage"}, "call_id": "toolu_bdrk_01WPLj2dxY124wuyzGaEEdaH", "observation_summary": "Triage data shows three visits: right foot injury (2182), headache/nausea (2184), and chest pain/dyspnea with acuity 2 (2185, HR 91, BP 148/69, SpO2 100%).", "observation_shape": "text,len=399", "observation_body": null, "event_indices": [21, 25], "msg_indices": [13, 16], "children": []}]}, {"id": "n_0028", "level": 3, "type": "subproblem", "title": "Query emergency department stays", "rationale": "Retrieve ED stay records including arrival and disposition information.", "event_indices": [22, 26], "msg_indices": [13, 17], "children": [{"id": "n_0029", "level": 4, "type": "tool_call", "title": "ehr_run_sql_query", "tool": "ehr_run_sql_query", "args": {"subject_id": "13599990", "sql_query": "SELECT * FROM edstays ORDER BY intime"}, "call_id": "toolu_bdrk_018AK5Uw5RaHfy6aimbLMHxm", "observation_summary": "Patient had three ED stays: Feb 2182 (discharged home), Feb 2184 (discharged home), and Jan 2185 (discharged home), all as a White-Russian female who walked in.", "observation_shape": "text,len=483", "observation_body": null, "event_indices": [22, 26], "msg_indices": [13, 17], "children": []}]}]}, {"id": "n_0030", "level": 2, "type": "subproblem", "title": "Retrieve diagnoses, procedures, prescriptions, and outpatient records", "rationale": "Queries for detailed clinical history including ICD diagnoses, procedures performed, medication prescriptions, and outpatient measurement records (OMR).", "event_indices": [27, 28, 29, 30, 31, 32, 33, 34], "msg_indices": [18, 19, 20, 21, 22], "children": [{"id": "n_0031", "level": 3, "type": "subproblem", "title": "Retrieve ICD diagnoses", "rationale": "Query and observe the patient's ICD diagnosis codes to understand their medical conditions.", "event_indices": [27, 31], "msg_indices": [18, 19], "children": [{"id": "n_0032", "level": 4, "type": "tool_call", "title": "ehr_run_sql_query", "tool": "ehr_run_sql_query", "args": {"subject_id": "13599990", "sql_query": "SELECT * FROM diagnoses_icd ORDER BY hadm_id, seq_num"}, "call_id": "toolu_bdrk_01SipDQmX5ph32w8v1mMa8LJ", "observation_summary": "Diagnoses across admissions include thyroid dysfunction/nontoxic goiter (2181 obstetric admission with Group B strep carrier status), and the 2187 admission includes codes related to current conditions with ICD-10 codes including O6981X0.", "observation_shape": "text,len=2991", "observation_body": null, "event_indices": [27, 31], "msg_indices": [18, 19], "children": []}]}, {"id": "n_0033", "level": 3, "type": "subproblem", "title": "Retrieve procedures performed", "rationale": "Query and observe the patient's procedure history to understand interventions they have undergone.", "event_indices": [28, 32], "msg_indices": [18, 20], "children": [{"id": "n_0034", "level": 4, "type": "tool_call", "title": "ehr_run_sql_query", "tool": "ehr_run_sql_query", "args": {"subject_id": "13599990", "sql_query": "SELECT * FROM procedures_icd ORDER BY hadm_id, seq_num"}, "call_id": "toolu_bdrk_01S9AZfpJKjLMcLq7wvHrsdo", "observation_summary": "Procedures include complete thyroidectomy (2179), obstetric laceration repair and manually assisted delivery (2181), and a 2187 procedure related to female reproductive system via natural/artificial opening.", "observation_shape": "text,len=1375", "observation_body": null, "event_indices": [28, 32], "msg_indices": [18, 20], "children": []}]}, {"id": "n_0035", "level": 3, "type": "subproblem", "title": "Retrieve medication prescriptions", "rationale": "Query and observe the patient's prescription history to understand their pharmacotherapy.", "event_indices": [29, 33], "msg_indices": [18, 21], "children": [{"id": "n_0036", "level": 4, "type": "tool_call", "title": "ehr_run_sql_query", "tool": "ehr_run_sql_query", "args": {"subject_id": "13599990", "sql_query": "SELECT * FROM prescriptions ORDER BY starttime"}, "call_id": "toolu_bdrk_019QE62XBnG7Q73vaowVb7tt", "observation_summary": "Prescriptions across admissions include Acetaminophen, Ranitidine, and other medications, with the earliest starting 2181-08-14 during an obstetric admission.", "observation_shape": "text,len=12479", "observation_body": null, "event_indices": [29, 33], "msg_indices": [18, 21], "children": []}]}, {"id": "n_0037", "level": 3, "type": "subproblem", "title": "Retrieve outpatient measurement records", "rationale": "Query and observe the patient's OMR data including vitals and anthropometrics over time.", "event_indices": [30, 34], "msg_indices": [18, 22], "children": [{"id": "n_0038", "level": 4, "type": "tool_call", "title": "ehr_run_sql_query", "tool": "ehr_run_sql_query", "args": {"subject_id": "13599990", "sql_query": "SELECT * FROM omr ORDER BY chartdate"}, "call_id": "toolu_bdrk_01Kpyn5bfX9kC5hmUsZy31DB", "observation_summary": "OMR data from 2179–2187 shows blood pressures ranging ~100/68 to 130/78, BMI around 26.5, height 67 inches, weight 169 lbs, with the most recent BP on 2187-07-14 being 125/65.", "observation_shape": "text,len=5711", "observation_body": null, "event_indices": [30, 34], "msg_indices": [18, 22], "children": []}]}]}, {"id": "n_0039", "level": 2, "type": "subproblem", "title": "Retrieve recent lab results, radiology reports, and microbiology events", "rationale": "Queries for the most recent laboratory test results, radiology imaging reports, and microbiology culture data to assess current clinical status.", "event_indices": [35, 36, 37, 38, 39, 40], "msg_indices": [23, 24, 25, 26], "children": [{"id": "n_0040", "level": 3, "type": "subproblem", "title": "Retrieve recent laboratory test results", "rationale": "Queries the labevents table for the most recent 50 lab results and receives the observation with detailed lab values.", "event_indices": [35, 38], "msg_indices": [23, 24], "children": [{"id": "n_0041", "level": 4, "type": "tool_call", "title": "ehr_run_sql_query", "tool": "ehr_run_sql_query", "args": {"subject_id": "13599990", "sql_query": "SELECT * FROM labevents ORDER BY charttime DESC LIMIT 50"}, "call_id": "toolu_bdrk_013gc8r9rqVVU2rDAvobLx1w", "observation_summary": "The 50 most recent lab events (around 2187-07-14) include various tests across multiple specimen types, with some flagged values; data spans hematology, chemistry, and other categories.", "observation_shape": "text,len=33200", "observation_body": null, "event_indices": [35, 38], "msg_indices": [23, 24], "children": []}]}, {"id": "n_0042", "level": 3, "type": "subproblem", "title": "Retrieve recent radiology reports", "rationale": "Queries the radiology table for the most recent 20 imaging reports and receives the observation with radiology note data.", "event_indices": [36, 39], "msg_indices": [23, 25], "children": [{"id": "n_0043", "level": 4, "type": "tool_call", "title": "ehr_run_sql_query", "tool": "ehr_run_sql_query", "args": {"subject_id": "13599990", "sql_query": "SELECT * FROM radiology ORDER BY charttime DESC LIMIT 20"}, "call_id": "toolu_bdrk_01VTTZUXqMXfSfnRKrcW4ooJ", "observation_summary": "Radiology records include multiple imaging studies with detailed reports; the most recent notes reference findings including a normal-sized uterus and unremarkable ovaries.", "observation_shape": "text,len=62621", "observation_body": null, "event_indices": [36, 39], "msg_indices": [23, 25], "children": []}]}, {"id": "n_0044", "level": 3, "type": "subproblem", "title": "Retrieve recent microbiology culture events", "rationale": "Queries the microbiologyevents table for the most recent 20 microbiology results and receives the observation with culture and sensitivity data.", "event_indices": [37, 40], "msg_indices": [23, 26], "children": [{"id": "n_0045", "level": 4, "type": "tool_call", "title": "ehr_run_sql_query", "tool": "ehr_run_sql_query", "args": {"subject_id": "13599990", "sql_query": "SELECT * FROM microbiologyevents ORDER BY charttime DESC LIMIT 20"}, "call_id": "toolu_bdrk_0173EL4umtoj28EHFd5mD4Re", "observation_summary": "Microbiology events showed multiple specimens (blood cultures, urine cultures, cervical/vaginal cultures) across admissions, with results including organism identification and antibiotic susceptibility testing.", "observation_shape": "text,len=14453", "observation_body": null, "event_indices": [37, 40], "msg_indices": [23, 26], "children": []}]}]}]}, {"id": "n_0046", "level": 1, "type": "subproblem", "title": "Synthesize clinical findings and plan laboratory test categories", "rationale": "Analyze the complete medical history to identify key clinical conditions (thyroid cancer, stillbirth, GI symptoms, thrombophilia risk) and determine which laboratory test categories are needed.", "event_indices": [41, 42], "msg_indices": [27, 29], "children": [{"id": "n_0047", "level": 2, "type": "reason", "title": "reasoning note", "rationale": "Let me analyze the patient's complete medical history:\n\n**Patient Profile:**\n- Female, age ~38 (anchor age 30 in 2179, current time 2187)\n- White Russian, married\n\n**Key Medical History:**\n1. **Thyroid cancer** - Papillary thyroid carcinoma (2179), s/p complete thyroidectomy\n   - On levothyroxine (most recently 175 mcg)\n   - Postsurgical hypothyroidism\n   - Multiple thyroid ultrasounds for surveillance showing no recurrence\n   - TSH was 0.15 (suppressed - consistent with thyroid cancer suppression therapy)\n   - Free T4 was 1.8 (slightly elevated)\n\n2. **Recent stillbirth** (2187-05-25) at 35 weeks gestation\n   - Intrauterine death\n   - Cord around neck\n   - Malpresentation\n   - First degree perineal laceration\n   - Had workup for causes including: CMV, Toxoplasma, RPR, Protein C, Protein S, PT/PTT/INR, CRP, Tissue Transglutaminase Ab, Immunoglobulin A\n   - This suggests evaluation for thrombophilia/autoimmune causes of stillbirth\n\n3. **GI issues** - Chronic abdominal bloating and diarrhea (2187-08)\n   - CT abdomen/pelvis showed fibroid uterus\n   - Ultrasound showed gallbladder polyps, left renal AML, left renal cyst\n\n4. **Prior ED visits:**\n   - Chest pain, Dyspnea (2185-01)\n   - Right foot injury (2182-02)\n   - Headache, Nausea (2184-02)\n\n5. **Medications:**\n   - Levothyroxine 175 mcg (current)\n   - Ranitidine 150mg (for GI issues?)\n\n6. **Other findings:**\n   - Elevated glucose 117 mg/dL (borderline)\n   - BMI trending up to 31.9 at delivery, now 28.9\n   - Elevated CRP 6.4\n   - Left axillary lymph node evaluated - benign\n   - Positive PPD history\n\n**Current situation (2187-10-12):**\n- About 5 months postpartum after stillbirth\n- Post-thyroidectomy on levothyroxine suppression therapy\n- History of thyroid cancer requiring ongoing surveillance\n- Chronic GI symptoms (bloating, diarrhea)\n- Elevated CRP suggesting inflammation\n- Mildly elevated glucose suggesting possible glucose intolerance\n- Stillbirth workup ongoing/follow-up needed\n- Weight management issues (BMI ~29)", "event_indices": [], "msg_indices": [], "children": []}]}, {"id": "n_0048", "level": 1, "type": "subproblem", "title": "Search candidate lab tests for thyroid, CBC, metabolic panel, and coagulation", "rationale": "Use semantic similarity searches to find official laboratory test names covering thyroid function, complete blood count, basic metabolic panel, and thrombophilia/coagulation workup.", "event_indices": [43, 44, 45, 46, 47, 48], "msg_indices": [29, 30, 31, 32], "children": [{"id": "n_0049", "level": 2, "type": "subproblem", "title": "Submit semantic similarity queries for thyroid, CBC, metabolic, and coagulation tests", "rationale": "All three parallel semantic similarity search actions were submitted together and their observations returned together, forming one atomic unit of work.", "event_indices": [43, 44, 45, 46, 47, 48], "msg_indices": [29, 30, 31, 32], "children": [{"id": "n_0050", "level": 3, "type": "tool_call", "title": "ehr_get_candidates_by_semantic_similarity", "tool": "ehr_get_candidates_by_semantic_similarity", "args": {"table_name": "labevents_candidates", "query": ["thyroid stimulating hormone TSH", "free thyroxine T4", "thyroglobulin tumor marker", "thyroglobulin antibody", "triiodothyronine T3", "complete blood count CBC", "hemoglobin", "hematocrit", "platelet count", "white blood cell count"]}, "call_id": "toolu_bdrk_011AKbEfMre4EQagCui8bJeY", "observation_summary": "Semantic search identified lab item IDs for thyroid tests (TSH 50993, Free T4 50995, Thyroglobulin 50991, T3 51001) and CBC components (WBC Count with 0.97 similarity, hemoglobin, hematocrit, platelet count).", "observation_shape": "text,len=6520", "observation_body": null, "event_indices": [43, 46], "msg_indices": [29, 30], "children": []}, {"id": "n_0051", "level": 3, "type": "tool_call", "title": "ehr_get_candidates_by_semantic_similarity", "tool": "ehr_get_candidates_by_semantic_similarity", "args": {"table_name": "labevents_candidates", "query": ["sodium electrolyte", "potassium electrolyte", "chloride", "bicarbonate CO2", "blood urea nitrogen BUN", "creatinine", "glucose", "calcium total", "phosphate", "magnesium"]}, "call_id": "toolu_bdrk_01R9T3EuUvSas9eyvkUgUvFf", "observation_summary": "Semantic search identified lab item IDs for basic metabolic panel components including Sodium (52623), Potassium, Chloride, Bicarbonate, BUN, Creatinine, Glucose, Calcium, Phosphate, and Magnesium (50960) in blood chemistry.", "observation_shape": "text,len=6747", "observation_body": null, "event_indices": [44, 47], "msg_indices": [29, 31], "children": []}, {"id": "n_0052", "level": 3, "type": "tool_call", "title": "ehr_get_candidates_by_semantic_similarity", "tool": "ehr_get_candidates_by_semantic_similarity", "args": {"table_name": "labevents_candidates", "query": ["protein C functional", "protein S functional", "antithrombin III", "lupus anticoagulant", "anticardiolipin antibody", "prothrombin time PT", "partial thromboplastin time PTT", "INR", "homocysteine", "factor V leiden"]}, "call_id": "toolu_bdrk_016zNGtuL4NnrFEhz7xgZ92G", "observation_summary": "Semantic search identified lab item IDs for coagulation/thrombophilia tests including Protein C Functional (51271), Protein S Functional (51273), Antithrombin III, lupus anticoagulant, PT, PTT, INR, homocysteine, and Factor V among others.", "observation_shape": "text,len=5709", "observation_body": null, "event_indices": [45, 48], "msg_indices": [29, 32], "children": []}]}]}, {"id": "n_0053", "level": 1, "type": "subproblem", "title": "Search candidate lab tests for inflammatory markers, iron studies, liver function, and vitamins", "rationale": "Find official test names for CRP, ESR, celiac markers, lipid panel, iron studies, vitamin levels, liver enzymes, and other chemistry tests relevant to the patient's conditions.", "event_indices": [49, 50, 51, 52, 53, 54], "msg_indices": [33, 34, 35, 36], "children": [{"id": "n_0054", "level": 2, "type": "subproblem", "title": "Search inflammatory markers, celiac, diabetes, lipid, and iron store candidates", "rationale": "First batch of semantic searches covering CRP, ESR, celiac antibodies, IgA, HbA1c, lipid panel components, and ferritin.", "event_indices": [49, 52], "msg_indices": [33, 34], "children": [{"id": "n_0055", "level": 3, "type": "tool_call", "title": "ehr_get_candidates_by_semantic_similarity", "tool": "ehr_get_candidates_by_semantic_similarity", "args": {"table_name": "labevents_candidates", "query": ["C-reactive protein CRP inflammation", "erythrocyte sedimentation rate ESR", "tissue transglutaminase antibody celiac IgA", "immunoglobulin A IgA", "hemoglobin A1c HbA1c glycated", "total cholesterol lipid panel", "LDL cholesterol", "HDL cholesterol", "triglycerides", "ferritin iron stores"]}, "call_id": "toolu_bdrk_01QdFrM25adEbfQRr4iYAjLk", "observation_summary": "Semantic search identified C-reactive protein (50889), high-sensitivity CRP (51652), sedimentation rate/ESR (51288), tissue transglutaminase antibody, IgA, HbA1c, total cholesterol, LDL, HDL, triglycerides, and ferritin (50924) candidates.", "observation_shape": "text,len=6131", "observation_body": null, "event_indices": [49, 52], "msg_indices": [33, 34], "children": []}]}, {"id": "n_0056", "level": 2, "type": "subproblem", "title": "Search iron, TIBC, vitamins, PTH, albumin, protein, and liver enzyme candidates", "rationale": "Second batch of semantic searches covering serum iron, TIBC, vitamin D, B12, folate, PTH, albumin, total protein, ALT, and AST.", "event_indices": [50, 53], "msg_indices": [33, 35], "children": [{"id": "n_0057", "level": 3, "type": "tool_call", "title": "ehr_get_candidates_by_semantic_similarity", "tool": "ehr_get_candidates_by_semantic_similarity", "args": {"table_name": "labevents_candidates", "query": ["iron serum", "total iron binding capacity TIBC", "vitamin D 25-hydroxy", "vitamin B12", "folate folic acid", "parathyroid hormone PTH", "albumin", "total protein", "alanine aminotransferase ALT", "aspartate aminotransferase AST"]}, "call_id": "toolu_bdrk_01KZmBrzXkEhXsMsLjCuaA5r", "observation_summary": "Semantic search identified candidates for serum iron (52357 in body fluid, 50952 in blood), TIBC (50953), vitamin D, vitamin B12, folate, PTH, albumin, total protein, ALT (50861), and AST (50878).", "observation_shape": "text,len=5583", "observation_body": null, "event_indices": [50, 53], "msg_indices": [33, 35], "children": []}]}, {"id": "n_0058", "level": 2, "type": "subproblem", "title": "Search alkaline phosphatase, bilirubin, LDH, uric acid, calcium, and RBC indices candidates", "rationale": "Third batch of semantic searches covering alkaline phosphatase, bilirubin, LDH, uric acid, ionized calcium, RBC, MCV, MCH, MCHC, and RDW.", "event_indices": [51, 54], "msg_indices": [33, 36], "children": [{"id": "n_0059", "level": 3, "type": "tool_call", "title": "ehr_get_candidates_by_semantic_similarity", "tool": "ehr_get_candidates_by_semantic_similarity", "args": {"table_name": "labevents_candidates", "query": ["alkaline phosphatase", "bilirubin total", "lactate dehydrogenase LDH", "uric acid", "ionized calcium", "red blood cell count RBC", "mean corpuscular volume MCV", "mean corpuscular hemoglobin MCH", "MCHC", "red cell distribution width RDW"]}, "call_id": "toolu_bdrk_01CCjKnc37j6RTCiopwdFtvU", "observation_summary": "Semantic search identified alkaline phosphatase (50863), total bilirubin, LDH, uric acid, ionized calcium, RBC count, MCV, MCH, MCHC, and RDW candidates with high similarity scores.", "observation_shape": "text,len=6184", "observation_body": null, "event_indices": [51, 54], "msg_indices": [33, 36], "children": []}]}]}, {"id": "n_0060", "level": 1, "type": "subproblem", "title": "Search candidate lab tests for differentials, urinalysis, and additional coagulation markers", "rationale": "Find remaining test candidates including WBC differentials, GFR, GGT, urinalysis, antiphospholipid markers, and use keyword searches for PT/PTT/glucose/iron confirmation.", "event_indices": [55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68], "msg_indices": [37, 38, 39, 40, 41, 42, 43, 44, 45, 46], "children": [{"id": "n_0061", "level": 2, "type": "subproblem", "title": "Semantic search for differentials, GFR, and antiphospholipid markers", "rationale": "First batch of semantic similarity searches covering neutrophils, lymphocytes, monocytes, eosinophils, basophils, absolute lymphocyte count, reticulocyte count, beta-2 glycoprotein, anion gap, and estimated GFR.", "event_indices": [55, 57], "msg_indices": [37, 38], "children": [{"id": "n_0062", "level": 3, "type": "tool_call", "title": "ehr_get_candidates_by_semantic_similarity", "tool": "ehr_get_candidates_by_semantic_similarity", "args": {"table_name": "labevents_candidates", "query": ["neutrophils differential", "lymphocytes differential", "monocytes differential", "eosinophils differential", "basophils differential", "absolute lymphocyte count", "reticulocyte count", "beta-2 glycoprotein antibody antiphospholipid", "anion gap", "estimated GFR glomerular filtration rate"]}, "call_id": "toolu_bdrk_01PSSMXQYgSLWeutwMbQdK7A", "observation_summary": "Semantic search identified candidates for neutrophils (51256), lymphocytes, monocytes, eosinophils, basophils differentials, absolute lymphocyte count, reticulocyte count, anion gap, and estimated GFR with strong similarity scores.", "observation_shape": "text,len=6334", "observation_body": null, "event_indices": [55, 57], "msg_indices": [37, 38], "children": []}]}, {"id": "n_0063", "level": 2, "type": "subproblem", "title": "Semantic search for GGT, bilirubin, ANA, urinalysis, transferrin, CRP, and lipase", "rationale": "Second batch of semantic similarity searches covering gamma glutamyl transferase, direct bilirubin, ANA, urinalysis components, transferrin, high sensitivity CRP, and lipase.", "event_indices": [56, 58], "msg_indices": [37, 39], "children": [{"id": "n_0064", "level": 3, "type": "tool_call", "title": "ehr_get_candidates_by_semantic_similarity", "tool": "ehr_get_candidates_by_semantic_similarity", "args": {"table_name": "labevents_candidates", "query": ["gamma glutamyl transferase GGT", "bilirubin direct", "antinuclear antibody ANA", "urinalysis", "specific gravity urine", "urine protein", "anti-gliadin antibody", "transferrin", "high sensitivity CRP", "lipase pancreatic"]}, "call_id": "toolu_bdrk_01HSD3qDK33E4P2EYApLtN6K", "observation_summary": "Semantic search identified GGT (50927), direct bilirubin, ANA, specific gravity, urine protein, transferrin, high-sensitivity CRP, and lipase candidates with high similarity scores.", "observation_shape": "text,len=6201", "observation_body": null, "event_indices": [56, 58], "msg_indices": [37, 39], "children": []}]}, {"id": "n_0065", "level": 2, "type": "subproblem", "title": "Keyword searches for PT, PTT, glucose, and iron", "rationale": "Keyword-based lookups to confirm candidate names for prothrombin time, partial thromboplastin time, glucose, and iron studies.", "event_indices": [59, 60, 61, 62, 63, 64, 65, 66], "msg_indices": [40, 41, 42, 43, 44], "children": [{"id": "n_0066", "level": 3, "type": "subproblem", "title": "PT keyword lookup", "rationale": "Search for prothrombin time candidates and observe results.", "event_indices": [59, 63], "msg_indices": [40, 41], "children": [{"id": "n_0067", "level": 4, "type": "tool_call", "title": "ehr_get_candidates_by_keyword", "tool": "ehr_get_candidates_by_keyword", "args": {"table_name": "labevents_candidates", "keyword": "PT"}, "call_id": "toolu_bdrk_01NVj8EwtSbGfUuQ1hHUNxjz", "observation_summary": "Keyword search for 'PT' returned multiple candidates including PT (51274), INR(PT) (51237), PTT (51275), Reptilase Time (51280), and PTT-LA (52166), among others.", "observation_shape": "text,len=1519", "observation_body": null, "event_indices": [59, 63], "msg_indices": [40, 41], "children": []}]}, {"id": "n_0068", "level": 3, "type": "subproblem", "title": "PTT keyword lookup", "rationale": "Search for partial thromboplastin time candidates and observe results.", "event_indices": [60, 64], "msg_indices": [40, 42], "children": [{"id": "n_0069", "level": 4, "type": "tool_call", "title": "ehr_get_candidates_by_keyword", "tool": "ehr_get_candidates_by_keyword", "args": {"table_name": "labevents_candidates", "keyword": "PTT"}, "call_id": "toolu_bdrk_01AMABCvwWQheJca5xGUs8qF", "observation_summary": "Keyword search for 'PTT' returned four candidates: PTT (51275), PTT Control (52165), PTT-LA (52166), and PTT mea (52167).", "observation_shape": "text,len=269", "observation_body": null, "event_indices": [60, 64], "msg_indices": [40, 42], "children": []}]}, {"id": "n_0070", "level": 3, "type": "subproblem", "title": "Glucose keyword lookup", "rationale": "Search for glucose test candidates and observe results.", "event_indices": [61, 65], "msg_indices": [40, 43], "children": [{"id": "n_0071", "level": 4, "type": "tool_call", "title": "ehr_get_candidates_by_keyword", "tool": "ehr_get_candidates_by_keyword", "args": {"table_name": "labevents_candidates", "keyword": "glucose"}, "call_id": "toolu_bdrk_0145yPohk3G1nZdu2ZPhP9uR", "observation_summary": "Keyword search for 'glucose' returned nine candidates across different specimen types including blood (50809), ascites (50842), joint fluid (51022), urine (51084), CSF (51790), stool (51941), and whole blood (52027).", "observation_shape": "text,len=759", "observation_body": null, "event_indices": [61, 65], "msg_indices": [40, 43], "children": []}]}, {"id": "n_0072", "level": 3, "type": "subproblem", "title": "Iron keyword lookup", "rationale": "Search for iron studies candidates and observe results.", "event_indices": [62, 66], "msg_indices": [40, 44], "children": [{"id": "n_0073", "level": 4, "type": "tool_call", "title": "ehr_get_candidates_by_keyword", "tool": "ehr_get_candidates_by_keyword", "args": {"table_name": "labevents_candidates", "keyword": "iron"}, "call_id": "toolu_bdrk_01VH3fNLKFnZU6YEgMcLsL5t", "observation_summary": "Keyword search for 'iron' returned four candidates: Iron (50952), Iron Binding Capacity Total (50953), Iron Stain (51339), and Iron Urine (51983).", "observation_shape": "text,len=384", "observation_body": null, "event_indices": [62, 66], "msg_indices": [40, 44], "children": []}]}]}, {"id": "n_0074", "level": 2, "type": "subproblem", "title": "Semantic search for D-dimer, fibrinogen, blood type, and additional markers", "rationale": "Final semantic search batch covering D-dimer, fibrinogen, blood type, Kleihauer-Betke, prolactin, cortisol, anti-parietal cell antibody, stool occult blood, WBC, and MPV.", "event_indices": [67, 68], "msg_indices": [45, 46], "children": [{"id": "n_0075", "level": 3, "type": "tool_call", "title": "ehr_get_candidates_by_semantic_similarity", "tool": "ehr_get_candidates_by_semantic_similarity", "args": {"table_name": "labevents_candidates", "query": ["D-dimer fibrinolysis", "fibrinogen coagulation", "blood type ABO Rh", "Kleihauer-Betke fetal maternal hemorrhage", "prolactin", "cortisol", "anti-parietal cell antibody", "stool occult blood", "white blood cells WBC", "mean platelet volume MPV"]}, "call_id": "toolu_bdrk_01YFCJBBafwEco9QoX6aT22C", "observation_summary": "Semantic search identified candidate lab items for D-dimer (itemid 52551), fibrinogen (52115), fibrin degradation products (52858), clot lysis (52098), plasminogen (52158), and mean platelet volume (MPV, similarity 0.952), among other queries.", "observation_shape": "text,len=5054", "observation_body": null, "event_indices": [67, 68], "msg_indices": [45, 46], "children": []}]}]}, {"id": "n_0076", "level": 1, "type": "subproblem", "title": "Compile final laboratory test list and submit answer", "rationale": "Synthesize all findings into a comprehensive final list of laboratory tests appropriate for the patient's clinical conditions and submit the answer.", "event_indices": [69, 70], "msg_indices": [47, 49], "children": [{"id": "n_0077", "level": 2, "type": "reason", "title": "reasoning note", "rationale": "Now let me compile the comprehensive list of laboratory tests based on this patient's clinical profile:\n\n**Patient Summary:**\n1. Post-thyroidectomy for papillary thyroid carcinoma (2179) - on levothyroxine suppression therapy\n2. Recent stillbirth at 35 weeks (2187-05) - thrombophilia/autoimmune workup in progress\n3. Chronic abdominal bloating and diarrhea - celiac workup, GI evaluation\n4. Elevated glucose (117) suggesting possible impaired glucose tolerance\n5. Elevated CRP (6.4) - inflammation\n6. Risk of hypoparathyroidism post-thyroidectomy\n7. On levothyroxine 175mcg - TSH was suppressed at 0.15, free T4 slightly elevated\n8. BMI ~29 (overweight) - metabolic risk\n9. Fibroid uterus, gallbladder polyps\n10. History of positive PPD, left axillary lymph node evaluation\n\nLaboratory tests to order:\n\n**Thyroid Cancer Surveillance & Management:**\n1. Thyroid Stimulating Hormone\n2. Thyroxine (T4), Free\n3. Thyroxine (T4)\n4. Triiodothyronine (T3)\n5. Thyroglobulin\n6. Anti-Thyroglobulin Antibodies\n\n**CBC with Differential:**\n7. White Blood Cells\n8. Red Blood Cells\n9. Hemoglobin\n10. Hematocrit\n11. Platelet Count\n12. MCH\n13. MCHC\n14. MCV\n15. RDW\n16. Neutrophils\n17. Lymphocytes\n18. Monocytes\n19. Eosinophils\n20. Basophils\n21. Absolute Lymphocyte Count\n\n**Comprehensive Metabolic Panel:**\n22. Sodium\n23. Potassium\n24. Chloride\n25. Bicarbonate\n26. Urea Nitrogen\n27. Creatinine\n28. Glucose\n29. Calcium, Total\n30. Albumin\n31. Protein, Total\n32. Alanine Aminotransferase (ALT)\n33. Asparate Aminotransferase (AST)\n34. Alkaline Phosphatase\n35. Bilirubin, Total\n36. Anion Gap\n\n**Post-Thyroidectomy / Calcium Monitoring:**\n37. Phosphate\n38. Magnesium\n39. Parathyroid Hormone\n40. Free Calcium\n\n**Coagulation / Thrombophilia Workup (stillbirth):**\n41. PT\n42. PTT\n43. INR(PT)\n44. Protein C, Functional\n45. Protein S, Functional\n46. Antithrombin III\n47. Lupus Anticoagulant\n48. Anticardiolipin Antibody IgG\n49. Anticardiolipin Antibody IgM\n50. Homocysteine\n51. D-Dimer\n52. Fibrinogen\n\n**Inflammatory Markers:**\n5", "event_indices": [], "msg_indices": [], "children": []}, {"id": "n_0078", "level": 2, "type": "finish", "title": "finish", "answer": ["Thyroid Stimulating Hormone", "Thyroxine (T4), Free", "Thyroxine (T4)", "Triiodothyronine (T3)", "Thyroglobulin", "Anti-Thyroglobulin Antibodies", "White Blood Cells", "Red Blood Cells", "Hemoglobin", "Hematocrit", "Platelet Count", "MCH", "MCHC", "MCV", "RDW", "Neutrophils", "Lymphocytes", "Monocytes", "Eosinophils", "Basophils", "Absolute Lymphocyte Count", "Sodium", "Potassium", "Chloride", "Bicarbonate", "Urea Nitrogen", "Creatinine", "Glucose", "Calcium, Total", "Albumin", "Protein, Total", "Alanine Aminotransferase (ALT)", "Asparate Aminotransferase (AST)", "Alkaline Phosphatase", "Bilirubin, Total", "Anion Gap", "Phosphate", "Magnesium", "Parathyroid Hormone", "Free Calcium", "PT", "PTT", "INR(PT)", "Protein C, Functional", "Protein S, Functional", "Antithrombin III", "Lupus Anticoagulant", "Anticardiolipin Antibody IgG", "Anticardiolipin Antibody IgM", "Homocysteine", "D-Dimer", "Fibrinogen", "C-Reactive Protein", "Sedimentation Rate", "Tissue Transglutaminase Ab, IgA", "Immunoglobulin A", "% Hemoglobin A1c", "Cholesterol, Total", "Cholesterol, HDL", "Cholesterol, LDL, Calculated", "Triglycerides", "Ferritin", "Iron", "Iron Binding Capacity, Total", "Transferrin", "Transferrin Saturation", "25-OH Vitamin D", "Vitamin B12", "Folate", "Estimated GFR (MDRD equation)", "Uric Acid", "Lactate Dehydrogenase (LD)", "Lipase", "Bilirubin, Direct", "Gamma Glutamyltransferase"], "event_indices": [70], "msg_indices": [49], "children": []}]}]};</script>
+<script>
+(function() {
+  const DATA = window.__TREE__;
+  const NODES = [];
+  const EDGES = [];
+
+  // Assign stable numeric ids and collapsed flags
+  let nid = 0;
+  function walk(n, parent) {
+    n.__nid = nid++;
+    n.__parent = parent ? parent.__nid : null;
+    n.__collapsed = false;
+    (n.children || []).forEach(c => walk(c, n));
+  }
+  walk(DATA, null);
+
+  // ── Layout (simple Reingold-Tilford: leaves get consecutive y slots,
+  //          internal nodes sit at the midpoint of their children's y) ───
+  const DX = 60;   // vertical step per leaf slot
+  const DY = 270;  // horizontal step per depth level
+  const NODE_W = 240, NODE_H = 54;
+
+  function layout(root) {
+    let leafSlot = 0;
+    function visit(n, depth) {
+      n.__depth = depth;
+      const kids = (n.__collapsed ? [] : (n.children || []));
+      if (kids.length === 0) {
+        n.__y = leafSlot * DX;
+        leafSlot++;
+      } else {
+        kids.forEach(c => visit(c, depth + 1));
+        const ys = kids.map(c => c.__y);
+        n.__y = (Math.min.apply(null, ys) + Math.max.apply(null, ys)) / 2;
+      }
+      n.__x = depth * DY;
+    }
+    visit(root, 0);
+  }
+
+  function flatten(root) {
+    NODES.length = 0; EDGES.length = 0;
+    function rec(n) {
+      NODES.push(n);
+      const kids = (n.__collapsed ? [] : (n.children || []));
+      kids.forEach(c => { EDGES.push([n, c]); rec(c); });
+    }
+    rec(root);
+  }
+
+  // ── Labels ────────────────────────────────────────────────────────────
+  function shortTitle(n) {
+    const t = n.type;
+    if (t === "root") return "ROOT";
+    if (t === "subproblem") return (n.title || "").trim();
+    if (t === "tool_call")  return (n.tool || "tool");
+    if (t === "reason")     return "reason";
+    if (t === "finish")     return "FINISH";
+    return t;
+  }
+  function subLabel(n) {
+    const t = n.type;
+    if (t === "root") return (n.title || "").trim();
+    if (t === "subproblem") return (n.rationale || "").trim();
+    if (t === "tool_call")  return (n.observation_summary || "").trim();
+    if (t === "reason")     return (n.rationale || "").trim();
+    if (t === "finish") {
+      const a = n.answer;
+      if (a == null) return "";
+      const s = typeof a === "string" ? a : JSON.stringify(a);
+      return s;
+    }
+    return "";
+  }
+  function truncate(s, n) {
+    s = (s || "").replace(/\s+/g, " ");
+    return s.length > n ? s.slice(0, n - 1) + "…" : s;
+  }
+  function countHiddenDescendants(n) {
+    if (!n.__collapsed) return 0;
+    let c = 0;
+    function rec(x) {
+      (x.children || []).forEach(k => { c++; rec(k); });
+    }
+    rec(n);
+    return c;
+  }
+
+  // ── Render ────────────────────────────────────────────────────────────
+  const svg = document.getElementById("canvas");
+  const viewport = document.getElementById("viewport");
+  let selectedNid = null;
+
+  function render() {
+    layout(DATA);
+    flatten(DATA);
+    viewport.innerHTML = "";
+
+    // Compute bounding box
+    const xs = NODES.map(n => n.__x);
+    const ys = NODES.map(n => n.__y);
+    const xmin = Math.min.apply(null, xs), xmax = Math.max.apply(null, xs);
+    const ymin = Math.min.apply(null, ys), ymax = Math.max.apply(null, ys);
+    const W = (xmax - xmin) + NODE_W + 40;
+    const H = (ymax - ymin) + NODE_H + 40;
+    // Re-base so everything starts at (20, 20)
+    const ox = 20 - xmin, oy = 20 - ymin;
+
+    // Edges
+    for (const [p, c] of EDGES) {
+      const x1 = p.__x + ox + NODE_W;
+      const y1 = p.__y + oy + NODE_H / 2;
+      const x2 = c.__x + ox;
+      const y2 = c.__y + oy + NODE_H / 2;
+      const mx = (x1 + x2) / 2;
+      const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      path.setAttribute("class", "link");
+      path.setAttribute("d", `M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`);
+      viewport.appendChild(path);
+    }
+
+    // Nodes
+    for (const n of NODES) {
+      const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+      g.setAttribute("class",
+        `node type-${n.type}` +
+        (n.__collapsed ? " has-hidden" : "") +
+        (n.__nid === selectedNid ? " selected" : ""));
+      g.setAttribute("transform",
+        `translate(${n.__x + ox}, ${n.__y + oy})`);
+      g.setAttribute("data-nid", n.__nid);
+
+      const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+      rect.setAttribute("width", NODE_W);
+      rect.setAttribute("height", NODE_H);
+      rect.setAttribute("rx", 4);
+      g.appendChild(rect);
+
+      // Left colored bar
+      const bar = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+      bar.setAttribute("class", "bar");
+      bar.setAttribute("width", 5);
+      bar.setAttribute("height", NODE_H);
+      bar.setAttribute("rx", 2);
+      g.appendChild(bar);
+
+      // Main label (row 1)
+      const t1 = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      t1.setAttribute("x", 12);
+      t1.setAttribute("y", 16);
+      t1.setAttribute("font-weight", "600");
+      t1.textContent = truncate(shortTitle(n), 32);
+      g.appendChild(t1);
+
+      // Sub label (row 2) — full width, no overlap
+      const t2 = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      t2.setAttribute("x", 12);
+      t2.setAttribute("y", 32);
+      t2.setAttribute("fill", "#6b7280");
+      t2.textContent = truncate(subLabel(n), 38);
+      g.appendChild(t2);
+
+      // Footer row (row 3): event range left-aligned, hidden-count badge right
+      if (n.event_indices && n.event_indices.length) {
+        const ev = n.event_indices;
+        const er = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        er.setAttribute("x", 12);
+        er.setAttribute("y", 47);
+        er.setAttribute("fill", "#9ca3af");
+        er.setAttribute("font-size", "10");
+        er.textContent = ev.length === 1
+          ? `E${String(ev[0]).padStart(3,"0")}`
+          : `E${String(ev[0]).padStart(3,"0")}–E${String(ev[ev.length-1]).padStart(3,"0")}`;
+        g.appendChild(er);
+      }
+      if (n.__collapsed) {
+        const hc = countHiddenDescendants(n);
+        const tb = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        tb.setAttribute("class", "collapsed-badge");
+        tb.setAttribute("x", NODE_W - 10);
+        tb.setAttribute("y", 47);
+        tb.setAttribute("text-anchor", "end");
+        tb.setAttribute("font-size", "10");
+        tb.textContent = `+${hc} hidden`;
+        g.appendChild(tb);
+      }
+
+      g.addEventListener("click", ev => {
+        ev.stopPropagation();
+        if (ev.shiftKey || ev.detail === 2) {
+          // Shift+click or double-click: toggle collapse (only if has children)
+          if (n.children && n.children.length) {
+            n.__collapsed = !n.__collapsed;
+            render();
+          }
+          return;
+        }
+        selectedNid = n.__nid;
+        renderSidebar(n);
+        render();
+      });
+      viewport.appendChild(g);
+    }
+
+    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+    svg.__bbox = { W, H };
+  }
+
+  // ── Sidebar ───────────────────────────────────────────────────────────
+  const sidebarBody = document.getElementById("sidebar-body");
+  const sidebarTab = document.getElementById("sidebar-tab-title");
+
+  function h(tag, attrs, children) {
+    const e = document.createElement(tag);
+    for (const k in (attrs || {})) {
+      if (k === "class") e.className = attrs[k];
+      else if (k === "html") e.innerHTML = attrs[k];
+      else e.setAttribute(k, attrs[k]);
+    }
+    (children || []).forEach(c => {
+      if (typeof c === "string") e.appendChild(document.createTextNode(c));
+      else if (c) e.appendChild(c);
+    });
+    return e;
+  }
+  function pretty(v) {
+    if (v == null) return "";
+    if (typeof v === "string") return v;
+    try { return JSON.stringify(v, null, 2); }
+    catch (e) { return String(v); }
+  }
+  function renderSidebar(n) {
+    sidebarTab.innerHTML = "";
+    sidebarTab.appendChild(h("span", {}, [
+      h("span", {class: `badge badge-${n.type}`}, [n.type.toUpperCase()]),
+      " ",
+      (n.id || "")
+    ]));
+    const body = sidebarBody;
+    body.innerHTML = "";
+
+    // Title
+    body.appendChild(h("h2", {}, [shortTitle(n) || n.type]));
+    if (n.type === "subproblem" && n.title) {
+      body.appendChild(h("div", {class: "kv"}, [n.title]));
+    }
+    if (n.type === "root" && n.title) {
+      body.appendChild(h("div", {class: "kv"}, [n.title]));
+    }
+
+    // Rationale
+    if (n.rationale) {
+      body.appendChild(h("span", {class: "label"}, ["rationale"]));
+      body.appendChild(h("div", {class: "kv"}, [n.rationale]));
+    }
+
+    // Event / msg references
+    const meta = [];
+    if (n.level !== undefined) meta.push(`level=${n.level}`);
+    if (n.event_indices && n.event_indices.length)
+      meta.push(`events=${n.event_indices.join(",")}`);
+    if (n.msg_indices && n.msg_indices.length)
+      meta.push(`messages=${n.msg_indices.join(",")}`);
+    if ((n.children || []).length)
+      meta.push(`children=${n.children.length}`);
+    if (meta.length) {
+      body.appendChild(h("span", {class: "label"}, ["metadata"]));
+      body.appendChild(h("div", {class: "kv"}, [meta.join(" · ")]));
+    }
+
+    if (n.type === "root") {
+      if (n.root_task) {
+        body.appendChild(h("span", {class: "label"}, ["root task"]));
+        body.appendChild(h("pre", {}, [n.root_task]));
+      }
+    }
+    if (n.type === "tool_call") {
+      body.appendChild(h("span", {class: "label"}, ["tool"]));
+      body.appendChild(h("div", {class: "kv"}, [n.tool || ""]));
+      body.appendChild(h("span", {class: "label"}, ["arguments"]));
+      body.appendChild(h("pre", {}, [pretty(n.args)]));
+      if (n.call_id) {
+        body.appendChild(h("span", {class: "label"}, ["call id"]));
+        body.appendChild(h("div", {class: "kv"}, [n.call_id]));
+      }
+      body.appendChild(h("span", {class: "label"}, ["observation shape"]));
+      body.appendChild(h("div", {class: "kv"}, [n.observation_shape || "—"]));
+      body.appendChild(h("span", {class: "label"}, ["observation summary"]));
+      body.appendChild(h("div", {class: "kv"},
+        [n.observation_summary || "(no summary)"]));
+    }
+    if (n.type === "reason") {
+      body.appendChild(h("span", {class: "label"}, ["reasoning text"]));
+      body.appendChild(h("pre", {}, [n.rationale || ""]));
+    }
+    if (n.type === "finish") {
+      body.appendChild(h("span", {class: "label"}, ["final answer"]));
+      body.appendChild(h("pre", {}, [pretty(n.answer)]));
+    }
+  }
+  function resetSidebar() {
+    sidebarTab.textContent = "Details";
+    sidebarBody.innerHTML =
+      '<div class="placeholder">Click a node to see details. ' +
+      'Shift+click or double-click a node to collapse/expand its subtree.</div>';
+  }
+  resetSidebar();
+
+  // ── Zoom & pan ────────────────────────────────────────────────────────
+  let tx = 0, ty = 0, scale = 1;
+  function applyTransform() {
+    viewport.setAttribute("transform",
+      `translate(${tx}, ${ty}) scale(${scale})`);
+  }
+  function fit() {
+    const bbox = svg.__bbox;
+    if (!bbox) return;
+    const cw = svg.clientWidth, ch = svg.clientHeight;
+    const sx = cw / bbox.W, sy = ch / bbox.H;
+    scale = Math.min(sx, sy, 1.0);
+    tx = (cw - bbox.W * scale) / 2;
+    ty = (ch - bbox.H * scale) / 2;
+    applyTransform();
+  }
+  svg.addEventListener("wheel", ev => {
+    ev.preventDefault();
+    const r = svg.getBoundingClientRect();
+    const mx = ev.clientX - r.left, my = ev.clientY - r.top;
+    const wx = (mx - tx) / scale, wy = (my - ty) / scale;
+    const k = ev.deltaY < 0 ? 1.12 : 1 / 1.12;
+    scale = Math.max(0.15, Math.min(3.0, scale * k));
+    tx = mx - wx * scale;
+    ty = my - wy * scale;
+    applyTransform();
+  }, { passive: false });
+
+  let dragging = false, dragStart = null;
+  svg.addEventListener("mousedown", ev => {
+    if (ev.target.closest(".node")) return;
+    dragging = true; svg.classList.add("dragging");
+    dragStart = { x: ev.clientX - tx, y: ev.clientY - ty };
+  });
+  document.addEventListener("mousemove", ev => {
+    if (!dragging) return;
+    tx = ev.clientX - dragStart.x;
+    ty = ev.clientY - dragStart.y;
+    applyTransform();
+  });
+  document.addEventListener("mouseup", () => {
+    dragging = false; svg.classList.remove("dragging");
+  });
+
+  // Controls
+  document.getElementById("ctl-fit").addEventListener("click", fit);
+  document.getElementById("ctl-zoom-in").addEventListener("click", () => {
+    scale = Math.min(3.0, scale * 1.25); applyTransform();
+  });
+  document.getElementById("ctl-zoom-out").addEventListener("click", () => {
+    scale = Math.max(0.15, scale / 1.25); applyTransform();
+  });
+  document.getElementById("ctl-expand-all").addEventListener("click", () => {
+    function rec(n) { n.__collapsed = false; (n.children||[]).forEach(rec); }
+    rec(DATA); render(); fit();
+  });
+  document.getElementById("ctl-collapse-deep").addEventListener("click", () => {
+    // Collapse at depth 2 (keep root + level-1 subproblems expanded)
+    function rec(n, d) {
+      n.__collapsed = (d >= 2 && (n.children||[]).length > 0);
+      (n.children||[]).forEach(c => rec(c, d + 1));
+    }
+    rec(DATA, 0); render(); fit();
+  });
+
+  render();
+  // Initial fit after DOM has laid out
+  requestAnimationFrame(fit);
+})();
+</script>
+</div>
+</body>
+</html>

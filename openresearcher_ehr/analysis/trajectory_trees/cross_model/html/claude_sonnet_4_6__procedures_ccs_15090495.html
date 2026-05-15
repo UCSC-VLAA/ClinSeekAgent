@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>procedures_ccs_15090495 — procedures_ccs — claude_sonnet_4_6</title>
+<style>
+:root {
+  --border: #d1d5db;
+  --muted: #6b7280;
+  --text: #111827;
+  --bg: #fafafa;
+  --panel: #ffffff;
+  --link: #9ca3af;
+  --link-dim: #e5e7eb;
+  --root: #1e40af;
+  --sub:  #3b82f6;
+  --tool: #10b981;
+  --reason: #f59e0b;
+  --finish: #ec4899;
+  --selected: #111827;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+               "Helvetica Neue", Arial, sans-serif;
+  background: var(--bg); color: var(--text); font-size: 13px;
+}
+.header {
+  padding: 10px 16px; border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+.header h1 { margin: 0; font-size: 15px; font-weight: 600; }
+.header .meta { margin-top: 2px; color: var(--muted); font-size: 11px; }
+.header .meta span { margin-right: 14px; }
+.outcome {
+  margin-top: 6px; border: 1px solid var(--border); border-radius: 3px;
+  background: var(--bg);
+}
+.outcome > summary {
+  list-style: none; cursor: pointer; padding: 3px 8px;
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  font-size: 11px;
+}
+.outcome > summary::-webkit-details-marker { display: none; }
+.outcome > summary::before {
+  content: "▸"; color: var(--muted); width: 9px; font-size: 10px;
+  transition: transform .12s; display: inline-block;
+}
+.outcome[open] > summary::before { transform: rotate(90deg); }
+.outcome .pill {
+  display: inline-block; font-size: 10px; padding: 1px 6px;
+  border-radius: 8px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.pill.f1-high { background: #d1fae5; color: #065f46; }
+.pill.f1-mid  { background: #fef3c7; color: #92400e; }
+.pill.f1-low  { background: #fee2e2; color: #991b1b; }
+.pill.metric  { background: #e5e7eb; color: #374151; }
+.outcome-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
+  padding: 2px 8px 8px 8px;
+}
+.outcome-grid .col {
+  border: 1px solid var(--border); border-radius: 3px; background: var(--panel);
+  padding: 4px 8px; min-height: 0; max-height: 140px; overflow: auto;
+}
+.outcome-grid h3 {
+  margin: 0 0 3px 0; font-size: 10px; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .04em;
+}
+.outcome-grid ul { margin: 0; padding-left: 16px; }
+.outcome-grid li {
+  font-size: 11.5px; padding: 0; line-height: 1.35; word-break: break-word;
+}
+.outcome-grid li.hit     { color: #065f46; }
+.outcome-grid li.missing { color: #991b1b; }
+.outcome-grid li.extra   { color: #92400e; }
+.outcome-grid li .marker { display: inline-block; width: 14px; }
+.outcome-grid li.hit .marker     { color: #10b981; }
+.outcome-grid li.missing .marker { color: #ef4444; }
+.outcome-grid li.extra .marker   { color: #f59e0b; }
+.outcome-grid .empty { color: var(--muted); font-style: italic; font-size: 12px; }
+.app {
+  display: flex; flex: 1; min-height: 0;
+}
+.page {
+  display: flex; flex-direction: column; height: 100%;
+}
+.canvas-wrap {
+  flex: 1; position: relative; overflow: hidden; background: var(--bg);
+}
+#canvas { width: 100%; height: 100%; cursor: grab; user-select: none; }
+#canvas.dragging { cursor: grabbing; }
+
+.controls {
+  position: absolute; top: 8px; left: 8px; z-index: 10;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 4px;
+  padding: 4px; display: flex; gap: 2px; box-shadow: 0 1px 2px rgba(0,0,0,.06);
+}
+.controls button {
+  font: inherit; font-size: 11px; padding: 3px 8px; cursor: pointer;
+  background: white; border: 1px solid var(--border); border-radius: 3px;
+}
+.controls button:hover { background: #f3f4f6; }
+.legend {
+  position: absolute; bottom: 8px; left: 8px; z-index: 10;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 4px;
+  padding: 6px 10px; font-size: 11px; color: var(--muted);
+  display: flex; gap: 12px; box-shadow: 0 1px 2px rgba(0,0,0,.06);
+}
+.legend .swatch {
+  display: inline-block; width: 10px; height: 10px; border-radius: 2px;
+  vertical-align: middle; margin-right: 4px;
+}
+
+/* Nodes */
+.node rect {
+  stroke: var(--border); stroke-width: 1;
+  fill: var(--panel); cursor: pointer;
+}
+.node text {
+  pointer-events: none; font-size: 11px; fill: var(--text);
+}
+.node .bar {
+  stroke: none;
+}
+.node.type-root   .bar { fill: var(--root);   }
+.node.type-subproblem .bar { fill: var(--sub); }
+.node.type-tool_call  .bar { fill: var(--tool); }
+.node.type-reason .bar { fill: var(--reason); }
+.node.type-finish .bar { fill: var(--finish); }
+
+.node.has-hidden rect { stroke-dasharray: 3 3; }
+.node.selected rect { stroke: var(--selected); stroke-width: 2; }
+
+.node .collapsed-badge {
+  fill: var(--text); font-size: 10px; font-weight: 600;
+}
+
+.link {
+  fill: none; stroke: var(--link); stroke-width: 1;
+}
+.link.dim { stroke: var(--link-dim); }
+
+/* Sidebar */
+.sidebar {
+  width: 420px; min-width: 320px; border-left: 1px solid var(--border);
+  background: var(--panel); display: flex; flex-direction: column;
+  flex-shrink: 0;
+}
+.sidebar .tab {
+  padding: 8px 12px; border-bottom: 1px solid var(--border);
+  font-weight: 600; font-size: 12px; display: flex; justify-content: space-between;
+  align-items: center;
+}
+.sidebar .body {
+  padding: 10px 14px; overflow-y: auto; flex: 1; line-height: 1.5;
+}
+.sidebar .placeholder { color: var(--muted); font-style: italic; }
+.sidebar h2 {
+  font-size: 13px; margin: 12px 0 4px 0; color: #374151;
+}
+.sidebar h2:first-child { margin-top: 0; }
+.sidebar .kv { margin: 4px 0; font-size: 12px; }
+.sidebar .label {
+  color: var(--muted); font-size: 10px; text-transform: uppercase;
+  letter-spacing: .04em; display: block; margin-top: 8px;
+}
+.sidebar pre {
+  margin: 4px 0; padding: 8px 10px; background: #f3f4f6; border-radius: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px; white-space: pre-wrap; word-break: break-word;
+  max-height: 40vh; overflow: auto;
+}
+.sidebar .badge {
+  display: inline-block; font-size: 10px; padding: 1px 6px;
+  border-radius: 10px; color: white; margin-right: 4px;
+  text-transform: uppercase; letter-spacing: .04em;
+}
+.badge-root   { background: var(--root); }
+.badge-subproblem { background: var(--sub); }
+.badge-tool_call  { background: var(--tool); }
+.badge-reason { background: var(--reason); }
+.badge-finish { background: var(--finish); }
+</style>
+</head>
+<body>
+<div class="page">
+<div class="header">
+  <h1>procedures_ccs_15090495</h1>
+  <div class="meta">
+    <span><strong>task:</strong> procedures_ccs</span>
+    <span><strong>model:</strong> claude_sonnet_4_6</span>
+    <span><strong>status:</strong> success</span>
+    <span><strong>events:</strong> 58</span>
+    <span><strong>nodes:</strong> 52</span>
+    <span><strong>depth:</strong> 4</span>
+    <span><span class="pill f1-low">F1 0.00</span></span>
+  </div>
+  <details class="outcome">
+  <summary><strong>Outcome</strong><span class="pill f1-low">F1 0.00</span><span class="pill metric">P 0.00</span><span class="pill metric">R 0.00</span><span class="pill metric">0 hit · 1 miss · 9 extra</span></summary>
+  <div class="outcome-grid">
+    <div class="col">
+      <h3>Gold label · 1 item(s)</h3>
+      <ul><li class="missing"><span class="marker">✗</span>Other non-OR lower GI therapeutic procedures</li></ul>
+    </div>
+    <div class="col">
+      <h3>Prediction · 9 item(s)</h3>
+      <ul><li class="extra"><span class="marker">+</span>Biopsy of liver</li><li class="extra"><span class="marker">+</span>Cholecystectomy and common duct exploration</li><li class="extra"><span class="marker">+</span>Exploratory laparotomy</li><li class="extra"><span class="marker">+</span>Fluoroscopy of the biliary and pancreatic ducts (ERCP, ERC and ERP)</li><li class="extra"><span class="marker">+</span>Intraoperative cholangiogram</li><li class="extra"><span class="marker">+</span>Other diagnostic procedures of respiratory tract and mediastinum</li><li class="extra"><span class="marker">+</span>Other diagnostic radiology and related techniques</li><li class="extra"><span class="marker">+</span>Other gastrointestinal diagnostic procedures</li><li class="extra"><span class="marker">+</span>Other non-OR gastrointestinal therapeutic procedures</li></ul>
+    </div>
+  </div>
+</details>
+</div>
+<div class="app">
+  <div class="canvas-wrap">
+    <div class="controls">
+      <button id="ctl-fit" title="Fit to window">Fit</button>
+      <button id="ctl-zoom-in">+</button>
+      <button id="ctl-zoom-out">−</button>
+      <button id="ctl-expand-all" title="Expand every node">Expand all</button>
+      <button id="ctl-collapse-deep" title="Collapse everything below depth 2">
+        Collapse deep
+      </button>
+    </div>
+    <div class="legend">
+      <span><span class="swatch" style="background:var(--root)"></span>root</span>
+      <span><span class="swatch" style="background:var(--sub)"></span>subproblem</span>
+      <span><span class="swatch" style="background:var(--tool)"></span>tool call</span>
+      <span><span class="swatch" style="background:var(--reason)"></span>reason</span>
+      <span><span class="swatch" style="background:var(--finish)"></span>finish</span>
+      <span style="color:#9ca3af">· drag to pan · wheel to zoom · click node for details · shift+click or double-click to collapse</span>
+    </div>
+    <svg id="canvas"><g id="viewport"></g></svg>
+  </div>
+  <div class="sidebar">
+    <div class="tab" id="sidebar-tab">
+      <span id="sidebar-tab-title">Details</span>
+    </div>
+    <div class="body" id="sidebar-body"></div>
+  </div>
+</div>
+<script>window.__TREE__ = {"id": "n_0001", "level": 0, "type": "root", "title": "<task_instruction>\nYour current task is to act as a surgical planner.\n\nYour objective is to determine all necessary surgical procedures for the patient by analyzing their complete medical history and …", "root_task": "<task_instruction>\nYour current task is to act as a surgical planner.\n\nYour objective is to determine all necessary surgical procedures for the patient by analyzing their complete medical history and established diagnoses.\n\nYou must find the most likely official CCS procedure candidates using the **`procedures_ccs_candidates`** reference table.\n\nWhen you need medical knowledge or clinical information to support your procedure planning, use the `browser.search` tool to find authoritative medical information from reliable sources.\n\nPresent your final answer as a **list format** with `finish` tool calling, which must contain **multiple plausible procedures**. Each item in the list must be a string representing an official CCS procedure name, and **must not contain any codes or other additional information**.\n</task_instruction>\n\n<patient_info>\nCurrent Time: 2141-09-22 23:58:00\nPatient Subject ID: 15090495\n</patient_info>", "event_indices": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57], "msg_indices": [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 48], "children": [{"id": "n_0002", "level": 1, "type": "subproblem", "title": "Load patient EHR data and gather initial context", "rationale": "The agent loads the patient's EHR and performs an initial web search to understand CCS procedure classification categories.", "event_indices": [0, 1, 2, 3, 4], "msg_indices": [2, 3, 4], "children": [{"id": "n_0003", "level": 2, "type": "reason", "title": "reasoning note", "rationale": "I'll analyze the patient's medical history and determine necessary surgical procedures. Let me start by loading the EHR data and gathering patient information.", "event_indices": [], "msg_indices": [], "children": []}, {"id": "n_0004", "level": 2, "type": "tool_call", "title": "ehr_load_ehr", "tool": "ehr_load_ehr", "args": {"subject_id": "15090495", "timestamp": "2141-09-22 23:58:00"}, "call_id": "toolu_bdrk_01LXgscAsLmJndKaxB4e9G92", "observation_summary": "Loaded the full EHR snapshot at the specified timestamp, including 83,131 procedures_ccs_candidates, 87,103 diagnoses_ccs_candidates, 520 lab events, 312 POE entries, and multiple other clinical tables.", "observation_shape": "text,len=1317", "observation_body": null, "event_indices": [1, 3], "msg_indices": [2, 3], "children": []}, {"id": "n_0005", "level": 2, "type": "tool_call", "title": "browser_search", "tool": "browser_search", "args": {"query": "CCS procedure classification surgical procedures common categories"}, "call_id": "toolu_bdrk_01JXrnWUqaq48uxY5wUsWj5C", "observation_summary": "Web search returned information about CCS procedure classification categories, including references to the AHRQ single-level CCS procedure category labels and surgical procedure categories like appendectomy and breast biopsy.", "observation_shape": "text,len=2790", "observation_body": null, "event_indices": [2, 4], "msg_indices": [2, 4], "children": []}]}, {"id": "n_0006", "level": 1, "type": "subproblem", "title": "Retrieve patient diagnoses and procedures from medical records", "rationale": "The agent queries multiple EHR tables to gather the patient's diagnoses, procedures, discharge notes, and DRG codes to understand the full clinical picture.", "event_indices": [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16], "msg_indices": [5, 6, 7, 8, 9, 10, 11, 12, 13], "children": [{"id": "n_0007", "level": 2, "type": "subproblem", "title": "Identify available EHR tables and initial keyword search", "rationale": "The agent queries available table names and attempts a keyword search on diagnoses_icd, getting the table list and a no-results response.", "event_indices": [5, 6, 7, 8], "msg_indices": [5, 6, 7], "children": [{"id": "n_0008", "level": 3, "type": "tool_call", "title": "ehr_get_table_names", "tool": "ehr_get_table_names", "args": {"subject_id": "15090495"}, "call_id": "toolu_bdrk_01K4QZiSbFPo8cEnsf2asZWv", "observation_summary": "Listed all available EHR and candidate tables for the patient, including procedures_ccs_candidates and diagnoses_ccs_candidates among others.", "observation_shape": "text,len=509", "observation_body": null, "event_indices": [5, 7], "msg_indices": [5, 6], "children": []}, {"id": "n_0009", "level": 3, "type": "tool_call", "title": "ehr_get_records_by_keyword", "tool": "ehr_get_records_by_keyword", "args": {"subject_id": "15090495", "table_name": "diagnoses_icd", "keyword": "diagnosis"}, "call_id": "toolu_bdrk_01Kqxu8Hak1h9o66syufijtR", "observation_summary": "Keyword search for 'diagnosis' in diagnoses_icd returned no results, indicating the keyword doesn't appear in that table's text fields.", "observation_shape": "text,len=77", "observation_body": null, "event_indices": [6, 8], "msg_indices": [5, 7], "children": []}]}, {"id": "n_0010", "level": 2, "type": "subproblem", "title": "Retrieve diagnoses and procedures ICD records", "rationale": "The agent runs SQL queries on diagnoses_icd and procedures_icd tables to get the patient's coded diagnoses and procedures.", "event_indices": [9, 10, 11, 12], "msg_indices": [8, 9, 10], "children": [{"id": "n_0011", "level": 3, "type": "tool_call", "title": "ehr_run_sql_query", "tool": "ehr_run_sql_query", "args": {"subject_id": "15090495", "sql_query": "SELECT * FROM diagnoses_icd"}, "call_id": "toolu_bdrk_01QA4LDrC4eJCvT4mi6AVs3Y", "observation_summary": "Retrieved ICD diagnoses across multiple admissions including bile duct obstruction, biliary tract disorders, solitary pulmonary nodule, asthma, long-term aspirin use, and a malignant neoplasm code (1977).", "observation_shape": "text,len=2603", "observation_body": null, "event_indices": [9, 11], "msg_indices": [8, 9], "children": []}, {"id": "n_0012", "level": 3, "type": "tool_call", "title": "ehr_run_sql_query", "tool": "ehr_run_sql_query", "args": {"subject_id": "15090495", "sql_query": "SELECT * FROM procedures_icd"}, "call_id": "toolu_bdrk_01PMEzQHyT7s4ErRbKowmTG6", "observation_summary": "Retrieved 4+ ICD procedures across two admissions including biliary stent replacement, endoscopic biopsy of biliary duct, cholecystectomy, diaphragm biopsy, and open liver biopsy.", "observation_shape": "text,len=1250", "observation_body": null, "event_indices": [10, 12], "msg_indices": [8, 10], "children": []}]}, {"id": "n_0013", "level": 2, "type": "subproblem", "title": "Retrieve discharge notes and DRG codes", "rationale": "The agent queries the discharge and drgcodes tables to obtain clinical narratives and DRG-based diagnostic groupings.", "event_indices": [13, 14, 15, 16], "msg_indices": [11, 12, 13], "children": [{"id": "n_0014", "level": 3, "type": "tool_call", "title": "ehr_run_sql_query", "tool": "ehr_run_sql_query", "args": {"subject_id": "15090495", "sql_query": "SELECT * FROM discharge"}, "call_id": "toolu_bdrk_01RYAGtsZuBWuRsFRmzoSqup", "observation_summary": "Retrieved the full discharge summary for the patient, which contains detailed clinical narrative about the hospital course, procedures performed, and discharge instructions.", "observation_shape": "text,len=36947", "observation_body": null, "event_indices": [13, 15], "msg_indices": [11, 12], "children": []}, {"id": "n_0015", "level": 3, "type": "tool_call", "title": "ehr_run_sql_query", "tool": "ehr_run_sql_query", "args": {"subject_id": "15090495", "sql_query": "SELECT * FROM drgcodes"}, "call_id": "toolu_bdrk_01PbZ4ny8opgxiDXWmEzdzYm", "observation_summary": "DRG codes show two admissions: one for 'CHOLECYSTECTOMY EXCEPT BY LAPAROSCOPE W/O C.D.E. W MCC' and another for 'DIGESTIVE MALIGNANCY W MCC' (APR severity 4, mortality 3).", "observation_shape": "text,len=479", "observation_body": null, "event_indices": [14, 16], "msg_indices": [11, 13], "children": []}]}]}, {"id": "n_0016", "level": 1, "type": "subproblem", "title": "Map patient procedures to CCS categories via candidate searches", "rationale": "The agent uses keyword, semantic similarity, and fuzzy matching searches against the procedures_ccs_candidates table to identify relevant CCS procedure categories for the patient's conditions.", "event_indices": [17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29], "msg_indices": [14, 16, 17, 18, 19, 20, 21, 22, 23, 24], "children": [{"id": "n_0017", "level": 2, "type": "subproblem", "title": "Initial reasoning and first keyword searches for cholecystectomy and biliary procedures", "rationale": "The agent analyzes the patient's medical history and performs initial keyword searches for cholecystectomy and biliary procedures.", "event_indices": [17, 18, 19, 20, 21], "msg_indices": [14, 16, 17, 18], "children": [{"id": "n_0018", "level": 3, "type": "reason", "title": "reasoning note", "rationale": "Let me analyze the patient's complete medical history:\n\n1. **Primary Diagnosis**: Cholangiocarcinoma (malignant neoplasm of gallbladder/bile duct - ICD 1560)\n2. **Secondary diagnoses**: \n   - Obstruction of bile duct (5762)\n   - Perforation of gallbladder (5754)\n   - Malignant neoplasm of liver, secondary (1977)\n   - Secondary malignant neoplasm of other specified sites (19889)\n   - Acute cholecystitis (5750)\n   - Exercise-induced bronchospasm/Asthma\n   - Glaucoma (3659)\n   - Solitary pulmonary nodule (79311)\n   - Personal history of malignant neoplasm of prostate (V1046)\n\n3. **Procedures performed**:\n   - ERCP with stent replacement (replacement of stent in biliary or pancreatic duct - ICD 9705)\n   - Closed endoscopic biopsy of biliary duct (ICD 5114)\n   - Cholecystectomy (ICD 5122) - open cholecystectomy for gangrenous/perforated gallbladder\n   - Biopsy of diaphragm (ICD 3427)\n   - Open biopsy of liver (ICD 5012)\n   - Biopsy of chest wall (ICD 3423)\n   - Other cholangiogram (ICD 8754)\n   - Endoscopic insertion of stent into bile duct (ICD 5187) - metal stent placement\n\nFrom the discharge notes:\n- Patient had ERCP with sphincterotomy and plastic stent placement\n- ERCP with stent exchange (plastic stent)\n- Percutaneous cholangiogram (PTC) with drain placement\n- Exploratory laparotomy with open cholecystectomy for gangrenous/perforated GB\n- Biopsies of chest wall, diaphragm, and portal mass\n- ERCP with metal stent placement\n- Patient was deemed unresectable (cholangiocarcinoma)\n\nNow I need to find corresponding CCS procedure categories for these procedures. Let me search the procedures_ccs_candidates table for relevant procedures.\n", "event_indices": [], "msg_indices": [], "children": []}, {"id": "n_0019", "level": 3, "type": "tool_call", "title": "ehr_get_candidates_by_keyword", "tool": "ehr_get_candidates_by_keyword", "args": {"table_name": "procedures_ccs_candidates", "keyword": "cholecystectomy"}, "call_id": "toolu_bdrk_01CoLseUAwuHzkV43WmsCPFY", "observation_summary": "Keyword search for 'cholecystectomy' returned 'Cholecystectomy and common duct exploration' with ICD-10 code 0FB40ZZ.", "observation_shape": "text,len=165", "observation_body": null, "event_indices": [18, 20], "msg_indices": [16, 17], "children": []}, {"id": "n_0020", "level": 3, "type": "tool_call", "title": "ehr_get_candidates_by_keyword", "tool": "ehr_get_candidates_by_keyword", "args": {"table_name": "procedures_ccs_candidates", "keyword": "biliary"}, "call_id": "toolu_bdrk_014oXy5j5rEJCSAScQrJxJ6n", "observation_summary": "Keyword search for 'biliary' returned one result: 'Fluoroscopy of the biliary and pancreatic ducts (ERCP)' with ICD code 5111.", "observation_shape": "text,len=185", "observation_body": null, "event_indices": [19, 21], "msg_indices": [16, 18], "children": []}]}, {"id": "n_0021", "level": 2, "type": "subproblem", "title": "Semantic similarity search and web search for procedure categories", "rationale": "The agent performs semantic similarity searches for multiple procedure types and a web search for ERCP stent insertion CCS categories.", "event_indices": [22, 23, 24, 25], "msg_indices": [19, 20, 21], "children": [{"id": "n_0022", "level": 3, "type": "tool_call", "title": "ehr_get_candidates_by_semantic_similarity", "tool": "ehr_get_candidates_by_semantic_similarity", "args": {"table_name": "procedures_ccs_candidates", "query": ["open cholecystectomy", "ERCP stent placement bile duct", "biopsy of liver", "cholangiogram percutaneous drainage", "endoscopic biopsy biliary duct", "exploratory laparotomy", "biopsy diaphragm chest wall"]}, "call_id": "toolu_bdrk_0113isCmK7Yvinv1tjhqNNRV", "observation_summary": "Semantic search confirmed 'Cholecystectomy and common duct exploration' (similarity 0.844) for open cholecystectomy, and 'Intraoperative cholangiogram' and 'Fluoroscopy of the biliary and pancreatic ducts (ERCP)' for ERCP stent placement, plus 'Biopsy of liver' and 'Exploratory laparotomy' as available candidates.", "observation_shape": "text,len=3510", "observation_body": null, "event_indices": [22, 24], "msg_indices": [19, 20], "children": []}, {"id": "n_0023", "level": 3, "type": "tool_call", "title": "browser_search", "tool": "browser_search", "args": {"query": "ERCP stent insertion bile duct CCS procedure category cholangiocarcinoma"}, "call_id": "toolu_bdrk_01RT2UnPv2yZvrbbP8V1629C", "observation_summary": "Web search confirmed ERCP is used for biliary stenting in cholangiocarcinoma but did not provide a specific CCS procedure category mapping for ERCP stent insertion.", "observation_shape": "text,len=2804", "observation_body": null, "event_indices": [23, 25], "msg_indices": [19, 21], "children": []}]}, {"id": "n_0024", "level": 2, "type": "subproblem", "title": "Follow-up semantic similarity and fuzzy matching searches", "rationale": "The agent performs additional semantic similarity and fuzzy matching searches to identify more CCS procedure candidates.", "event_indices": [26, 27, 28, 29], "msg_indices": [22, 23, 24], "children": [{"id": "n_0025", "level": 3, "type": "tool_call", "title": "ehr_get_candidates_by_semantic_similarity", "tool": "ehr_get_candidates_by_semantic_similarity", "args": {"table_name": "procedures_ccs_candidates", "query": ["endoscopic stent insertion bile duct", "percutaneous biliary drainage", "sphincterotomy", "biopsy of bile duct sphincter", "cholangiogram fluoroscopy", "biopsy of chest wall", "biopsy diaphragm"]}, "call_id": "toolu_bdrk_01PNxok4ogWjbkGLTGkSStRW", "observation_summary": "Semantic search for endoscopic stent insertion and sphincterotomy mapped primarily to 'Intraoperative cholangiogram' and 'Fluoroscopy of the biliary and pancreatic ducts (ERCP)' with moderate similarity scores, with no dedicated stent or sphincterotomy category found.", "observation_shape": "text,len=2457", "observation_body": null, "event_indices": [26, 28], "msg_indices": [22, 23], "children": []}, {"id": "n_0026", "level": 3, "type": "tool_call", "title": "ehr_get_candidates_by_fuzzy_matching", "tool": "ehr_get_candidates_by_fuzzy_matching", "args": {"table_name": "procedures_ccs_candidates", "keywords": ["stent", "cholangiogram", "biopsy", "exploratory laparotomy", "ERCP", "sphincterotomy"]}, "call_id": "toolu_bdrk_01Pzv3gLfstXVg46Hf91rCoA", "observation_summary": "Fuzzy matching found 'Intraoperative cholangiogram' for 'cholangiogram' (score 63), 'Biopsy of liver' for 'biopsy', and 'Exploratory laparotomy' for that keyword, but failed to find meaningful matches for 'stent' or 'sphincterotomy'.", "observation_shape": "text,len=2589", "observation_body": null, "event_indices": [27, 29], "msg_indices": [22, 24], "children": []}]}]}, {"id": "n_0027", "level": 1, "type": "subproblem", "title": "Validate CCS mappings via direct SQL join and web verification", "rationale": "The agent performs a direct join between the patient's procedures_icd and the CCS candidates table, and verifies results against the official AHRQ CCS category list.", "event_indices": [30, 31, 32, 33, 34, 35, 36, 37], "msg_indices": [25, 26, 27, 28, 29, 30], "children": [{"id": "n_0028", "level": 2, "type": "subproblem", "title": "Query CCS candidates by ICD codes and semantic similarity", "rationale": "The agent queries the CCS candidates table using both direct ICD code lookup and semantic similarity searches to find matching procedure names.", "event_indices": [30, 31, 32, 33], "msg_indices": [25, 26, 27], "children": [{"id": "n_0029", "level": 3, "type": "tool_call", "title": "ehr_run_sql_query", "tool": "ehr_run_sql_query", "args": {"subject_id": "15090495", "sql_query": "SELECT DISTINCT candidate FROM procedures_ccs_candidates WHERE icd_code IN ('5122', '5141', '5012', '5114', '9705', '5187', '8754', '8753', '3427', '3423') OR icd_code IN ('0DJU0ZZ', '0DJW0ZZ', 'BF10YZZ')"}, "call_id": "toolu_bdrk_01GD3d2nV9zpuEu2aWJFmTfh", "observation_summary": "SQL query confirmed the available CCS procedure candidates for relevant ICD codes include Exploratory laparotomy, Biopsy of liver, Cholecystectomy and common duct exploration, Intraoperative cholangiogram, Fluoroscopy of the biliary and pancreatic ducts (ERCP), and others.", "observation_shape": "text,len=649", "observation_body": null, "event_indices": [30, 32], "msg_indices": [25, 26], "children": []}, {"id": "n_0030", "level": 3, "type": "tool_call", "title": "ehr_get_candidates_by_semantic_similarity", "tool": "ehr_get_candidates_by_semantic_similarity", "args": {"table_name": "procedures_ccs_candidates", "query": ["fluoroscopy biliary pancreatic ERCP", "upper GI endoscopy", "other therapeutic procedures digestive system", "incision drainage bile duct", "other operations biliary tract"]}, "call_id": "toolu_bdrk_01WGkf3p7FCGTgZkB8CoJVtK", "observation_summary": "Semantic search identified 'Fluoroscopy of the biliary and pancreatic ducts (ERCP)' (similarity 0.836) and 'Intraoperative cholangiogram' as top matches for biliary/pancreatic procedure queries, along with 'Upper gastrointestinal endoscopy; biopsy' for upper GI endoscopy.", "observation_shape": "text,len=3251", "observation_body": null, "event_indices": [31, 33], "msg_indices": [25, 27], "children": []}]}, {"id": "n_0031", "level": 2, "type": "subproblem", "title": "Direct SQL join and web verification of CCS procedure mappings", "rationale": "The agent performs a direct join between procedures_icd and procedures_ccs_candidates, then verifies the results against AHRQ CCS documentation via web search.", "event_indices": [34, 35, 36, 37], "msg_indices": [28, 29, 30], "children": [{"id": "n_0032", "level": 3, "type": "tool_call", "title": "ehr_run_sql_query", "tool": "ehr_run_sql_query", "args": {"subject_id": "15090495", "sql_query": "SELECT DISTINCT p.icd_code, p.icd_version, c.candidate \nFROM procedures_icd p\nJOIN procedures_ccs_candidates c ON p.icd_code = c.icd_code AND p.icd_version = c.icd_version"}, "call_id": "toolu_bdrk_01SDJNGzxbk2d8TACG2qkhFC", "observation_summary": "Joined the patient's actual procedures_icd table with CCS candidates, revealing the patient had ICD-9 codes 9705, 5114, 5122, 3427, 5012, 3423, 8754, and 5187 mapped to categories including non-OR GI therapeutic, GI diagnostic, cholecystectomy, respiratory diagnostic, biopsy of liver, and diagnostic radiology.", "observation_shape": "text,len=773", "observation_body": null, "event_indices": [34, 36], "msg_indices": [28, 29], "children": []}, {"id": "n_0033", "level": 3, "type": "tool_call", "title": "browser_search", "tool": "browser_search", "args": {"query": "CCS procedure category \"other non-OR gastrointestinal therapeutic procedures\" \"fluoroscopy of the biliary\" ERCP stent"}, "call_id": "toolu_bdrk_01S7PuLBP5hSknvt3pbSwiJs", "observation_summary": "Web search confirmed that CCS category 82 is 'Fluoroscopy of the biliary and pancreatic ducts (ERCP, ERC and ERP)' and category 98 is 'Other non-OR gastrointestinal therapeutic procedures.'", "observation_shape": "text,len=2591", "observation_body": null, "event_indices": [35, 37], "msg_indices": [28, 30], "children": []}]}]}, {"id": "n_0034", "level": 1, "type": "subproblem", "title": "Consolidate and verify complete CCS procedure list", "rationale": "The agent runs additional queries and browses the official CCS PDF to confirm all relevant procedure categories and ensure completeness of the final list.", "event_indices": [38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54], "msg_indices": [31, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45], "children": [{"id": "n_0035", "level": 2, "type": "subproblem", "title": "Initial SQL query and CCS PDF browsing for procedure verification", "rationale": "The agent reasons about the patient's procedures, runs a SQL query to get CCS candidates, and opens the CCS PDF for cross-referencing.", "event_indices": [38, 39, 40, 41, 42], "msg_indices": [31, 33, 34, 35], "children": [{"id": "n_0036", "level": 3, "type": "reason", "title": "reasoning note", "rationale": "Now I have a clear picture of the patient's procedures and their CCS categories. Let me compile the complete list:\n\nFrom the direct join between procedures_icd and procedures_ccs_candidates, the patient's actual procedures map to these CCS categories:\n\n1. **ICD 9705** (Replacement of stent in biliary or pancreatic duct) → **\"Other non-OR gastrointestinal therapeutic procedures\"**\n2. **ICD 5114** (Other closed endoscopic biopsy of biliary duct) → **\"Other gastrointestinal diagnostic procedures\"**\n3. **ICD 5122** (Cholecystectomy) → **\"Cholecystectomy and common duct exploration\"**\n4. **ICD 3427** (Biopsy of diaphragm) → **\"Other diagnostic procedures of respiratory tract and mediastinum\"**\n5. **ICD 5012** (Open biopsy of liver) → **\"Biopsy of liver\"**\n6. **ICD 3423** (Biopsy of chest wall) → **\"Other diagnostic procedures of respiratory tract and mediastinum\"**\n7. **ICD 8754** (Other cholangiogram) → **\"Other diagnostic radiology and related techniques\"**\n8. **ICD 5187** (Endoscopic insertion of stent into bile duct) → **\"Other non-OR gastrointestinal therapeutic procedures\"**\n\nAdditional procedures mentioned in discharge notes:\n- Exploratory laparotomy → **\"Exploratory laparotomy\"**\n- ERCP with fluoroscopy → **\"Fluoroscopy of the biliary and pancreatic ducts (ERCP\"**\n- Intraoperative cholangiogram → **\"Intraoperative cholangiogram\"**\n\nThe unique CCS procedure categories for this patient are:\n1. Cholecystectomy and common duct exploration\n2. Other non-OR gastrointestinal therapeutic procedures\n3. Other gastrointestinal diagnostic procedures\n4. Other diagnostic procedures of respiratory tract and mediastinum\n5. Biopsy of liver\n6. Other diagnostic radiology and related techniques\n7. Exploratory laparotomy\n8. Fluoroscopy of the biliary and pancreatic ducts (ERCP)\n9. Intraoperative cholangiogram\n\nLet me verify these are all correct full names from the CCS system.\n", "event_indices": [], "msg_indices": [], "children": []}, {"id": "n_0037", "level": 3, "type": "tool_call", "title": "ehr_run_sql_query", "tool": "ehr_run_sql_query", "args": {"subject_id": "15090495", "sql_query": "SELECT DISTINCT candidate FROM procedures_ccs_candidates WHERE icd_code IN ('9705', '5114', '5122', '3427', '5012', '3423', '8754', '5187', '8753', '5491', '5141', '5111')"}, "call_id": "toolu_bdrk_018KFJZYNTbLKoGAwVzva4yT", "observation_summary": "Queried specific ICD codes from the patient's procedures and confirmed mappings to CCS categories: Other non-OR GI therapeutic procedures, Biopsy of liver, ERCP fluoroscopy, Cholecystectomy, Abdominal paracentesis, Intraoperative cholangiogram, and Other diagnostic radiology.", "observation_shape": "text,len=649", "observation_body": null, "event_indices": [39, 41], "msg_indices": [33, 34], "children": []}, {"id": "n_0038", "level": 3, "type": "tool_call", "title": "browser_open", "tool": "browser_open", "args": {"id": "0", "source": "web"}, "call_id": "toolu_bdrk_0127VSuNWPheCVDYTWC3WW3W", "observation_summary": "Opened the beginning of the CCS category names PDF showing single-level CCS diagnosis categories 1–89 including infections, cancers, and eye disorders.", "observation_shape": "text,len=4127", "observation_body": null, "event_indices": [40, 42], "msg_indices": [33, 35], "children": []}]}, {"id": "n_0039", "level": 2, "type": "subproblem", "title": "Search CCS PDF for biliary fluoroscopy and run expanded candidate query", "rationale": "The agent searches the PDF for 'Fluoroscopy of the biliary' and runs another SQL query to find additional CCS candidates by keyword patterns.", "event_indices": [43, 44, 45, 46], "msg_indices": [36, 37, 38], "children": [{"id": "n_0040", "level": 3, "type": "tool_call", "title": "browser_find", "tool": "browser_find", "args": {"pattern": "Fluoroscopy of the biliary"}, "call_id": "toolu_bdrk_019pm1e1adCmY85QqkR8Lk6N", "observation_summary": "Found 'Fluoroscopy of the biliary and pancreatic ducts (ERCP, ERC and ERP)' at CCS procedure category 82, followed by Biopsy of liver (83), Cholecystectomy (84), and Exploratory laparotomy (89) in the PDF.", "observation_shape": "text,len=585", "observation_body": null, "event_indices": [43, 45], "msg_indices": [36, 37], "children": []}, {"id": "n_0041", "level": 3, "type": "tool_call", "title": "ehr_run_sql_query", "tool": "ehr_run_sql_query", "args": {"subject_id": "15090495", "sql_query": "SELECT DISTINCT candidate FROM procedures_ccs_candidates WHERE candidate LIKE '%Exploratory laparotomy%' OR candidate LIKE '%Fluoroscopy%biliary%' OR candidate LIKE '%cholangiogram%' OR candidate LIKE '%Cholecystectomy%' OR candidate LIKE '%gastrointestinal%' OR candidate LIKE '%Biopsy of liver%' OR candidate LIKE '%respiratory tract%'"}, "call_id": "toolu_bdrk_018bUAZd1jV2RxDuBXPcZnyD", "observation_summary": "SQL query returned 13 distinct CCS candidate procedure names relevant to the patient, including Exploratory laparotomy, Biopsy of liver, Cholecystectomy, ERCP fluoroscopy, Intraoperative cholangiogram, and various GI diagnostic/therapeutic categories.", "observation_shape": "text,len=909", "observation_body": null, "event_indices": [44, 46], "msg_indices": [36, 38], "children": []}]}, {"id": "n_0042", "level": 2, "type": "subproblem", "title": "Verify exploratory laparotomy candidate and browse CCS category listings", "rationale": "The agent attempts to open the CCS PDF at specific lines, searches for exploratory laparotomy, and browses additional CCS category sections for completeness.", "event_indices": [47, 48, 49, 50, 51, 52, 53, 54], "msg_indices": [39, 40, 41, 42, 43, 44, 45], "children": [{"id": "n_0043", "level": 3, "type": "subproblem", "title": "Attempt to open invalid browser link and search for exploratory laparotomy", "rationale": "The agent tries to open an invalid link (id 3) and simultaneously searches for exploratory laparotomy in the CCS candidates table, getting results for both.", "event_indices": [47, 48, 49, 50], "msg_indices": [39, 40, 41], "children": [{"id": "n_0044", "level": 4, "type": "tool_call", "title": "browser_open", "tool": "browser_open", "args": {"id": "3", "source": "web", "loc": 185, "num_lines": 50}, "call_id": "toolu_bdrk_01GBTtRg1CqLyH3yn3PchgAb", "observation_summary": "Attempted to open a browser link with id '3' but received an 'Invalid link id' error.", "observation_shape": "text,len=20", "observation_body": null, "event_indices": [47, 49], "msg_indices": [39, 40], "children": []}, {"id": "n_0045", "level": 4, "type": "tool_call", "title": "ehr_get_candidates_by_keyword", "tool": "ehr_get_candidates_by_keyword", "args": {"table_name": "procedures_ccs_candidates", "keyword": "exploratory laparotomy"}, "call_id": "toolu_bdrk_0188tPMMwn8b3KQN6hTMMdJD", "observation_summary": "Keyword search for 'exploratory laparotomy' in the CCS candidates table returned ICD-10-PCS code 0DJ00ZZ mapped to 'Exploratory laparotomy' with similarity score 44.", "observation_shape": "text,len=123", "observation_body": null, "event_indices": [48, 50], "msg_indices": [39, 41], "children": []}]}, {"id": "n_0046", "level": 3, "type": "subproblem", "title": "Browse CCS category names PDF lines 185-234 for GI procedures", "rationale": "The agent opens the CCS PDF at line 185 to review gastrointestinal procedure categories.", "event_indices": [51, 52], "msg_indices": [42, 43], "children": [{"id": "n_0047", "level": 4, "type": "tool_call", "title": "browser_open", "tool": "browser_open", "args": {"id": "\"https://hcup-us.ahrq.gov/toolssoftware/ccs10/CCSCategoryNames(FullLabels).pdf\"", "source": "web", "loc": 185, "num_lines": 50}, "call_id": "toolu_bdrk_011hJgxoGyEWaUbYa4zBaZdF", "observation_summary": "Browsed the CCS category names PDF at lines 185–234, covering gastrointestinal procedure categories (69–145) including endoscopy, colostomy, resection, appendectomy, and fracture treatment.", "observation_shape": "text,len=4321", "observation_body": null, "event_indices": [51, 52], "msg_indices": [42, 43], "children": []}]}, {"id": "n_0048", "level": 3, "type": "subproblem", "title": "Browse CCS category names PDF lines 234-283 for musculoskeletal procedures", "rationale": "The agent continues browsing the CCS PDF to review additional procedure categories in the musculoskeletal section.", "event_indices": [53, 54], "msg_indices": [44, 45], "children": [{"id": "n_0049", "level": 4, "type": "tool_call", "title": "browser_open", "tool": "browser_open", "args": {"id": "\"https://hcup-us.ahrq.gov/toolssoftware/ccs10/CCSCategoryNames(FullLabels).pdf\"", "source": "web", "loc": 234, "num_lines": 50}, "call_id": "toolu_bdrk_0166asRGXrAS3U6Hr6e6XKeL", "observation_summary": "Browsed the CCS category names PDF at lines 234–283, covering musculoskeletal procedure categories (149–220) including arthroplasty, amputation, spinal fusion, and ophthalmologic procedures.", "observation_shape": "text,len=4337", "observation_body": null, "event_indices": [53, 54], "msg_indices": [44, 45], "children": []}]}]}]}, {"id": "n_0050", "level": 1, "type": "subproblem", "title": "Synthesize findings and submit final answer", "rationale": "The agent summarizes the clinical reasoning and submits the final list of CCS procedure categories.", "event_indices": [55, 56, 57], "msg_indices": [46, 48], "children": [{"id": "n_0051", "level": 2, "type": "reason", "title": "reasoning note", "rationale": "Now I have a comprehensive picture. Let me compile the final list of CCS procedure categories for this patient based on the procedures actually performed and documented in the medical record:\n\nFrom the direct mapping (procedures_icd joined to procedures_ccs_candidates):\n1. **ICD 9705** (Replacement of stent in biliary or pancreatic duct) → **\"Other non-OR gastrointestinal therapeutic procedures\"** (CCS 98)\n2. **ICD 5114** (Other closed endoscopic biopsy of biliary duct) → **\"Other gastrointestinal diagnostic procedures\"** (CCS 97)\n3. **ICD 5122** (Cholecystectomy) → **\"Cholecystectomy and common duct exploration\"** (CCS 84)\n4. **ICD 3427** (Biopsy of diaphragm) → **\"Other diagnostic procedures of respiratory tract and mediastinum\"**\n5. **ICD 5012** (Open biopsy of liver) → **\"Biopsy of liver\"** (CCS 83)\n6. **ICD 3423** (Biopsy of chest wall) → **\"Other diagnostic procedures of respiratory tract and mediastinum\"**\n7. **ICD 8754** (Other cholangiogram) → **\"Other diagnostic radiology and related techniques\"** (CCS 226)\n8. **ICD 5187** (Endoscopic insertion of stent into bile duct) → **\"Other non-OR gastrointestinal therapeutic procedures\"** (CCS 98)\n\nAdditional mentioned in discharge notes but found in candidates:\n- Exploratory laparotomy (from the surgical records) → **\"Exploratory laparotomy\"** (CCS 89)\n- Intraoperative cholangiogram (from the percutaneous cholangiogram procedure) → **\"Intraoperative cholangiogram\"** (CCS 184)\n- ERCP fluoroscopy → **\"Fluoroscopy of the biliary and pancreatic ducts (ERCP, ERC and ERP)\"** (CCS 82)\n\nThe unique CCS categories are:\n1. Cholecystectomy and common duct exploration\n2. Other non-OR gastrointestinal therapeutic procedures\n3. Other gastrointestinal diagnostic procedures\n4. Other diagnostic procedures of respiratory tract and mediastinum\n5. Biopsy of liver\n6. Other diagnostic radiology and related techniques\n7. Exploratory laparotomy\n8. Intraoperative cholangiogram\n9. Fluoroscopy of the biliary and pancreatic ducts (ERCP, ERC an", "event_indices": [], "msg_indices": [], "children": []}, {"id": "n_0052", "level": 2, "type": "finish", "title": "finish", "answer": ["Cholecystectomy and common duct exploration", "Other non-OR gastrointestinal therapeutic procedures", "Other gastrointestinal diagnostic procedures", "Other diagnostic procedures of respiratory tract and mediastinum", "Biopsy of liver", "Other diagnostic radiology and related techniques", "Exploratory laparotomy", "Intraoperative cholangiogram", "Fluoroscopy of the biliary and pancreatic ducts (ERCP, ERC and ERP)"], "event_indices": [57], "msg_indices": [48], "children": []}]}]};</script>
+<script>
+(function() {
+  const DATA = window.__TREE__;
+  const NODES = [];
+  const EDGES = [];
+
+  // Assign stable numeric ids and collapsed flags
+  let nid = 0;
+  function walk(n, parent) {
+    n.__nid = nid++;
+    n.__parent = parent ? parent.__nid : null;
+    n.__collapsed = false;
+    (n.children || []).forEach(c => walk(c, n));
+  }
+  walk(DATA, null);
+
+  // ── Layout (simple Reingold-Tilford: leaves get consecutive y slots,
+  //          internal nodes sit at the midpoint of their children's y) ───
+  const DX = 60;   // vertical step per leaf slot
+  const DY = 270;  // horizontal step per depth level
+  const NODE_W = 240, NODE_H = 54;
+
+  function layout(root) {
+    let leafSlot = 0;
+    function visit(n, depth) {
+      n.__depth = depth;
+      const kids = (n.__collapsed ? [] : (n.children || []));
+      if (kids.length === 0) {
+        n.__y = leafSlot * DX;
+        leafSlot++;
+      } else {
+        kids.forEach(c => visit(c, depth + 1));
+        const ys = kids.map(c => c.__y);
+        n.__y = (Math.min.apply(null, ys) + Math.max.apply(null, ys)) / 2;
+      }
+      n.__x = depth * DY;
+    }
+    visit(root, 0);
+  }
+
+  function flatten(root) {
+    NODES.length = 0; EDGES.length = 0;
+    function rec(n) {
+      NODES.push(n);
+      const kids = (n.__collapsed ? [] : (n.children || []));
+      kids.forEach(c => { EDGES.push([n, c]); rec(c); });
+    }
+    rec(root);
+  }
+
+  // ── Labels ────────────────────────────────────────────────────────────
+  function shortTitle(n) {
+    const t = n.type;
+    if (t === "root") return "ROOT";
+    if (t === "subproblem") return (n.title || "").trim();
+    if (t === "tool_call")  return (n.tool || "tool");
+    if (t === "reason")     return "reason";
+    if (t === "finish")     return "FINISH";
+    return t;
+  }
+  function subLabel(n) {
+    const t = n.type;
+    if (t === "root") return (n.title || "").trim();
+    if (t === "subproblem") return (n.rationale || "").trim();
+    if (t === "tool_call")  return (n.observation_summary || "").trim();
+    if (t === "reason")     return (n.rationale || "").trim();
+    if (t === "finish") {
+      const a = n.answer;
+      if (a == null) return "";
+      const s = typeof a === "string" ? a : JSON.stringify(a);
+      return s;
+    }
+    return "";
+  }
+  function truncate(s, n) {
+    s = (s || "").replace(/\s+/g, " ");
+    return s.length > n ? s.slice(0, n - 1) + "…" : s;
+  }
+  function countHiddenDescendants(n) {
+    if (!n.__collapsed) return 0;
+    let c = 0;
+    function rec(x) {
+      (x.children || []).forEach(k => { c++; rec(k); });
+    }
+    rec(n);
+    return c;
+  }
+
+  // ── Render ────────────────────────────────────────────────────────────
+  const svg = document.getElementById("canvas");
+  const viewport = document.getElementById("viewport");
+  let selectedNid = null;
+
+  function render() {
+    layout(DATA);
+    flatten(DATA);
+    viewport.innerHTML = "";
+
+    // Compute bounding box
+    const xs = NODES.map(n => n.__x);
+    const ys = NODES.map(n => n.__y);
+    const xmin = Math.min.apply(null, xs), xmax = Math.max.apply(null, xs);
+    const ymin = Math.min.apply(null, ys), ymax = Math.max.apply(null, ys);
+    const W = (xmax - xmin) + NODE_W + 40;
+    const H = (ymax - ymin) + NODE_H + 40;
+    // Re-base so everything starts at (20, 20)
+    const ox = 20 - xmin, oy = 20 - ymin;
+
+    // Edges
+    for (const [p, c] of EDGES) {
+      const x1 = p.__x + ox + NODE_W;
+      const y1 = p.__y + oy + NODE_H / 2;
+      const x2 = c.__x + ox;
+      const y2 = c.__y + oy + NODE_H / 2;
+      const mx = (x1 + x2) / 2;
+      const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      path.setAttribute("class", "link");
+      path.setAttribute("d", `M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`);
+      viewport.appendChild(path);
+    }
+
+    // Nodes
+    for (const n of NODES) {
+      const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+      g.setAttribute("class",
+        `node type-${n.type}` +
+        (n.__collapsed ? " has-hidden" : "") +
+        (n.__nid === selectedNid ? " selected" : ""));
+      g.setAttribute("transform",
+        `translate(${n.__x + ox}, ${n.__y + oy})`);
+      g.setAttribute("data-nid", n.__nid);
+
+      const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+      rect.setAttribute("width", NODE_W);
+      rect.setAttribute("height", NODE_H);
+      rect.setAttribute("rx", 4);
+      g.appendChild(rect);
+
+      // Left colored bar
+      const bar = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+      bar.setAttribute("class", "bar");
+      bar.setAttribute("width", 5);
+      bar.setAttribute("height", NODE_H);
+      bar.setAttribute("rx", 2);
+      g.appendChild(bar);
+
+      // Main label (row 1)
+      const t1 = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      t1.setAttribute("x", 12);
+      t1.setAttribute("y", 16);
+      t1.setAttribute("font-weight", "600");
+      t1.textContent = truncate(shortTitle(n), 32);
+      g.appendChild(t1);
+
+      // Sub label (row 2) — full width, no overlap
+      const t2 = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      t2.setAttribute("x", 12);
+      t2.setAttribute("y", 32);
+      t2.setAttribute("fill", "#6b7280");
+      t2.textContent = truncate(subLabel(n), 38);
+      g.appendChild(t2);
+
+      // Footer row (row 3): event range left-aligned, hidden-count badge right
+      if (n.event_indices && n.event_indices.length) {
+        const ev = n.event_indices;
+        const er = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        er.setAttribute("x", 12);
+        er.setAttribute("y", 47);
+        er.setAttribute("fill", "#9ca3af");
+        er.setAttribute("font-size", "10");
+        er.textContent = ev.length === 1
+          ? `E${String(ev[0]).padStart(3,"0")}`
+          : `E${String(ev[0]).padStart(3,"0")}–E${String(ev[ev.length-1]).padStart(3,"0")}`;
+        g.appendChild(er);
+      }
+      if (n.__collapsed) {
+        const hc = countHiddenDescendants(n);
+        const tb = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        tb.setAttribute("class", "collapsed-badge");
+        tb.setAttribute("x", NODE_W - 10);
+        tb.setAttribute("y", 47);
+        tb.setAttribute("text-anchor", "end");
+        tb.setAttribute("font-size", "10");
+        tb.textContent = `+${hc} hidden`;
+        g.appendChild(tb);
+      }
+
+      g.addEventListener("click", ev => {
+        ev.stopPropagation();
+        if (ev.shiftKey || ev.detail === 2) {
+          // Shift+click or double-click: toggle collapse (only if has children)
+          if (n.children && n.children.length) {
+            n.__collapsed = !n.__collapsed;
+            render();
+          }
+          return;
+        }
+        selectedNid = n.__nid;
+        renderSidebar(n);
+        render();
+      });
+      viewport.appendChild(g);
+    }
+
+    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+    svg.__bbox = { W, H };
+  }
+
+  // ── Sidebar ───────────────────────────────────────────────────────────
+  const sidebarBody = document.getElementById("sidebar-body");
+  const sidebarTab = document.getElementById("sidebar-tab-title");
+
+  function h(tag, attrs, children) {
+    const e = document.createElement(tag);
+    for (const k in (attrs || {})) {
+      if (k === "class") e.className = attrs[k];
+      else if (k === "html") e.innerHTML = attrs[k];
+      else e.setAttribute(k, attrs[k]);
+    }
+    (children || []).forEach(c => {
+      if (typeof c === "string") e.appendChild(document.createTextNode(c));
+      else if (c) e.appendChild(c);
+    });
+    return e;
+  }
+  function pretty(v) {
+    if (v == null) return "";
+    if (typeof v === "string") return v;
+    try { return JSON.stringify(v, null, 2); }
+    catch (e) { return String(v); }
+  }
+  function renderSidebar(n) {
+    sidebarTab.innerHTML = "";
+    sidebarTab.appendChild(h("span", {}, [
+      h("span", {class: `badge badge-${n.type}`}, [n.type.toUpperCase()]),
+      " ",
+      (n.id || "")
+    ]));
+    const body = sidebarBody;
+    body.innerHTML = "";
+
+    // Title
+    body.appendChild(h("h2", {}, [shortTitle(n) || n.type]));
+    if (n.type === "subproblem" && n.title) {
+      body.appendChild(h("div", {class: "kv"}, [n.title]));
+    }
+    if (n.type === "root" && n.title) {
+      body.appendChild(h("div", {class: "kv"}, [n.title]));
+    }
+
+    // Rationale
+    if (n.rationale) {
+      body.appendChild(h("span", {class: "label"}, ["rationale"]));
+      body.appendChild(h("div", {class: "kv"}, [n.rationale]));
+    }
+
+    // Event / msg references
+    const meta = [];
+    if (n.level !== undefined) meta.push(`level=${n.level}`);
+    if (n.event_indices && n.event_indices.length)
+      meta.push(`events=${n.event_indices.join(",")}`);
+    if (n.msg_indices && n.msg_indices.length)
+      meta.push(`messages=${n.msg_indices.join(",")}`);
+    if ((n.children || []).length)
+      meta.push(`children=${n.children.length}`);
+    if (meta.length) {
+      body.appendChild(h("span", {class: "label"}, ["metadata"]));
+      body.appendChild(h("div", {class: "kv"}, [meta.join(" · ")]));
+    }
+
+    if (n.type === "root") {
+      if (n.root_task) {
+        body.appendChild(h("span", {class: "label"}, ["root task"]));
+        body.appendChild(h("pre", {}, [n.root_task]));
+      }
+    }
+    if (n.type === "tool_call") {
+      body.appendChild(h("span", {class: "label"}, ["tool"]));
+      body.appendChild(h("div", {class: "kv"}, [n.tool || ""]));
+      body.appendChild(h("span", {class: "label"}, ["arguments"]));
+      body.appendChild(h("pre", {}, [pretty(n.args)]));
+      if (n.call_id) {
+        body.appendChild(h("span", {class: "label"}, ["call id"]));
+        body.appendChild(h("div", {class: "kv"}, [n.call_id]));
+      }
+      body.appendChild(h("span", {class: "label"}, ["observation shape"]));
+      body.appendChild(h("div", {class: "kv"}, [n.observation_shape || "—"]));
+      body.appendChild(h("span", {class: "label"}, ["observation summary"]));
+      body.appendChild(h("div", {class: "kv"},
+        [n.observation_summary || "(no summary)"]));
+    }
+    if (n.type === "reason") {
+      body.appendChild(h("span", {class: "label"}, ["reasoning text"]));
+      body.appendChild(h("pre", {}, [n.rationale || ""]));
+    }
+    if (n.type === "finish") {
+      body.appendChild(h("span", {class: "label"}, ["final answer"]));
+      body.appendChild(h("pre", {}, [pretty(n.answer)]));
+    }
+  }
+  function resetSidebar() {
+    sidebarTab.textContent = "Details";
+    sidebarBody.innerHTML =
+      '<div class="placeholder">Click a node to see details. ' +
+      'Shift+click or double-click a node to collapse/expand its subtree.</div>';
+  }
+  resetSidebar();
+
+  // ── Zoom & pan ────────────────────────────────────────────────────────
+  let tx = 0, ty = 0, scale = 1;
+  function applyTransform() {
+    viewport.setAttribute("transform",
+      `translate(${tx}, ${ty}) scale(${scale})`);
+  }
+  function fit() {
+    const bbox = svg.__bbox;
+    if (!bbox) return;
+    const cw = svg.clientWidth, ch = svg.clientHeight;
+    const sx = cw / bbox.W, sy = ch / bbox.H;
+    scale = Math.min(sx, sy, 1.0);
+    tx = (cw - bbox.W * scale) / 2;
+    ty = (ch - bbox.H * scale) / 2;
+    applyTransform();
+  }
+  svg.addEventListener("wheel", ev => {
+    ev.preventDefault();
+    const r = svg.getBoundingClientRect();
+    const mx = ev.clientX - r.left, my = ev.clientY - r.top;
+    const wx = (mx - tx) / scale, wy = (my - ty) / scale;
+    const k = ev.deltaY < 0 ? 1.12 : 1 / 1.12;
+    scale = Math.max(0.15, Math.min(3.0, scale * k));
+    tx = mx - wx * scale;
+    ty = my - wy * scale;
+    applyTransform();
+  }, { passive: false });
+
+  let dragging = false, dragStart = null;
+  svg.addEventListener("mousedown", ev => {
+    if (ev.target.closest(".node")) return;
+    dragging = true; svg.classList.add("dragging");
+    dragStart = { x: ev.clientX - tx, y: ev.clientY - ty };
+  });
+  document.addEventListener("mousemove", ev => {
+    if (!dragging) return;
+    tx = ev.clientX - dragStart.x;
+    ty = ev.clientY - dragStart.y;
+    applyTransform();
+  });
+  document.addEventListener("mouseup", () => {
+    dragging = false; svg.classList.remove("dragging");
+  });
+
+  // Controls
+  document.getElementById("ctl-fit").addEventListener("click", fit);
+  document.getElementById("ctl-zoom-in").addEventListener("click", () => {
+    scale = Math.min(3.0, scale * 1.25); applyTransform();
+  });
+  document.getElementById("ctl-zoom-out").addEventListener("click", () => {
+    scale = Math.max(0.15, scale / 1.25); applyTransform();
+  });
+  document.getElementById("ctl-expand-all").addEventListener("click", () => {
+    function rec(n) { n.__collapsed = false; (n.children||[]).forEach(rec); }
+    rec(DATA); render(); fit();
+  });
+  document.getElementById("ctl-collapse-deep").addEventListener("click", () => {
+    // Collapse at depth 2 (keep root + level-1 subproblems expanded)
+    function rec(n, d) {
+      n.__collapsed = (d >= 2 && (n.children||[]).length > 0);
+      (n.children||[]).forEach(c => rec(c, d + 1));
+    }
+    rec(DATA, 0); render(); fit();
+  });
+
+  render();
+  // Initial fit after DOM has laid out
+  requestAnimationFrame(fit);
+})();
+</script>
+</div>
+</body>
+</html>

@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>diagnoses_ccs_18278405_29990014 — diagnoses_ccs — claude_sonnet_4_6</title>
+<style>
+:root {
+  --border: #d1d5db;
+  --muted: #6b7280;
+  --text: #111827;
+  --bg: #fafafa;
+  --panel: #ffffff;
+  --link: #9ca3af;
+  --link-dim: #e5e7eb;
+  --root: #1e40af;
+  --sub:  #3b82f6;
+  --tool: #10b981;
+  --reason: #f59e0b;
+  --finish: #ec4899;
+  --selected: #111827;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+               "Helvetica Neue", Arial, sans-serif;
+  background: var(--bg); color: var(--text); font-size: 13px;
+}
+.header {
+  padding: 10px 16px; border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+.header h1 { margin: 0; font-size: 15px; font-weight: 600; }
+.header .meta { margin-top: 2px; color: var(--muted); font-size: 11px; }
+.header .meta span { margin-right: 14px; }
+.outcome {
+  margin-top: 6px; border: 1px solid var(--border); border-radius: 3px;
+  background: var(--bg);
+}
+.outcome > summary {
+  list-style: none; cursor: pointer; padding: 3px 8px;
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  font-size: 11px;
+}
+.outcome > summary::-webkit-details-marker { display: none; }
+.outcome > summary::before {
+  content: "▸"; color: var(--muted); width: 9px; font-size: 10px;
+  transition: transform .12s; display: inline-block;
+}
+.outcome[open] > summary::before { transform: rotate(90deg); }
+.outcome .pill {
+  display: inline-block; font-size: 10px; padding: 1px 6px;
+  border-radius: 8px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.pill.f1-high { background: #d1fae5; color: #065f46; }
+.pill.f1-mid  { background: #fef3c7; color: #92400e; }
+.pill.f1-low  { background: #fee2e2; color: #991b1b; }
+.pill.metric  { background: #e5e7eb; color: #374151; }
+.outcome-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
+  padding: 2px 8px 8px 8px;
+}
+.outcome-grid .col {
+  border: 1px solid var(--border); border-radius: 3px; background: var(--panel);
+  padding: 4px 8px; min-height: 0; max-height: 140px; overflow: auto;
+}
+.outcome-grid h3 {
+  margin: 0 0 3px 0; font-size: 10px; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .04em;
+}
+.outcome-grid ul { margin: 0; padding-left: 16px; }
+.outcome-grid li {
+  font-size: 11.5px; padding: 0; line-height: 1.35; word-break: break-word;
+}
+.outcome-grid li.hit     { color: #065f46; }
+.outcome-grid li.missing { color: #991b1b; }
+.outcome-grid li.extra   { color: #92400e; }
+.outcome-grid li .marker { display: inline-block; width: 14px; }
+.outcome-grid li.hit .marker     { color: #10b981; }
+.outcome-grid li.missing .marker { color: #ef4444; }
+.outcome-grid li.extra .marker   { color: #f59e0b; }
+.outcome-grid .empty { color: var(--muted); font-style: italic; font-size: 12px; }
+.app {
+  display: flex; flex: 1; min-height: 0;
+}
+.page {
+  display: flex; flex-direction: column; height: 100%;
+}
+.canvas-wrap {
+  flex: 1; position: relative; overflow: hidden; background: var(--bg);
+}
+#canvas { width: 100%; height: 100%; cursor: grab; user-select: none; }
+#canvas.dragging { cursor: grabbing; }
+
+.controls {
+  position: absolute; top: 8px; left: 8px; z-index: 10;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 4px;
+  padding: 4px; display: flex; gap: 2px; box-shadow: 0 1px 2px rgba(0,0,0,.06);
+}
+.controls button {
+  font: inherit; font-size: 11px; padding: 3px 8px; cursor: pointer;
+  background: white; border: 1px solid var(--border); border-radius: 3px;
+}
+.controls button:hover { background: #f3f4f6; }
+.legend {
+  position: absolute; bottom: 8px; left: 8px; z-index: 10;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 4px;
+  padding: 6px 10px; font-size: 11px; color: var(--muted);
+  display: flex; gap: 12px; box-shadow: 0 1px 2px rgba(0,0,0,.06);
+}
+.legend .swatch {
+  display: inline-block; width: 10px; height: 10px; border-radius: 2px;
+  vertical-align: middle; margin-right: 4px;
+}
+
+/* Nodes */
+.node rect {
+  stroke: var(--border); stroke-width: 1;
+  fill: var(--panel); cursor: pointer;
+}
+.node text {
+  pointer-events: none; font-size: 11px; fill: var(--text);
+}
+.node .bar {
+  stroke: none;
+}
+.node.type-root   .bar { fill: var(--root);   }
+.node.type-subproblem .bar { fill: var(--sub); }
+.node.type-tool_call  .bar { fill: var(--tool); }
+.node.type-reason .bar { fill: var(--reason); }
+.node.type-finish .bar { fill: var(--finish); }
+
+.node.has-hidden rect { stroke-dasharray: 3 3; }
+.node.selected rect { stroke: var(--selected); stroke-width: 2; }
+
+.node .collapsed-badge {
+  fill: var(--text); font-size: 10px; font-weight: 600;
+}
+
+.link {
+  fill: none; stroke: var(--link); stroke-width: 1;
+}
+.link.dim { stroke: var(--link-dim); }
+
+/* Sidebar */
+.sidebar {
+  width: 420px; min-width: 320px; border-left: 1px solid var(--border);
+  background: var(--panel); display: flex; flex-direction: column;
+  flex-shrink: 0;
+}
+.sidebar .tab {
+  padding: 8px 12px; border-bottom: 1px solid var(--border);
+  font-weight: 600; font-size: 12px; display: flex; justify-content: space-between;
+  align-items: center;
+}
+.sidebar .body {
+  padding: 10px 14px; overflow-y: auto; flex: 1; line-height: 1.5;
+}
+.sidebar .placeholder { color: var(--muted); font-style: italic; }
+.sidebar h2 {
+  font-size: 13px; margin: 12px 0 4px 0; color: #374151;
+}
+.sidebar h2:first-child { margin-top: 0; }
+.sidebar .kv { margin: 4px 0; font-size: 12px; }
+.sidebar .label {
+  color: var(--muted); font-size: 10px; text-transform: uppercase;
+  letter-spacing: .04em; display: block; margin-top: 8px;
+}
+.sidebar pre {
+  margin: 4px 0; padding: 8px 10px; background: #f3f4f6; border-radius: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px; white-space: pre-wrap; word-break: break-word;
+  max-height: 40vh; overflow: auto;
+}
+.sidebar .badge {
+  display: inline-block; font-size: 10px; padding: 1px 6px;
+  border-radius: 10px; color: white; margin-right: 4px;
+  text-transform: uppercase; letter-spacing: .04em;
+}
+.badge-root   { background: var(--root); }
+.badge-subproblem { background: var(--sub); }
+.badge-tool_call  { background: var(--tool); }
+.badge-reason { background: var(--reason); }
+.badge-finish { background: var(--finish); }
+</style>
+</head>
+<body>
+<div class="page">
+<div class="header">
+  <h1>diagnoses_ccs_18278405_29990014</h1>
+  <div class="meta">
+    <span><strong>task:</strong> diagnoses_ccs</span>
+    <span><strong>model:</strong> claude_sonnet_4_6</span>
+    <span><strong>status:</strong> success</span>
+    <span><strong>events:</strong> 112</span>
+    <span><strong>nodes:</strong> 99</span>
+    <span><strong>depth:</strong> 4</span>
+    <span><span class="pill f1-low">F1 0.18</span></span>
+  </div>
+  <details class="outcome">
+  <summary><strong>Outcome</strong><span class="pill f1-low">F1 0.18</span><span class="pill metric">P 0.11</span><span class="pill metric">R 0.50</span><span class="pill metric">1 hit · 1 miss · 8 extra</span></summary>
+  <div class="outcome-grid">
+    <div class="col">
+      <h3>Gold label · 2 item(s)</h3>
+      <ul><li class="missing"><span class="marker">✗</span>Administrative/social admission</li><li class="hit"><span class="marker">✓</span>Mood disorders</li></ul>
+    </div>
+    <div class="col">
+      <h3>Prediction · 9 item(s)</h3>
+      <ul><li class="extra"><span class="marker">+</span>Adjustment disorders</li><li class="extra"><span class="marker">+</span>Alcohol-related disorders</li><li class="extra"><span class="marker">+</span>Anxiety disorders</li><li class="extra"><span class="marker">+</span>Headache; including migraine</li><li class="hit"><span class="marker">✓</span>Mood disorders</li><li class="extra"><span class="marker">+</span>Nausea and vomiting</li><li class="extra"><span class="marker">+</span>Sprains and strains</li><li class="extra"><span class="marker">+</span>Substance-related disorders</li><li class="extra"><span class="marker">+</span>Suicide and intentional self-inflicted injury</li></ul>
+    </div>
+  </div>
+</details>
+</div>
+<div class="app">
+  <div class="canvas-wrap">
+    <div class="controls">
+      <button id="ctl-fit" title="Fit to window">Fit</button>
+      <button id="ctl-zoom-in">+</button>
+      <button id="ctl-zoom-out">−</button>
+      <button id="ctl-expand-all" title="Expand every node">Expand all</button>
+      <button id="ctl-collapse-deep" title="Collapse everything below depth 2">
+        Collapse deep
+      </button>
+    </div>
+    <div class="legend">
+      <span><span class="swatch" style="background:var(--root)"></span>root</span>
+      <span><span class="swatch" style="background:var(--sub)"></span>subproblem</span>
+      <span><span class="swatch" style="background:var(--tool)"></span>tool call</span>
+      <span><span class="swatch" style="background:var(--reason)"></span>reason</span>
+      <span><span class="swatch" style="background:var(--finish)"></span>finish</span>
+      <span style="color:#9ca3af">· drag to pan · wheel to zoom · click node for details · shift+click or double-click to collapse</span>
+    </div>
+    <svg id="canvas"><g id="viewport"></g></svg>
+  </div>
+  <div class="sidebar">
+    <div class="tab" id="sidebar-tab">
+      <span id="sidebar-tab-title">Details</span>
+    </div>
+    <div class="body" id="sidebar-body"></div>
+  </div>
+</div>
+<script>window.__TREE__ = {"id": "n_0001", "level": 0, "type": "root", "title": "<task_instruction>\nYour current task is to act as a diagnostician.\n\nYour objective is to determine all plausible diagnoses for the patient's current condition by analyzing the patient's complete histo…", "root_task": "<task_instruction>\nYour current task is to act as a diagnostician.\n\nYour objective is to determine all plausible diagnoses for the patient's current condition by analyzing the patient's complete history.\n\nYou must find the most likely official CCS candidates using the **`diagnoses_ccs_candidates`** reference table.\n\nWhen you need medical knowledge or clinical information to support your diagnostic reasoning, use the `browser.search` tool to find authoritative medical information from reliable sources.\n\nPresent your final answer as a **list format** with `finish` tool calling, which must contain **multiple plausible diagnoses**. Each item in the list must be a string representing an official CCS diagnosis name, and **must not contain any codes or other additional information**.\n</task_instruction>\n\n<patient_info>\nCurrent Time: 2125-02-02 12:20:00\nPatient Subject ID: 18278405\n</patient_info>", "event_indices": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111], "msg_indices": [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 80, 81, 82, 83, 84, 85, 86, 87, 88, 90], "children": [{"id": "n_0002", "level": 1, "type": "subproblem", "title": "Load patient EHR and gather demographic/admission data", "rationale": "Initial loading of the patient's EHR and retrieval of basic demographic, admission, and table structure information to orient the diagnostic process.", "event_indices": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12], "msg_indices": [2, 3, 4, 5, 6, 7, 8, 9, 10], "children": [{"id": "n_0003", "level": 2, "type": "subproblem", "title": "Load EHR and identify available tables", "rationale": "Initial EHR loading to see what data tables are available and their sizes.", "event_indices": [0, 1, 2], "msg_indices": [2, 3], "children": [{"id": "n_0004", "level": 3, "type": "reason", "title": "reasoning note", "rationale": "I'll start by loading the patient's EHR data and exploring their medical history to determine plausible diagnoses.", "event_indices": [], "msg_indices": [], "children": []}, {"id": "n_0005", "level": 3, "type": "tool_call", "title": "ehr_load_ehr", "tool": "ehr_load_ehr", "args": {"subject_id": "18278405", "timestamp": "2125-02-02 12:20:00"}, "call_id": "toolu_bdrk_018gDqQuVYzDPe5evpxXD4kw", "observation_summary": "Loaded EHR data for subject 18278405 up to 2125-02-02 12:20:00, finding 1 ED stay, 67 lab events, 3 vital signs, 19 physician orders, 2 pyxis records, and large candidate tables for diagnoses, procedures, prescriptions, radiology, and lab mappings.", "observation_shape": "text,len=1102", "observation_body": null, "event_indices": [1, 2], "msg_indices": [2, 3], "children": []}]}, {"id": "n_0006", "level": 2, "type": "subproblem", "title": "Retrieve table names and attempt patient demographics", "rationale": "Getting the list of available tables and attempting to load patient demographics.", "event_indices": [3, 4, 5, 6], "msg_indices": [4, 5, 6], "children": [{"id": "n_0007", "level": 3, "type": "tool_call", "title": "ehr_get_table_names", "tool": "ehr_get_table_names", "args": {"subject_id": "18278405"}, "call_id": "toolu_bdrk_01WmLfwhYzexQ4DoGYmh4B5V", "observation_summary": "Retrieved the list of available EHR and candidate tables for subject 18278405, including admissions, labevents, vitalsign, radiology, transfers, and various candidate mapping tables.", "observation_shape": "text,len=430", "observation_body": null, "event_indices": [3, 5], "msg_indices": [4, 5], "children": []}, {"id": "n_0008", "level": 3, "type": "tool_call", "title": "ehr_get_latest_records", "tool": "ehr_get_latest_records", "args": {"subject_id": "18278405", "table_name": "patients"}, "call_id": "toolu_bdrk_01J1DCq8n1ETB6T7vTPH2Dxp", "observation_summary": "Confirmed that `patients` has no timestamp column and cannot retrieve latest records.", "observation_shape": "text,len=85", "observation_body": null, "event_indices": [4, 6], "msg_indices": [4, 6], "children": []}]}, {"id": "n_0009", "level": 2, "type": "subproblem", "title": "Retrieve admission, triage, and vitals data", "rationale": "Loading admission details, triage information, and latest vital signs to understand the patient's current presentation.", "event_indices": [7, 8, 9, 10, 11, 12], "msg_indices": [7, 8, 9, 10], "children": [{"id": "n_0010", "level": 3, "type": "tool_call", "title": "ehr_get_latest_records", "tool": "ehr_get_latest_records", "args": {"subject_id": "18278405", "table_name": "admissions"}, "call_id": "toolu_bdrk_01LS15g1eoKhCr7J6qM4kNWX", "observation_summary": "Latest admission was an EU OBSERVATION on 2125-02-02, admitted via emergency room, single White English-speaking patient with Other insurance, discharged same day alive.", "observation_shape": "text,len=483", "observation_body": null, "event_indices": [7, 10], "msg_indices": [7, 8], "children": []}, {"id": "n_0011", "level": 3, "type": "tool_call", "title": "ehr_get_latest_records", "tool": "ehr_get_latest_records", "args": {"subject_id": "18278405", "table_name": "triage"}, "call_id": "toolu_bdrk_013h6oEmv3TTkUG7XxUZDYWZ", "observation_summary": "Confirmed that `triage` has no timestamp column and cannot retrieve latest records.", "observation_shape": "text,len=83", "observation_body": null, "event_indices": [8, 11], "msg_indices": [7, 9], "children": []}, {"id": "n_0012", "level": 3, "type": "tool_call", "title": "ehr_get_latest_records", "tool": "ehr_get_latest_records", "args": {"subject_id": "18278405", "table_name": "vitalsign"}, "call_id": "toolu_bdrk_013S4VVpbXXaEU8C3b3d1DSE", "observation_summary": "Latest vital signs (2125-02-02 12:15) show temp 98.0, HR 91, RR 18, O2 sat 95%, BP 108/67, pain 0.", "observation_shape": "text,len=199", "observation_body": null, "event_indices": [9, 12], "msg_indices": [7, 10], "children": []}]}]}, {"id": "n_0013", "level": 1, "type": "subproblem", "title": "Retrieve clinical details from triage, labs, orders, and medications", "rationale": "Gathering detailed clinical information including triage chief complaints, lab results, physician orders, medication administration, and radiology to build the clinical picture.", "event_indices": [13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40], "msg_indices": [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31], "children": [{"id": "n_0014", "level": 2, "type": "subproblem", "title": "Retrieve triage and lab events data", "rationale": "Initial parallel calls to get triage (which failed due to no timestamp column) and lab events (which returned extensive results).", "event_indices": [13, 14, 15, 16], "msg_indices": [11, 12, 13], "children": [{"id": "n_0015", "level": 3, "type": "tool_call", "title": "ehr_get_records_by_time", "tool": "ehr_get_records_by_time", "args": {"subject_id": "18278405", "table_name": "triage", "start_time": "2125-01-01 00:00:00", "end_time": "2125-02-02 12:20:00"}, "call_id": "toolu_bdrk_01CjHFes7VrYG6HHJYSCHbEP", "observation_summary": "Confirmed that `triage` has no timestamp column and cannot be filtered by time.", "observation_shape": "text,len=74", "observation_body": null, "event_indices": [13, 15], "msg_indices": [11, 12], "children": []}, {"id": "n_0016", "level": 3, "type": "tool_call", "title": "ehr_get_records_by_time", "tool": "ehr_get_records_by_time", "args": {"subject_id": "18278405", "table_name": "labevents", "start_time": "2125-01-01 00:00:00", "end_time": "2125-02-02 12:20:00"}, "call_id": "toolu_bdrk_019Y4YkF9vx9vfqe9DqWTGv4", "observation_summary": "Retrieved extensive lab events for the admission period including multiple specimens; some results were held/discarded and various labs were ordered as STAT priority.", "observation_shape": "text,len=40663", "observation_body": null, "event_indices": [14, 16], "msg_indices": [11, 13], "children": []}]}, {"id": "n_0017", "level": 2, "type": "subproblem", "title": "Retrieve triage via SQL and physician order entries", "rationale": "Fallback SQL query for triage data and time-filtered POE retrieval, both returning results with chief complaints and orders.", "event_indices": [17, 18, 19, 20], "msg_indices": [14, 15, 16], "children": [{"id": "n_0018", "level": 3, "type": "tool_call", "title": "ehr_run_sql_query", "tool": "ehr_run_sql_query", "args": {"subject_id": "18278405", "sql_query": "SELECT * FROM triage"}, "call_id": "toolu_bdrk_01MMnFBngXGsb2U2yfQ25j7L", "observation_summary": "Retrieved triage records for three ED visits: one for suicidal ideation (acuity 2, HR 113, temp 98.9), one for right ankle pain (acuity 4), and one for headache (acuity 3).", "observation_shape": "text,len=379", "observation_body": null, "event_indices": [17, 19], "msg_indices": [14, 15], "children": []}, {"id": "n_0019", "level": 3, "type": "tool_call", "title": "ehr_get_records_by_time", "tool": "ehr_get_records_by_time", "args": {"subject_id": "18278405", "table_name": "poe", "start_time": "2125-01-01 00:00:00", "end_time": "2125-02-02 12:20:00"}, "call_id": "toolu_bdrk_01SyXRxNvdaJ7puUF2EAm1Fa", "observation_summary": "Retrieved physician order entry (POE) records for the admission, showing orders for medications, general care, and restraints placed around 2125-02-02 02:18–02:20.", "observation_shape": "text,len=3679", "observation_body": null, "event_indices": [18, 20], "msg_indices": [14, 16], "children": []}]}, {"id": "n_0020", "level": 2, "type": "subproblem", "title": "Retrieve POE detail and EMAR detail records", "rationale": "Attempts to get poe_detail and emar_detail by time (both failed), then successful SQL queries returning admission category and medication administration details.", "event_indices": [21, 22, 23, 24, 25, 26, 27, 28], "msg_indices": [17, 18, 19, 20, 21, 22], "children": [{"id": "n_0021", "level": 3, "type": "subproblem", "title": "Failed time-based queries for poe_detail and emar_detail", "rationale": "Both attempts to filter poe_detail and emar_detail by time failed because those tables lack timestamp columns.", "event_indices": [21, 22, 23, 24], "msg_indices": [17, 18, 19], "children": [{"id": "n_0022", "level": 4, "type": "tool_call", "title": "ehr_get_records_by_time", "tool": "ehr_get_records_by_time", "args": {"subject_id": "18278405", "table_name": "poe_detail", "start_time": "2125-01-01 00:00:00", "end_time": "2125-02-02 12:20:00"}, "call_id": "toolu_bdrk_01LXXLVTzGqT6e2nc8XsEoiP", "observation_summary": "Confirmed that `poe_detail` has no timestamp column and cannot be filtered by time.", "observation_shape": "text,len=78", "observation_body": null, "event_indices": [21, 23], "msg_indices": [17, 18], "children": []}, {"id": "n_0023", "level": 4, "type": "tool_call", "title": "ehr_get_records_by_time", "tool": "ehr_get_records_by_time", "args": {"subject_id": "18278405", "table_name": "emar_detail", "start_time": "2125-01-01 00:00:00", "end_time": "2125-02-02 12:20:00"}, "call_id": "toolu_bdrk_01KeHa9rM88ZNzDvmHezxfvw", "observation_summary": "Confirmed that `emar_detail` has no timestamp column and cannot be filtered by time.", "observation_shape": "text,len=79", "observation_body": null, "event_indices": [22, 24], "msg_indices": [17, 19], "children": []}]}, {"id": "n_0024", "level": 3, "type": "subproblem", "title": "Successful SQL queries for poe_detail and emar_detail", "rationale": "Direct SQL queries returned admission category (ED Observation) and medication administration details.", "event_indices": [25, 26, 27, 28], "msg_indices": [20, 21, 22], "children": [{"id": "n_0025", "level": 4, "type": "tool_call", "title": "ehr_run_sql_query", "tool": "ehr_run_sql_query", "args": {"subject_id": "18278405", "sql_query": "SELECT * FROM poe_detail"}, "call_id": "toolu_bdrk_01N3dkkKQKDbTZqx4nezcf2y", "observation_summary": "A physician order was placed to admit the patient to ED Observation status (category: 'Place in observation').", "observation_shape": "text,len=200", "observation_body": null, "event_indices": [25, 27], "msg_indices": [20, 21], "children": []}, {"id": "n_0026", "level": 4, "type": "tool_call", "title": "ehr_run_sql_query", "tool": "ehr_run_sql_query", "args": {"subject_id": "18278405", "sql_query": "SELECT * FROM emar_detail"}, "call_id": "toolu_bdrk_01EZwV4Fqz2BtcDZ1u3KsCv3", "observation_summary": "EMAR detail records show IV medication administrations during the visit, with multiple entries including dose and route information.", "observation_shape": "text,len=6841", "observation_body": null, "event_indices": [26, 28], "msg_indices": [20, 22], "children": []}]}]}, {"id": "n_0027", "level": 2, "type": "subproblem", "title": "Retrieve pyxis medications and radiology details", "rationale": "SQL queries for pyxis (showing Haloperidol and Lorazepam dispensed) and radiology_detail (showing right ankle X-ray).", "event_indices": [29, 30, 31, 32], "msg_indices": [23, 24, 25], "children": [{"id": "n_0028", "level": 3, "type": "tool_call", "title": "ehr_run_sql_query", "tool": "ehr_run_sql_query", "args": {"subject_id": "18278405", "sql_query": "SELECT * FROM pyxis"}, "call_id": "toolu_bdrk_01H2YSdh6sbSgv7qzwVYDLir", "observation_summary": "The patient received Haloperidol and Lorazepam from the Pyxis at 02:43 during the ED stay.", "observation_shape": "text,len=218", "observation_body": null, "event_indices": [29, 31], "msg_indices": [23, 24], "children": []}, {"id": "n_0029", "level": 3, "type": "tool_call", "title": "ehr_run_sql_query", "tool": "ehr_run_sql_query", "args": {"subject_id": "18278405", "sql_query": "SELECT * FROM radiology_detail"}, "call_id": "toolu_bdrk_01FpVpubx4p1ADcxkBnN2bKk", "observation_summary": "Radiology records show a right ankle X-ray (AP, mortise & lateral views) was performed during this visit.", "observation_shape": "text,len=245", "observation_body": null, "event_indices": [30, 32], "msg_indices": [23, 25], "children": []}]}, {"id": "n_0030", "level": 2, "type": "subproblem", "title": "Retrieve patient demographics, ED stays, transfers, and services", "rationale": "SQL queries for patient info (20F), ED stay details (arrived by ambulance, discharged home), transfers, and service assignments.", "event_indices": [33, 34, 35, 36, 37, 38, 39, 40], "msg_indices": [26, 27, 28, 29, 30, 31], "children": [{"id": "n_0031", "level": 3, "type": "subproblem", "title": "Query patient demographics", "rationale": "Retrieve basic patient information including age, gender, and anchor year.", "event_indices": [33, 35], "msg_indices": [26, 27], "children": [{"id": "n_0032", "level": 4, "type": "tool_call", "title": "ehr_run_sql_query", "tool": "ehr_run_sql_query", "args": {"subject_id": "18278405", "sql_query": "SELECT * FROM patients"}, "call_id": "toolu_bdrk_01NndrxqekLeDhgvggygFPoB", "observation_summary": "The patient is a 20-year-old female (anchor year 2125, cohort 2014–2016) with no recorded date of death.", "observation_shape": "text,len=125", "observation_body": null, "event_indices": [33, 35], "msg_indices": [26, 27], "children": []}]}, {"id": "n_0033", "level": 3, "type": "subproblem", "title": "Query ED stay details", "rationale": "Retrieve ED stay information including arrival transport, disposition, and timing.", "event_indices": [34, 36], "msg_indices": [26, 28], "children": [{"id": "n_0034", "level": 4, "type": "tool_call", "title": "ehr_run_sql_query", "tool": "ehr_run_sql_query", "args": {"subject_id": "18278405", "sql_query": "SELECT * FROM edstays"}, "call_id": "toolu_bdrk_01DAUTemtApbDZr78yhXQii6", "observation_summary": "The patient is a white female who arrived by ambulance to the ED on 2125-02-02 and was discharged home.", "observation_shape": "text,len=227", "observation_body": null, "event_indices": [34, 36], "msg_indices": [26, 28], "children": []}]}, {"id": "n_0035", "level": 3, "type": "subproblem", "title": "Query transfers and services", "rationale": "Retrieve transfer events and service assignments during the hospital encounter.", "event_indices": [37, 38, 39, 40], "msg_indices": [29, 30, 31], "children": [{"id": "n_0036", "level": 4, "type": "tool_call", "title": "ehr_run_sql_query", "tool": "ehr_run_sql_query", "args": {"subject_id": "18278405", "sql_query": "SELECT * FROM transfers"}, "call_id": "toolu_bdrk_013FzwNoFVsVpVjt89LN9eUG", "observation_summary": "The patient had a single transfer to the Emergency Department, staying from 02:01 to 12:22 on 2125-02-02.", "observation_shape": "text,len=209", "observation_body": null, "event_indices": [37, 39], "msg_indices": [29, 30], "children": []}, {"id": "n_0037", "level": 4, "type": "tool_call", "title": "ehr_run_sql_query", "tool": "ehr_run_sql_query", "args": {"subject_id": "18278405", "sql_query": "SELECT * FROM services"}, "call_id": "toolu_bdrk_013wJyEYBoDYMqq4WkbCyQdP", "observation_summary": "The patient was admitted under the MED (medicine) service with a single transfer event on 2125-02-02.", "observation_shape": "text,len=131", "observation_body": null, "event_indices": [38, 40], "msg_indices": [29, 31], "children": []}]}]}]}, {"id": "n_0038", "level": 1, "type": "subproblem", "title": "Synthesize clinical findings and begin CCS candidate search", "rationale": "Analyzing the collected data to identify key clinical problems (suicidal ideation, alcohol intoxication, agitation) and performing initial keyword/semantic searches in the CCS candidates table.", "event_indices": [41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61], "msg_indices": [32, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48], "children": [{"id": "n_0039", "level": 2, "type": "subproblem", "title": "Initial clinical reasoning and synthesis of patient data", "rationale": "The clinician analyzes the collected EHR data to identify key clinical problems including suicidal ideation, alcohol intoxication, and agitation.", "event_indices": [41], "msg_indices": [32], "children": [{"id": "n_0040", "level": 3, "type": "reason", "title": "reasoning note", "rationale": "Let me analyze the patient data collected so far:\n\nPatient: 18278405, Female, age ~20 (anchor age 20 in 2125, anchor year group 2014-2016)\nCurrent visit: ED visit on 2125-02-02, arrived via AMBULANCE, discharged HOME same day\n\nKey findings:\n\n1. **Chief Complaint (Triage)**: \n   - Current visit: \"SI\" (Suicidal Ideation) - acuity 2 (urgent), HR 113, RR 22 (slightly elevated)\n   - Previous visit: \"R Ankle pain\" - acuity 4\n   - Another previous visit: \"Headache\"\n\n2. **Lab Results (Current Visit)**:\n   - Ethanol: 178 mg/dL (ABNORMAL - significantly elevated, above legal limit of 80 mg/dL, and normal reference is 10-10 mg/dL which seems odd - but this is clearly elevated)\n   - Anion gap: 21 mEq/L (ABNORMAL - high, reference 8-20)\n   - Albumin: 5.7 g/dL (ABNORMAL - high, reference 3.5-5.2) - possibly dehydration\n   - Glucose: 105 mg/dL (ABNORMAL per the flag)\n   - BUN: 5 mg/dL (low, reference 6-20) - could suggest good hydration or malnutrition\n   - Urea Nitrogen: 5 (low)\n   - Drug screens: Acetaminophen NEG, Barbiturates NEG, Benzodiazepines NEG, Salicylates NEG, Tricyclic antidepressants NEG\n   - Urine toxicology: All negative (amphetamines, barbiturates, benzos, cocaine, opiates, methadone)\n   - HCG urine: NEGATIVE (not pregnant)\n   \n3. **Medications Administered**:\n   - Haloperidol (antipsychotic - used for agitation/psychosis)\n   - Lorazepam (benzodiazepine - used for anxiety/agitation)\n   - Sodium Chloride 0.9% IV (fluid resuscitation/maintenance)\n   - Diphenhydramine (antihistamine - also used for sedation/dystonia)\n   - Ketorolac (NSAID - for pain)\n   - Metoclopramide (antiemetic)\n   \n4. **Orders**:\n   - Restraints ordered (multiple changes) - suggesting agitated/combative behavior\n   \n5. **Vitals**:\n   - Current: Temp 98.0, HR 91, RR 18, O2 95%, BP 108/67\n   - Triage: HR 113, RR 22, O2 100%, BP 126/73, pain 13 (high)\n\n6. **Previous triage visits**:\n   - R Ankle pain (prior visit) - right ankle X-ray was ordered\n   - Headache (another prior visit)\n\n7. **Radiology**", "event_indices": [], "msg_indices": [], "children": []}]}, {"id": "n_0041", "level": 2, "type": "subproblem", "title": "Keyword searches for suicidal ideation and alcohol intoxication CCS candidates", "rationale": "Initial keyword-based searches in the CCS candidates table for 'suicidal' and 'alcohol intoxication' both return no results, prompting semantic searches.", "event_indices": [42, 43, 44, 45], "msg_indices": [34, 35, 36], "children": [{"id": "n_0042", "level": 3, "type": "tool_call", "title": "ehr_get_candidates_by_keyword", "tool": "ehr_get_candidates_by_keyword", "args": {"table_name": "diagnoses_ccs_candidates", "keyword": "suicidal"}, "call_id": "toolu_bdrk_014hSLg2tz4wcQfzPr58oGgs", "observation_summary": "No matching CCS diagnosis candidates were found for the keyword 'suicidal'.", "observation_shape": "text,len=87", "observation_body": null, "event_indices": [42, 44], "msg_indices": [34, 35], "children": []}, {"id": "n_0043", "level": 3, "type": "tool_call", "title": "ehr_get_candidates_by_keyword", "tool": "ehr_get_candidates_by_keyword", "args": {"table_name": "diagnoses_ccs_candidates", "keyword": "alcohol intoxication"}, "call_id": "toolu_bdrk_01E48pogmLwHQ2hvoPTDjQQ2", "observation_summary": "No matching CCS diagnosis candidates were found for the keyword 'alcohol intoxication'.", "observation_shape": "text,len=99", "observation_body": null, "event_indices": [43, 45], "msg_indices": [34, 36], "children": []}]}, {"id": "n_0044", "level": 2, "type": "subproblem", "title": "Semantic searches for suicidal ideation and alcohol-related CCS candidates", "rationale": "Semantic similarity searches identify 'Suicide and intentional self-inflicted injury' and 'Alcohol-related disorders' as candidate diagnoses.", "event_indices": [46, 47, 48, 49], "msg_indices": [37, 38, 39], "children": [{"id": "n_0045", "level": 3, "type": "tool_call", "title": "ehr_get_candidates_by_semantic_similarity", "tool": "ehr_get_candidates_by_semantic_similarity", "args": {"table_name": "diagnoses_ccs_candidates", "query": "suicidal ideation self-harm"}, "call_id": "toolu_bdrk_015d3cRQwagipW77U9cJh3Me", "observation_summary": "Semantic search mapped 'suicidal ideation self-harm' to CCS category 'Suicide and intentional self-inflicted injury' (code 33) with similarity 0.661.", "observation_shape": "text,len=336", "observation_body": null, "event_indices": [46, 48], "msg_indices": [37, 38], "children": []}, {"id": "n_0046", "level": 3, "type": "tool_call", "title": "ehr_get_candidates_by_semantic_similarity", "tool": "ehr_get_candidates_by_semantic_similarity", "args": {"table_name": "diagnoses_ccs_candidates", "query": "alcohol intoxication poisoning"}, "call_id": "toolu_bdrk_01QYepfDUnNHVKzANEu7NB5b", "observation_summary": "Semantic search mapped 'alcohol intoxication poisoning' to CCS category 'Alcohol-related disorders' (code 39) with similarity 0.752.", "observation_shape": "text,len=299", "observation_body": null, "event_indices": [47, 49], "msg_indices": [37, 39], "children": []}]}, {"id": "n_0047", "level": 2, "type": "subproblem", "title": "Semantic searches for psychiatric and mood disorder CCS candidates", "rationale": "Searches for agitation and depression yield 'Impulse control disorders' and 'Mood disorders' as additional candidate diagnoses.", "event_indices": [50, 51, 52, 53], "msg_indices": [40, 41, 42], "children": [{"id": "n_0048", "level": 3, "type": "tool_call", "title": "ehr_get_candidates_by_semantic_similarity", "tool": "ehr_get_candidates_by_semantic_similarity", "args": {"table_name": "diagnoses_ccs_candidates", "query": "acute agitation psychiatric emergency"}, "call_id": "toolu_bdrk_01NGE5cyVLw47QPo6PkwkcJo", "observation_summary": "Semantic search mapped 'acute agitation psychiatric emergency' to CCS category 'Impulse control disorders' (code 30) with a low similarity of 0.534.", "observation_shape": "text,len=308", "observation_body": null, "event_indices": [50, 52], "msg_indices": [40, 41], "children": []}, {"id": "n_0049", "level": 3, "type": "tool_call", "title": "ehr_get_candidates_by_semantic_similarity", "tool": "ehr_get_candidates_by_semantic_similarity", "args": {"table_name": "diagnoses_ccs_candidates", "query": "depression mood disorder"}, "call_id": "toolu_bdrk_01AWAT8yNdhNVkA3hDsBYSSE", "observation_summary": "Semantic search mapped 'depression mood disorder' to CCS category 'Mood disorders' (code 69) with similarity 0.833.", "observation_shape": "text,len=271", "observation_body": null, "event_indices": [51, 53], "msg_indices": [40, 42], "children": []}]}, {"id": "n_0050", "level": 2, "type": "subproblem", "title": "Semantic searches for substance abuse and ankle injury CCS candidates", "rationale": "Searches identify 'Substance-related disorders' and 'Fracture of lower limb' as additional candidates related to the patient's history.", "event_indices": [54, 55, 56, 57], "msg_indices": [43, 44, 45], "children": [{"id": "n_0051", "level": 3, "type": "tool_call", "title": "ehr_get_candidates_by_semantic_similarity", "tool": "ehr_get_candidates_by_semantic_similarity", "args": {"table_name": "diagnoses_ccs_candidates", "query": "alcohol use disorder substance abuse"}, "call_id": "toolu_bdrk_019sc15N8CFmTJE7AgpsjgkD", "observation_summary": "Semantic search mapped 'alcohol use disorder substance abuse' to two CCS categories: 'Alcohol-related disorders' (code 30, similarity 0.848) and 'Substance-related disorders' (code 29, similarity 0.696).", "observation_shape": "text,len=397", "observation_body": null, "event_indices": [54, 56], "msg_indices": [43, 44], "children": []}, {"id": "n_0052", "level": 3, "type": "tool_call", "title": "ehr_get_candidates_by_semantic_similarity", "tool": "ehr_get_candidates_by_semantic_similarity", "args": {"table_name": "diagnoses_ccs_candidates", "query": "ankle injury fracture sprain"}, "call_id": "toolu_bdrk_01MFU3SKV3m6p6vLFTzh6463", "observation_summary": "Semantic search mapped 'ankle injury fracture sprain' to CCS category 'Fracture of lower limb' (code 38) with similarity 0.549.", "observation_shape": "text,len=291", "observation_body": null, "event_indices": [55, 57], "msg_indices": [43, 45], "children": []}]}, {"id": "n_0053", "level": 2, "type": "subproblem", "title": "Semantic searches for nausea/vomiting and anxiety CCS candidates", "rationale": "Final searches identify 'Nausea and vomiting' and 'Anxiety disorders' as additional plausible diagnostic candidates.", "event_indices": [58, 59, 60, 61], "msg_indices": [46, 47, 48], "children": [{"id": "n_0054", "level": 3, "type": "tool_call", "title": "ehr_get_candidates_by_semantic_similarity", "tool": "ehr_get_candidates_by_semantic_similarity", "args": {"table_name": "diagnoses_ccs_candidates", "query": "nausea vomiting"}, "call_id": "toolu_bdrk_01GUMHccCbs8wGYoRQsKFsEr", "observation_summary": "Semantic search mapped 'nausea vomiting' to CCS category 'Nausea and vomiting' (code 32) with similarity 0.895.", "observation_shape": "text,len=272", "observation_body": null, "event_indices": [58, 60], "msg_indices": [46, 47], "children": []}, {"id": "n_0055", "level": 3, "type": "tool_call", "title": "ehr_get_candidates_by_semantic_similarity", "tool": "ehr_get_candidates_by_semantic_similarity", "args": {"table_name": "diagnoses_ccs_candidates", "query": "anxiety disorder panic"}, "call_id": "toolu_bdrk_016mztY11mwAj6j2DnyM3odn", "observation_summary": "Semantic search mapped 'anxiety disorder panic' to CCS category 'Anxiety disorders' (code 33) with similarity 0.835.", "observation_shape": "text,len=275", "observation_body": null, "event_indices": [59, 61], "msg_indices": [46, 48], "children": []}]}]}, {"id": "n_0056", "level": 1, "type": "subproblem", "title": "Verify CCS categories via web search and fuzzy matching", "rationale": "Using web searches and fuzzy matching to confirm official CCS category names and validate diagnostic candidates against HCUP classification standards.", "event_indices": [62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73], "msg_indices": [49, 50, 51, 52, 53, 54, 55, 56, 57], "children": [{"id": "n_0057", "level": 2, "type": "subproblem", "title": "Initial web search and semantic similarity lookup for CCS categories", "rationale": "First parallel batch of searches: web search for suicidal ideation/alcohol/agitation CCS categories and semantic similarity search for headache/migraine.", "event_indices": [62, 63, 64, 65], "msg_indices": [49, 50, 51], "children": [{"id": "n_0058", "level": 3, "type": "tool_call", "title": "browser_search", "tool": "browser_search", "args": {"query": "suicidal ideation alcohol intoxication acute agitation clinical diagnosis CCS categories"}, "call_id": "toolu_bdrk_01WYq58jLbVUCgSJN7RjUcXD", "observation_summary": "Web search returned information about CCS classification system and a study showing suicidal patients with BAL ≥80 mg/dl are more likely to no longer endorse suicidal ideation when sober, plus references to agitation assessment.", "observation_shape": "text,len=2866", "observation_body": null, "event_indices": [62, 64], "msg_indices": [49, 50], "children": []}, {"id": "n_0059", "level": 3, "type": "tool_call", "title": "ehr_get_candidates_by_semantic_similarity", "tool": "ehr_get_candidates_by_semantic_similarity", "args": {"table_name": "diagnoses_ccs_candidates", "query": "headache migraine"}, "call_id": "toolu_bdrk_01Mfx7B3uKTj2Vt8YWuXZLUh", "observation_summary": "Semantic search mapped 'headache migraine' to CCS category 'Headache; including migraine' (code 34) with similarity 0.863.", "observation_shape": "text,len=292", "observation_body": null, "event_indices": [63, 65], "msg_indices": [49, 51], "children": []}]}, {"id": "n_0060", "level": 2, "type": "subproblem", "title": "Fuzzy matching for suicide/alcohol/mood/anxiety and web search for CCS codes", "rationale": "Second parallel batch: fuzzy matching key diagnostic terms and web search confirming HCUP CCS category names for suicide and alcohol.", "event_indices": [66, 67, 68, 69], "msg_indices": [52, 53, 54], "children": [{"id": "n_0061", "level": 3, "type": "tool_call", "title": "ehr_get_candidates_by_fuzzy_matching", "tool": "ehr_get_candidates_by_fuzzy_matching", "args": {"table_name": "diagnoses_ccs_candidates", "keywords": ["Suicide and intentional self-inflicted injury", "Alcohol-related disorders", "Mood disorders", "Anxiety disorders"]}, "call_id": "toolu_bdrk_01WccdpB8erXZFo5res3k54T", "observation_summary": "Fuzzy matching confirmed exact matches (score 100) for 'Suicide and intentional self-inflicted injury' and 'Alcohol-related disorders' as valid CCS categories, along with 'Mood disorders' and 'Anxiety disorders'.", "observation_shape": "text,len=1966", "observation_body": null, "event_indices": [66, 68], "msg_indices": [52, 53], "children": []}, {"id": "n_0062", "level": 3, "type": "tool_call", "title": "browser_search", "tool": "browser_search", "args": {"query": "CCS diagnosis categories \"suicide\" \"alcohol\" ICD-10 codes clinical classification software HCUP"}, "call_id": "toolu_bdrk_0196HXX6RQTUpDrdrkroqhcR", "observation_summary": "Web search confirmed HCUP CCS categories include 'Alcohol-related disorders' [660], 'Substance-related disorders' [661], and 'Suicide and intentional self-inflicted injury' [662] as distinct diagnostic categories.", "observation_shape": "text,len=2753", "observation_body": null, "event_indices": [67, 69], "msg_indices": [52, 54], "children": []}]}, {"id": "n_0063", "level": 2, "type": "subproblem", "title": "Fuzzy matching for substance/nausea/headache/fracture and agitation treatment search", "rationale": "Third parallel batch: fuzzy matching additional candidate diagnoses and web search about emergency agitation management to confirm clinical context.", "event_indices": [70, 71, 72, 73], "msg_indices": [55, 56, 57], "children": [{"id": "n_0064", "level": 3, "type": "tool_call", "title": "ehr_get_candidates_by_fuzzy_matching", "tool": "ehr_get_candidates_by_fuzzy_matching", "args": {"table_name": "diagnoses_ccs_candidates", "keywords": ["Substance-related disorders", "Nausea and vomiting", "Headache including migraine", "Fracture of lower limb"]}, "call_id": "toolu_bdrk_016uFREegoFgBagSipwXdijc", "observation_summary": "Fuzzy matching confirmed 'Substance-related disorders' (score 100) and 'Nausea and vomiting' (score 100) as valid CCS categories, and showed 'Alcohol-related disorders' closely related to substance-related disorders (score 77).", "observation_shape": "text,len=2056", "observation_body": null, "event_indices": [70, 72], "msg_indices": [55, 56], "children": []}, {"id": "n_0065", "level": 3, "type": "tool_call", "title": "browser_search", "tool": "browser_search", "args": {"query": "haloperidol lorazepam diphenhydramine emergency department acute agitation diagnosis workup"}, "call_id": "toolu_bdrk_01TpcHKEoteGLNDEvcUSTdQE", "observation_summary": "Web search confirmed that the combination of haloperidol, lorazepam, and diphenhydramine is commonly used for treating acute agitation in the emergency department, supporting the clinical context of behavioral disturbance management.", "observation_shape": "text,len=2861", "observation_body": null, "event_indices": [71, 73], "msg_indices": [55, 57], "children": []}]}]}, {"id": "n_0066", "level": 1, "type": "subproblem", "title": "Refine differential diagnosis with additional searches", "rationale": "Performing additional semantic similarity searches and web lookups to explore secondary diagnoses (mood disorders, personality disorders, sprains) and confirm ethanol-related findings.", "event_indices": [74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90], "msg_indices": [58, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71], "children": [{"id": "n_0067", "level": 2, "type": "subproblem", "title": "Initial reasoning and fuzzy/semantic searches for sprains, adjustment disorders, personality disorders, and alcohol poisoning", "rationale": "The agent synthesizes clinical findings, then performs fuzzy matching for sprains/adjustment/personality disorders and semantic search for alcohol poisoning.", "event_indices": [74, 75, 76, 77, 78], "msg_indices": [58, 60, 61, 62], "children": [{"id": "n_0068", "level": 3, "type": "reason", "title": "reasoning note", "rationale": "Based on my analysis, let me now compile all the evidence:\n\n**Patient Profile:**\n- 20-year-old female\n- Arrived by ambulance to ED\n- Chief complaint: \"SI\" (Suicidal Ideation)\n- Discharged home same day\n\n**Clinical Findings:**\n1. **Suicidal Ideation** - Chief complaint clearly states \"SI\"\n2. **Alcohol Intoxication** - Ethanol level 178 mg/dL (significantly elevated; legal limit is 80 mg/dL)\n3. **Elevated Anion Gap** (21, ref 8-20) - could be related to alcohol\n4. **Acute Agitation** - Restraints ordered multiple times, medications given:\n   - Haloperidol (antipsychotic for agitation)\n   - Lorazepam (sedative for agitation)\n   - Diphenhydramine (for extrapyramidal symptoms or as part of \"B-52\" agitation protocol)\n5. **Nausea/Vomiting** - Metoclopramide given (antiemetic)\n6. **Pain** - Ketorolac given (NSAID), pain score 13/10 at triage\n7. **Previous visit for Right Ankle Pain** - Right ankle X-ray ordered (AP, mortise & lateral views)\n8. **Previous visit for Headache**\n\n**Multiple visits to the ED:**\n- Current visit: Suicidal ideation with alcohol intoxication\n- Previous visit: R Ankle pain (with X-ray)\n- Another previous visit: Headache\n\n**Diagnoses to consider:**\n\nFor CURRENT VISIT (primary focus):\n1. **Suicide and intentional self-inflicted injury** - Chief complaint is SI, this is the primary reason for this visit\n2. **Alcohol-related disorders** - Ethanol 178 mg/dL indicates alcohol intoxication\n3. **Mood disorders** - Patient has suicidal ideation, likely underlying mood disorder (depression)\n4. **Anxiety disorders** - May co-exist with SI\n5. **Nausea and vomiting** - Metoclopramide given, common with alcohol intoxication\n\nFor PREVIOUS VISITS:\n6. **Fracture of lower limb** - Right ankle X-ray could be for fracture\n7. **Sprains and strains** - Ankle pain could also be sprain\n8. **Headache; including migraine** - Previous triage chief complaint was \"Headache\"\n\nLet me look for \"sprains and strains\" in CCS candidates, and also check for ankle-specific diagnoses.\n\nTh", "event_indices": [], "msg_indices": [], "children": []}, {"id": "n_0069", "level": 3, "type": "tool_call", "title": "ehr_get_candidates_by_fuzzy_matching", "tool": "ehr_get_candidates_by_fuzzy_matching", "args": {"table_name": "diagnoses_ccs_candidates", "keywords": ["Sprains and strains", "Adjustment disorders", "Personality disorders"]}, "call_id": "toolu_bdrk_01G5QWfMLMJctftBRSKabjQP", "observation_summary": "Fuzzy matching confirmed exact matches for 'Sprains and strains' (score 100), 'Adjustment disorders' (score 100), and 'Personality disorders' as valid CCS candidate categories.", "observation_shape": "text,len=1418", "observation_body": null, "event_indices": [75, 77], "msg_indices": [60, 61], "children": []}, {"id": "n_0070", "level": 3, "type": "tool_call", "title": "ehr_get_candidates_by_semantic_similarity", "tool": "ehr_get_candidates_by_semantic_similarity", "args": {"table_name": "diagnoses_ccs_candidates", "query": "alcohol poisoning toxic effect ethanol"}, "call_id": "toolu_bdrk_011yuE3LZJBuuUriJNXLYSmC", "observation_summary": "Semantic search for 'alcohol poisoning toxic effect ethanol' returned one strong candidate: Alcohol-related disorders (similarity 0.692).", "observation_shape": "text,len=307", "observation_body": null, "event_indices": [76, 78], "msg_indices": [60, 62], "children": []}]}, {"id": "n_0071", "level": 2, "type": "subproblem", "title": "Web search for suicidal ideation with alcohol and semantic search for musculoskeletal injury", "rationale": "The agent searches the web for differential diagnosis of SI with alcohol intoxication and performs semantic search for acute pain/injury.", "event_indices": [79, 80, 81, 82], "msg_indices": [63, 64, 65], "children": [{"id": "n_0072", "level": 3, "type": "tool_call", "title": "browser_search", "tool": "browser_search", "args": {"query": "suicidal ideation alcohol intoxication young woman ED presentation differential diagnosis"}, "call_id": "toolu_bdrk_01JmGsYbezrNwcQBn3aMyVZH", "observation_summary": "Web search on suicidal ideation with alcohol intoxication in ED found that acute alcohol intoxication among ED patients with suicidal behaviors was not independently associated with higher six-month suicide mortality, along with clinical practice guidelines for substance intoxication management.", "observation_shape": "text,len=2814", "observation_body": null, "event_indices": [79, 81], "msg_indices": [63, 64], "children": []}, {"id": "n_0073", "level": 3, "type": "tool_call", "title": "ehr_get_candidates_by_semantic_similarity", "tool": "ehr_get_candidates_by_semantic_similarity", "args": {"table_name": "diagnoses_ccs_candidates", "query": "acute pain injury musculoskeletal"}, "call_id": "toolu_bdrk_01Jmve9o3bD6YvtViuQtRpEJ", "observation_summary": "Semantic search for 'acute pain injury musculoskeletal' returned only one candidate: Sprains and strains (similarity 0.583).", "observation_shape": "text,len=290", "observation_body": null, "event_indices": [80, 82], "msg_indices": [63, 65], "children": []}]}, {"id": "n_0074", "level": 2, "type": "subproblem", "title": "Confirm ethanol lab value and search for altered mental status candidates", "rationale": "The agent queries lab events for ethanol confirmation and searches for behavioral disturbance/altered mental status CCS candidates.", "event_indices": [83, 84, 85, 86], "msg_indices": [66, 67, 68], "children": [{"id": "n_0075", "level": 3, "type": "tool_call", "title": "ehr_run_sql_query", "tool": "ehr_run_sql_query", "args": {"subject_id": "18278405", "sql_query": "SELECT * FROM labevents WHERE label LIKE '%Ethanol%' OR label LIKE '%ethanol%'"}, "call_id": "toolu_bdrk_01LxvyMHj6TjtahLJQaEm3JF", "observation_summary": "Lab results show the patient had an ethanol level of 178.0 mg/dL (flagged abnormal, reference 10 mg/dL) drawn on 2125-02-02, indicating significant alcohol intoxication.", "observation_shape": "text,len=489", "observation_body": null, "event_indices": [83, 85], "msg_indices": [66, 67], "children": []}, {"id": "n_0076", "level": 3, "type": "tool_call", "title": "ehr_get_candidates_by_semantic_similarity", "tool": "ehr_get_candidates_by_semantic_similarity", "args": {"table_name": "diagnoses_ccs_candidates", "query": "altered mental status behavioral disturbance"}, "call_id": "toolu_bdrk_015fN74R3XcP2Ai5UV7LCKGX", "observation_summary": "Semantic search for 'altered mental status behavioral disturbance' returned 4 candidates: Miscellaneous mental health disorders (0.567), Delirium (0.532), Personality disorders (0.531), and Adjustment disorders (0.527).", "observation_shape": "text,len=631", "observation_body": null, "event_indices": [84, 86], "msg_indices": [66, 68], "children": []}]}, {"id": "n_0077", "level": 2, "type": "subproblem", "title": "Semantic searches for mood disorders and ankle sprain candidates", "rationale": "The agent performs final semantic similarity searches to identify CCS candidates for depressive/mood disorders and sprains/strains.", "event_indices": [87, 88, 89, 90], "msg_indices": [69, 70, 71], "children": [{"id": "n_0078", "level": 3, "type": "tool_call", "title": "ehr_get_candidates_by_semantic_similarity", "tool": "ehr_get_candidates_by_semantic_similarity", "args": {"table_name": "diagnoses_ccs_candidates", "query": "depressive disorder major depression unipolar"}, "call_id": "toolu_bdrk_01GNDYhNKChRpcmVZ1duTQHw", "observation_summary": "Semantic search mapped 'depressive disorder major depression unipolar' to 'Mood disorders' (semantic similarity 0.633).", "observation_shape": "text,len=292", "observation_body": null, "event_indices": [87, 89], "msg_indices": [69, 70], "children": []}, {"id": "n_0079", "level": 3, "type": "tool_call", "title": "ehr_get_candidates_by_semantic_similarity", "tool": "ehr_get_candidates_by_semantic_similarity", "args": {"table_name": "diagnoses_ccs_candidates", "query": "ankle sprain ligament injury foot"}, "call_id": "toolu_bdrk_01BNJVEtvyAjT7J79wJ9uFX2", "observation_summary": "Semantic search mapped 'ankle sprain ligament injury foot' to 'Sprains and strains' (semantic similarity 0.569).", "observation_shape": "text,len=290", "observation_body": null, "event_indices": [88, 90], "msg_indices": [69, 71], "children": []}]}]}, {"id": "n_0080", "level": 1, "type": "subproblem", "title": "Final verification of CCS categories and comorbidity assessment", "rationale": "Browsing the official HCUP CCS category list and performing final searches to verify all candidate diagnoses and assess comorbid conditions.", "event_indices": [91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105], "msg_indices": [72, 73, 74, 75, 76, 77, 78, 80, 81, 82, 83, 84, 85], "children": [{"id": "n_0081", "level": 2, "type": "subproblem", "title": "Search for HCUP CCS category names and open PDF", "rationale": "Initial search for the official CCS category list and opening the PDF to verify category names.", "event_indices": [91, 92, 93, 94], "msg_indices": [72, 73, 74, 75], "children": [{"id": "n_0082", "level": 3, "type": "tool_call", "title": "browser_search", "tool": "browser_search", "args": {"query": "HCUP CCS ICD-10 categories \"Alcohol-related disorders\" \"Suicide and intentional self-inflicted\" \"Mood disorders\" full list"}, "call_id": "toolu_bdrk_01E9Fh1vJPGFKztxdtoG2w6S", "observation_summary": "Confirmed HCUP CCS ICD-10 category numbers: Mood disorders [657], Alcohol-related disorders [660], Substance-related disorders [661], and Suicide and intentional self-inflicted injury [662].", "observation_shape": "text,len=1047", "observation_body": null, "event_indices": [91, 92], "msg_indices": [72, 73], "children": []}, {"id": "n_0083", "level": 3, "type": "tool_call", "title": "browser_open", "tool": "browser_open", "args": {"id": "0", "source": "web"}, "call_id": "toolu_bdrk_017K56i5rLJ5v63xoMsgW2CV", "observation_summary": "Opened the HCUP ICD-10 CCS Category Names PDF, viewing the full list of single-level CCS diagnosis categories starting from category 1 (Tuberculosis) through approximately category 89.", "observation_shape": "text,len=4127", "observation_body": null, "event_indices": [93, 94], "msg_indices": [74, 75], "children": []}]}, {"id": "n_0084", "level": 2, "type": "subproblem", "title": "Find sprains/strains category in CCS list", "rationale": "Searching within the opened PDF for specific CCS category names to verify formatting.", "event_indices": [95, 96], "msg_indices": [76, 77], "children": [{"id": "n_0085", "level": 3, "type": "tool_call", "title": "browser_find", "tool": "browser_find", "args": {"pattern": "Sprains and strains"}, "call_id": "toolu_bdrk_01EejATfeemotoeiN4AP9auS", "observation_summary": "Found 'Sprains and strains' as CCS category 232 in the HCUP CCS full labels document.", "observation_shape": "text,len=924", "observation_body": null, "event_indices": [95, 96], "msg_indices": [76, 77], "children": []}]}, {"id": "n_0086", "level": 2, "type": "subproblem", "title": "Clinical reasoning and parallel candidate searches", "rationale": "Synthesizing patient data and performing multiple parallel searches for candidate diagnoses including alcohol-related disorders, suicidal ideation comorbidities, and headache categories.", "event_indices": [97, 98, 99, 100, 101, 102, 103, 104, 105], "msg_indices": [78, 80, 81, 82, 83, 84, 85], "children": [{"id": "n_0087", "level": 3, "type": "subproblem", "title": "Clinical reasoning synthesis of patient data", "rationale": "The agent synthesizes all collected patient data into a comprehensive summary to guide diagnostic reasoning.", "event_indices": [97], "msg_indices": [78], "children": [{"id": "n_0088", "level": 4, "type": "reason", "title": "reasoning note", "rationale": "Now I have comprehensive data. Let me compile the final diagnoses:\n\n**Patient Summary:**\n- 20-year-old female arriving via ambulance\n- **Current Visit (2125-02-02):**\n  - Chief Complaint: SI (Suicidal Ideation), pain 13\n  - Ethanol: 178 mg/dL (significantly elevated - alcohol intoxication)\n  - Elevated anion gap: 21 (related to alcohol)\n  - Received \"B-52\" combination: Haloperidol + Lorazepam + Diphenhydramine (for acute agitation)\n  - Restraints ordered multiple times (agitated/combative)\n  - Also received: Ketorolac (pain), Metoclopramide (nausea/vomiting), IV fluids\n  - Drug screens: all negative (no other substances)\n  - HCG negative (not pregnant)\n  - Admitted to ED Observation\n\n- **Previous Visits:**\n  - R Ankle pain (with right ankle X-ray)\n  - Headache\n\n**CCS Diagnoses identified:**\n\nFor current visit:\n1. **Suicide and intentional self-inflicted injury** - Chief complaint SI, this is the primary psychiatric presentation\n2. **Alcohol-related disorders** - Ethanol 178 mg/dL, major finding in this visit\n3. **Mood disorders** - Underlying cause of suicidal ideation (likely depression)\n4. **Anxiety disorders** - Often co-occurs with SI and alcohol use\n5. **Adjustment disorders** - Possible underlying condition leading to SI\n6. **Nausea and vomiting** - Metoclopramide given (common with alcohol intoxication)\n\nFor previous visits:\n7. **Headache; including migraine** - Previous chief complaint was \"Headache\"\n8. **Sprains and strains** - Right ankle pain with X-ray (if not fractured)\n9. **Fracture of lower limb** - If the ankle X-ray showed a fracture\n\nThe main diagnoses I am most confident about:\n1. Suicide and intentional self-inflicted injury (primary current visit reason)\n2. Alcohol-related disorders (ethanol 178 mg/dL - objective finding)\n3. Mood disorders (likely underlying diagnosis explaining SI)\n4. Anxiety disorders (often comorbid with SI and alcohol use)\n5. Nausea and vomiting (metoclopramide administered)\n6. Headache; including migraine (previous visit ch", "event_indices": [], "msg_indices": [], "children": []}]}, {"id": "n_0089", "level": 3, "type": "subproblem", "title": "Parallel searches for alcohol-related and suicidal ideation comorbidity candidates", "rationale": "Two parallel tool calls searching for alcohol-related CCS candidates and browser search for suicidal ideation comorbidities, with their respective observations.", "event_indices": [98, 99, 100, 101], "msg_indices": [80, 81, 82], "children": [{"id": "n_0090", "level": 4, "type": "tool_call", "title": "ehr_get_candidates_by_semantic_similarity", "tool": "ehr_get_candidates_by_semantic_similarity", "args": {"table_name": "diagnoses_ccs_candidates", "query": "alcohol use intoxication elevated blood alcohol level"}, "call_id": "toolu_bdrk_0123ySsvd33QmQm1hPP7Bant", "observation_summary": "Semantic search mapped 'alcohol use intoxication elevated blood alcohol level' to 'Alcohol-related disorders' (similarity 0.793) and 'Substance-related disorders' (similarity 0.533).", "observation_shape": "text,len=414", "observation_body": null, "event_indices": [98, 100], "msg_indices": [80, 81], "children": []}, {"id": "n_0091", "level": 4, "type": "tool_call", "title": "browser_search", "tool": "browser_search", "args": {"query": "young woman suicidal ideation alcohol intoxication agitation borderline personality disorder common comorbidities"}, "call_id": "toolu_bdrk_01E8cUC35MABVvLNZnb2CrGV", "observation_summary": "Search confirmed strong associations between alcohol intoxication, suicidal ideation, borderline personality disorder, and impulsivity in young women presenting to emergency departments.", "observation_shape": "text,len=2906", "observation_body": null, "event_indices": [99, 101], "msg_indices": [80, 82], "children": []}]}, {"id": "n_0092", "level": 3, "type": "subproblem", "title": "Parallel searches for observation status and headache/suicide CCS candidates", "rationale": "Two parallel tool calls searching for hospital observation status and fuzzy matching headache/suicide categories, with their respective observations.", "event_indices": [102, 103, 104, 105], "msg_indices": [83, 84, 85], "children": [{"id": "n_0093", "level": 4, "type": "tool_call", "title": "ehr_get_candidates_by_semantic_similarity", "tool": "ehr_get_candidates_by_semantic_similarity", "args": {"table_name": "diagnoses_ccs_candidates", "query": "observation hospital status monitoring"}, "call_id": "toolu_bdrk_019vzzHLbcSVjTk6otNLsgup", "observation_summary": "No semantically similar CCS candidates were found for 'observation hospital status monitoring' at the 0.5 threshold.", "observation_shape": "text,len=111", "observation_body": null, "event_indices": [102, 104], "msg_indices": [83, 84], "children": []}, {"id": "n_0094", "level": 4, "type": "tool_call", "title": "ehr_get_candidates_by_fuzzy_matching", "tool": "ehr_get_candidates_by_fuzzy_matching", "args": {"table_name": "diagnoses_ccs_candidates", "keywords": ["Headache; including migraine", "Suicide and intentional self-inflicted injury"]}, "call_id": "toolu_bdrk_01JKcynBeSWwmHBXmibTzwdb", "observation_summary": "Fuzzy matching confirmed 'Headache; including migraine' (ICD-10 G43419, score 100) and 'Suicide and intentional self-inflicted injury' (ICD-10 T4992XA, score 100) as valid CCS categories.", "observation_shape": "text,len=1206", "observation_body": null, "event_indices": [103, 105], "msg_indices": [83, 85], "children": []}]}]}]}, {"id": "n_0095", "level": 1, "type": "subproblem", "title": "Final reasoning and submission of diagnoses", "rationale": "Conducting final clinical reasoning synthesis and submitting the complete list of plausible CCS diagnoses.", "event_indices": [106, 107, 108, 109, 110, 111], "msg_indices": [86, 87, 88, 90], "children": [{"id": "n_0096", "level": 2, "type": "reason", "title": "reasoning note", "rationale": "Based on my comprehensive analysis of the patient's EHR data, I can now compile the final diagnoses. Let me do a final verification search.", "event_indices": [], "msg_indices": [], "children": []}, {"id": "n_0097", "level": 2, "type": "tool_call", "title": "browser_search", "tool": "browser_search", "args": {"query": "metoclopramide ketorolac emergency department alcohol intoxication nausea pain treatment"}, "call_id": "toolu_bdrk_0142Kt75gKLCYXEMgF93HEDs", "observation_summary": "Search found literature on metoclopramide and ketorolac use in emergency settings for migraine and alcohol intoxication, confirming these medications are commonly used for nausea/pain management in EDs.", "observation_shape": "text,len=2827", "observation_body": null, "event_indices": [107, 108], "msg_indices": [86, 87], "children": []}, {"id": "n_0098", "level": 2, "type": "reason", "title": "reasoning note", "rationale": "Based on all the evidence collected, let me finalize the diagnoses:\n\nThe patient is a 20-year-old female presenting to the ED with:\n\n**Current Visit:**\n1. **Suicidal Ideation (SI)** - chief complaint, required restraints and antipsychotic/sedative treatment\n2. **Alcohol Intoxication/Alcohol-related disorder** - Ethanol 178 mg/dL (severely elevated)\n3. **Acute Agitation** - Required haloperidol, lorazepam, diphenhydramine (B-52 protocol) and physical restraints\n4. **Nausea/Vomiting** - Metoclopramide administered (common with alcohol intoxication)\n5. **Pain** - High pain score (13), ketorolac given\n6. **Mood Disorder (Depression)** - Underlying cause of SI; the patient is a young female with SI + substance use, strongly suggesting an underlying mood disorder\n7. **Anxiety Disorders** - Often comorbid with depression and SI\n\n**Previous Visits:**\n8. **R Ankle Pain** - X-ray obtained (AP, mortise, lateral views) - could be sprain or fracture\n9. **Headache** - Previous chief complaint\n\nThe most clinically significant diagnoses mapped to CCS categories:\n1. **Suicide and intentional self-inflicted injury** (CCS 662)\n2. **Alcohol-related disorders** (CCS 660)\n3. **Mood disorders** (CCS 657)\n4. **Anxiety disorders** (CCS 651)\n5. **Nausea and vomiting** (CCS - symptom)\n6. **Adjustment disorders** (CCS 650)\n7. **Headache; including migraine** (CCS 84)\n8. **Sprains and strains** (CCS 232) - for the ankle\n9. **Substance-related disorders** (CCS 661) - alcohol use overlaps\n\nFor the ankle - the metoclopramide and ketorolac combination is sometimes used for migraine in the ED (metoclopramide + ketorolac is a classic migraine cocktail), which could suggest the headache visit also had these medications. The ankle X-ray was clearly for the \"R Ankle pain\" visit.\n\nAlso notable:\n- Ketorolac (30 mg) + metoclopramide is a classic treatment for migraine headache in the ED\n- These medications were given during the current visit (for SI/alcohol intoxication), but could also indicate headache c", "event_indices": [], "msg_indices": [], "children": []}, {"id": "n_0099", "level": 2, "type": "finish", "title": "finish", "answer": ["Suicide and intentional self-inflicted injury", "Alcohol-related disorders", "Mood disorders", "Anxiety disorders", "Adjustment disorders", "Nausea and vomiting", "Headache; including migraine", "Sprains and strains", "Substance-related disorders"], "event_indices": [111], "msg_indices": [90], "children": []}]}]};</script>
+<script>
+(function() {
+  const DATA = window.__TREE__;
+  const NODES = [];
+  const EDGES = [];
+
+  // Assign stable numeric ids and collapsed flags
+  let nid = 0;
+  function walk(n, parent) {
+    n.__nid = nid++;
+    n.__parent = parent ? parent.__nid : null;
+    n.__collapsed = false;
+    (n.children || []).forEach(c => walk(c, n));
+  }
+  walk(DATA, null);
+
+  // ── Layout (simple Reingold-Tilford: leaves get consecutive y slots,
+  //          internal nodes sit at the midpoint of their children's y) ───
+  const DX = 60;   // vertical step per leaf slot
+  const DY = 270;  // horizontal step per depth level
+  const NODE_W = 240, NODE_H = 54;
+
+  function layout(root) {
+    let leafSlot = 0;
+    function visit(n, depth) {
+      n.__depth = depth;
+      const kids = (n.__collapsed ? [] : (n.children || []));
+      if (kids.length === 0) {
+        n.__y = leafSlot * DX;
+        leafSlot++;
+      } else {
+        kids.forEach(c => visit(c, depth + 1));
+        const ys = kids.map(c => c.__y);
+        n.__y = (Math.min.apply(null, ys) + Math.max.apply(null, ys)) / 2;
+      }
+      n.__x = depth * DY;
+    }
+    visit(root, 0);
+  }
+
+  function flatten(root) {
+    NODES.length = 0; EDGES.length = 0;
+    function rec(n) {
+      NODES.push(n);
+      const kids = (n.__collapsed ? [] : (n.children || []));
+      kids.forEach(c => { EDGES.push([n, c]); rec(c); });
+    }
+    rec(root);
+  }
+
+  // ── Labels ────────────────────────────────────────────────────────────
+  function shortTitle(n) {
+    const t = n.type;
+    if (t === "root") return "ROOT";
+    if (t === "subproblem") return (n.title || "").trim();
+    if (t === "tool_call")  return (n.tool || "tool");
+    if (t === "reason")     return "reason";
+    if (t === "finish")     return "FINISH";
+    return t;
+  }
+  function subLabel(n) {
+    const t = n.type;
+    if (t === "root") return (n.title || "").trim();
+    if (t === "subproblem") return (n.rationale || "").trim();
+    if (t === "tool_call")  return (n.observation_summary || "").trim();
+    if (t === "reason")     return (n.rationale || "").trim();
+    if (t === "finish") {
+      const a = n.answer;
+      if (a == null) return "";
+      const s = typeof a === "string" ? a : JSON.stringify(a);
+      return s;
+    }
+    return "";
+  }
+  function truncate(s, n) {
+    s = (s || "").replace(/\s+/g, " ");
+    return s.length > n ? s.slice(0, n - 1) + "…" : s;
+  }
+  function countHiddenDescendants(n) {
+    if (!n.__collapsed) return 0;
+    let c = 0;
+    function rec(x) {
+      (x.children || []).forEach(k => { c++; rec(k); });
+    }
+    rec(n);
+    return c;
+  }
+
+  // ── Render ────────────────────────────────────────────────────────────
+  const svg = document.getElementById("canvas");
+  const viewport = document.getElementById("viewport");
+  let selectedNid = null;
+
+  function render() {
+    layout(DATA);
+    flatten(DATA);
+    viewport.innerHTML = "";
+
+    // Compute bounding box
+    const xs = NODES.map(n => n.__x);
+    const ys = NODES.map(n => n.__y);
+    const xmin = Math.min.apply(null, xs), xmax = Math.max.apply(null, xs);
+    const ymin = Math.min.apply(null, ys), ymax = Math.max.apply(null, ys);
+    const W = (xmax - xmin) + NODE_W + 40;
+    const H = (ymax - ymin) + NODE_H + 40;
+    // Re-base so everything starts at (20, 20)
+    const ox = 20 - xmin, oy = 20 - ymin;
+
+    // Edges
+    for (const [p, c] of EDGES) {
+      const x1 = p.__x + ox + NODE_W;
+      const y1 = p.__y + oy + NODE_H / 2;
+      const x2 = c.__x + ox;
+      const y2 = c.__y + oy + NODE_H / 2;
+      const mx = (x1 + x2) / 2;
+      const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      path.setAttribute("class", "link");
+      path.setAttribute("d", `M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`);
+      viewport.appendChild(path);
+    }
+
+    // Nodes
+    for (const n of NODES) {
+      const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+      g.setAttribute("class",
+        `node type-${n.type}` +
+        (n.__collapsed ? " has-hidden" : "") +
+        (n.__nid === selectedNid ? " selected" : ""));
+      g.setAttribute("transform",
+        `translate(${n.__x + ox}, ${n.__y + oy})`);
+      g.setAttribute("data-nid", n.__nid);
+
+      const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+      rect.setAttribute("width", NODE_W);
+      rect.setAttribute("height", NODE_H);
+      rect.setAttribute("rx", 4);
+      g.appendChild(rect);
+
+      // Left colored bar
+      const bar = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+      bar.setAttribute("class", "bar");
+      bar.setAttribute("width", 5);
+      bar.setAttribute("height", NODE_H);
+      bar.setAttribute("rx", 2);
+      g.appendChild(bar);
+
+      // Main label (row 1)
+      const t1 = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      t1.setAttribute("x", 12);
+      t1.setAttribute("y", 16);
+      t1.setAttribute("font-weight", "600");
+      t1.textContent = truncate(shortTitle(n), 32);
+      g.appendChild(t1);
+
+      // Sub label (row 2) — full width, no overlap
+      const t2 = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      t2.setAttribute("x", 12);
+      t2.setAttribute("y", 32);
+      t2.setAttribute("fill", "#6b7280");
+      t2.textContent = truncate(subLabel(n), 38);
+      g.appendChild(t2);
+
+      // Footer row (row 3): event range left-aligned, hidden-count badge right
+      if (n.event_indices && n.event_indices.length) {
+        const ev = n.event_indices;
+        const er = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        er.setAttribute("x", 12);
+        er.setAttribute("y", 47);
+        er.setAttribute("fill", "#9ca3af");
+        er.setAttribute("font-size", "10");
+        er.textContent = ev.length === 1
+          ? `E${String(ev[0]).padStart(3,"0")}`
+          : `E${String(ev[0]).padStart(3,"0")}–E${String(ev[ev.length-1]).padStart(3,"0")}`;
+        g.appendChild(er);
+      }
+      if (n.__collapsed) {
+        const hc = countHiddenDescendants(n);
+        const tb = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        tb.setAttribute("class", "collapsed-badge");
+        tb.setAttribute("x", NODE_W - 10);
+        tb.setAttribute("y", 47);
+        tb.setAttribute("text-anchor", "end");
+        tb.setAttribute("font-size", "10");
+        tb.textContent = `+${hc} hidden`;
+        g.appendChild(tb);
+      }
+
+      g.addEventListener("click", ev => {
+        ev.stopPropagation();
+        if (ev.shiftKey || ev.detail === 2) {
+          // Shift+click or double-click: toggle collapse (only if has children)
+          if (n.children && n.children.length) {
+            n.__collapsed = !n.__collapsed;
+            render();
+          }
+          return;
+        }
+        selectedNid = n.__nid;
+        renderSidebar(n);
+        render();
+      });
+      viewport.appendChild(g);
+    }
+
+    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+    svg.__bbox = { W, H };
+  }
+
+  // ── Sidebar ───────────────────────────────────────────────────────────
+  const sidebarBody = document.getElementById("sidebar-body");
+  const sidebarTab = document.getElementById("sidebar-tab-title");
+
+  function h(tag, attrs, children) {
+    const e = document.createElement(tag);
+    for (const k in (attrs || {})) {
+      if (k === "class") e.className = attrs[k];
+      else if (k === "html") e.innerHTML = attrs[k];
+      else e.setAttribute(k, attrs[k]);
+    }
+    (children || []).forEach(c => {
+      if (typeof c === "string") e.appendChild(document.createTextNode(c));
+      else if (c) e.appendChild(c);
+    });
+    return e;
+  }
+  function pretty(v) {
+    if (v == null) return "";
+    if (typeof v === "string") return v;
+    try { return JSON.stringify(v, null, 2); }
+    catch (e) { return String(v); }
+  }
+  function renderSidebar(n) {
+    sidebarTab.innerHTML = "";
+    sidebarTab.appendChild(h("span", {}, [
+      h("span", {class: `badge badge-${n.type}`}, [n.type.toUpperCase()]),
+      " ",
+      (n.id || "")
+    ]));
+    const body = sidebarBody;
+    body.innerHTML = "";
+
+    // Title
+    body.appendChild(h("h2", {}, [shortTitle(n) || n.type]));
+    if (n.type === "subproblem" && n.title) {
+      body.appendChild(h("div", {class: "kv"}, [n.title]));
+    }
+    if (n.type === "root" && n.title) {
+      body.appendChild(h("div", {class: "kv"}, [n.title]));
+    }
+
+    // Rationale
+    if (n.rationale) {
+      body.appendChild(h("span", {class: "label"}, ["rationale"]));
+      body.appendChild(h("div", {class: "kv"}, [n.rationale]));
+    }
+
+    // Event / msg references
+    const meta = [];
+    if (n.level !== undefined) meta.push(`level=${n.level}`);
+    if (n.event_indices && n.event_indices.length)
+      meta.push(`events=${n.event_indices.join(",")}`);
+    if (n.msg_indices && n.msg_indices.length)
+      meta.push(`messages=${n.msg_indices.join(",")}`);
+    if ((n.children || []).length)
+      meta.push(`children=${n.children.length}`);
+    if (meta.length) {
+      body.appendChild(h("span", {class: "label"}, ["metadata"]));
+      body.appendChild(h("div", {class: "kv"}, [meta.join(" · ")]));
+    }
+
+    if (n.type === "root") {
+      if (n.root_task) {
+        body.appendChild(h("span", {class: "label"}, ["root task"]));
+        body.appendChild(h("pre", {}, [n.root_task]));
+      }
+    }
+    if (n.type === "tool_call") {
+      body.appendChild(h("span", {class: "label"}, ["tool"]));
+      body.appendChild(h("div", {class: "kv"}, [n.tool || ""]));
+      body.appendChild(h("span", {class: "label"}, ["arguments"]));
+      body.appendChild(h("pre", {}, [pretty(n.args)]));
+      if (n.call_id) {
+        body.appendChild(h("span", {class: "label"}, ["call id"]));
+        body.appendChild(h("div", {class: "kv"}, [n.call_id]));
+      }
+      body.appendChild(h("span", {class: "label"}, ["observation shape"]));
+      body.appendChild(h("div", {class: "kv"}, [n.observation_shape || "—"]));
+      body.appendChild(h("span", {class: "label"}, ["observation summary"]));
+      body.appendChild(h("div", {class: "kv"},
+        [n.observation_summary || "(no summary)"]));
+    }
+    if (n.type === "reason") {
+      body.appendChild(h("span", {class: "label"}, ["reasoning text"]));
+      body.appendChild(h("pre", {}, [n.rationale || ""]));
+    }
+    if (n.type === "finish") {
+      body.appendChild(h("span", {class: "label"}, ["final answer"]));
+      body.appendChild(h("pre", {}, [pretty(n.answer)]));
+    }
+  }
+  function resetSidebar() {
+    sidebarTab.textContent = "Details";
+    sidebarBody.innerHTML =
+      '<div class="placeholder">Click a node to see details. ' +
+      'Shift+click or double-click a node to collapse/expand its subtree.</div>';
+  }
+  resetSidebar();
+
+  // ── Zoom & pan ────────────────────────────────────────────────────────
+  let tx = 0, ty = 0, scale = 1;
+  function applyTransform() {
+    viewport.setAttribute("transform",
+      `translate(${tx}, ${ty}) scale(${scale})`);
+  }
+  function fit() {
+    const bbox = svg.__bbox;
+    if (!bbox) return;
+    const cw = svg.clientWidth, ch = svg.clientHeight;
+    const sx = cw / bbox.W, sy = ch / bbox.H;
+    scale = Math.min(sx, sy, 1.0);
+    tx = (cw - bbox.W * scale) / 2;
+    ty = (ch - bbox.H * scale) / 2;
+    applyTransform();
+  }
+  svg.addEventListener("wheel", ev => {
+    ev.preventDefault();
+    const r = svg.getBoundingClientRect();
+    const mx = ev.clientX - r.left, my = ev.clientY - r.top;
+    const wx = (mx - tx) / scale, wy = (my - ty) / scale;
+    const k = ev.deltaY < 0 ? 1.12 : 1 / 1.12;
+    scale = Math.max(0.15, Math.min(3.0, scale * k));
+    tx = mx - wx * scale;
+    ty = my - wy * scale;
+    applyTransform();
+  }, { passive: false });
+
+  let dragging = false, dragStart = null;
+  svg.addEventListener("mousedown", ev => {
+    if (ev.target.closest(".node")) return;
+    dragging = true; svg.classList.add("dragging");
+    dragStart = { x: ev.clientX - tx, y: ev.clientY - ty };
+  });
+  document.addEventListener("mousemove", ev => {
+    if (!dragging) return;
+    tx = ev.clientX - dragStart.x;
+    ty = ev.clientY - dragStart.y;
+    applyTransform();
+  });
+  document.addEventListener("mouseup", () => {
+    dragging = false; svg.classList.remove("dragging");
+  });
+
+  // Controls
+  document.getElementById("ctl-fit").addEventListener("click", fit);
+  document.getElementById("ctl-zoom-in").addEventListener("click", () => {
+    scale = Math.min(3.0, scale * 1.25); applyTransform();
+  });
+  document.getElementById("ctl-zoom-out").addEventListener("click", () => {
+    scale = Math.max(0.15, scale / 1.25); applyTransform();
+  });
+  document.getElementById("ctl-expand-all").addEventListener("click", () => {
+    function rec(n) { n.__collapsed = false; (n.children||[]).forEach(rec); }
+    rec(DATA); render(); fit();
+  });
+  document.getElementById("ctl-collapse-deep").addEventListener("click", () => {
+    // Collapse at depth 2 (keep root + level-1 subproblems expanded)
+    function rec(n, d) {
+      n.__collapsed = (d >= 2 && (n.children||[]).length > 0);
+      (n.children||[]).forEach(c => rec(c, d + 1));
+    }
+    rec(DATA, 0); render(); fit();
+  });
+
+  render();
+  // Initial fit after DOM has laid out
+  requestAnimationFrame(fit);
+})();
+</script>
+</div>
+</body>
+</html>
