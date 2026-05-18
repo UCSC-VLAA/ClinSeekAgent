@@ -8,16 +8,16 @@ into a synthetic `ehr.finish` tool call so `helper/scorer_mm.py` can
 score the resulting `results.jsonl` unchanged.
 
 Backends:
-    bedrock   — AWS Bedrock (Anthropic content-blocks; OpenAI-shape with
+    bedrock   - AWS Bedrock (Anthropic content-blocks; OpenAI-shape with
                 a text-only flatten for OSS vision-limited models).
-    vllm      — stubbed; raises NotImplementedError.
+    vllm      - stubbed; raises NotImplementedError.
 
 Usage:
     python deploy_reasoning_model_mm.py \\
         --backend bedrock \\
         --model "Claude Opus 4.6" \\
-        --data /fsx-shared/juncheng/EHR/data/EHR_multimodal_bench_tests/combined_test_set.jsonl \\
-        --bench-root /fsx-shared/juncheng/EHR/data/EHR_multimodal_bench/extracted/EHRXQAAgentBench_v3:/fsx-shared/juncheng/EHR/data/EHR_multimodal_bench/extracted/MedModAgentBench_v3 \\
+        --data data/ClinSeek-Bench/inputs/mm_bench.jsonl \\
+        --bench-root data/ClinSeek-Bench/data/mm_bench \\
         --output-dir ./results/oneshot_mm_opus46 \\
         --concurrency 8
 """
@@ -71,7 +71,21 @@ _MAX_REPORT_CHARS = 20000
 def _split_bench_roots(raw: Optional[str]) -> List[Path]:
     if not raw:
         return []
-    parts = [p for p in re.split(r"[:,]", raw) if p.strip()]
+    parts: List[str] = []
+    for chunk in raw.split(","):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        is_windows_drive = (
+            len(chunk) >= 3
+            and chunk[1] == ":"
+            and chunk[0].isalpha()
+            and chunk[2] in ("\\", "/")
+        )
+        if is_windows_drive:
+            parts.append(chunk)
+        else:
+            parts.extend(p for p in chunk.split(":") if p.strip())
     return [Path(p).expanduser() for p in parts]
 
 
@@ -81,7 +95,7 @@ def resolve_asset_path(path: str, bench_roots: List[Path]) -> Optional[Path]:
     Accepts absolute paths verbatim; otherwise joins to each root in order
     and returns the first that exists. Also handles the case where the
     model-ready JSONL encodes paths with a leading `MedModOriginalLinked_v1/`
-    or `EHRXQAOriginalLinked_v1/` prefix — we strip that first segment
+    or `EHRXQAOriginalLinked_v1/` prefix. We strip that first segment
     before retrying against each bench root (since the v3 root layouts
     start at `mimic-cxr/...`).
     """
@@ -183,7 +197,7 @@ def build_mm_inputs(
         image_b64s.append(loaded)
         resolved_images.append(str(resolved))
 
-    # Reports — skip if input_text already has them inlined.
+    # Reports: skip if input_text already has them inlined.
     resolved_reports: List[str] = []
     report_texts: List[str] = []
     if not use_input_text:
@@ -264,7 +278,7 @@ def _extract_answer_block(text: str) -> Optional[List[str]]:
 def _clean_answer_line(raw: str) -> str:
     s = raw.strip()
     s = re.sub(r"^\(?\d+[.)]\s*", "", s)
-    s = s.lstrip("-*•").strip()
+    s = s.lstrip("-*\u2022").strip()
     for _ in range(3):
         new = re.sub(r"\*\*(.+?)\*\*", r"\1", s)
         new = re.sub(r"__(.+?)__", r"\1", new)
@@ -440,8 +454,8 @@ def salvage_plain_text(text: str) -> List[str]:
 # Bedrock invoker  (Anthropic content-blocks + OpenAI-shape text flatten)
 # ----------------------------------------------------------------------------
 
-_REGION_AVAILABILITY_PATH = Path(
-    "/fsx-shared/juncheng/EHR/openresearcher_ehr/bedrock_model_region_availability.json"
+_REGION_AVAILABILITY_PATH = Path(__file__).with_name(
+    "bedrock_model_region_availability.json"
 )
 
 _RETRYABLE_KEYWORDS = (
@@ -564,7 +578,7 @@ class BedrockInvoker:
             # Flatten to text with a marker line per image.
             if image_b64s:
                 markers = "\n".join(
-                    f"[image attached ({mt}) — not inlined for this model]"
+                    f"[image attached ({mt}) - not inlined for this model]"
                     for _, mt in image_b64s
                 )
                 content = user_text + "\n\n" + markers

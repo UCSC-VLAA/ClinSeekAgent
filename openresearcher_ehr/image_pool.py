@@ -1,4 +1,4 @@
-"""Image Tool Pool — MCP client for the medical-image MCP server.
+"""Image Tool Pool - MCP client for the medical-image MCP server.
 
 Mirrors the structure of `ehr_pool.py` (JSON-RPC 2.0 over HTTP, per-qid session
 state, SSE or plain JSON response parsing). Kept deliberately small: this pool
@@ -18,7 +18,7 @@ class ImageToolPool:
     def __init__(self, mcp_url: str = "http://127.0.0.1:5203/mcp"):
         self.mcp_url = mcp_url
         self.sessions: Dict[Any, Dict[str, Any]] = {}
-        # Localhost MCP traffic only — no outbound proxy / env lookups.
+        # Localhost MCP traffic only; no outbound proxy / env lookups.
         self.client = httpx.AsyncClient(timeout=180.0, trust_env=False)
 
     def _get_or_create_session(self, qid: Any) -> Dict[str, Any]:
@@ -46,7 +46,7 @@ class ImageToolPool:
                 "params": {
                     "protocolVersion": "2024-11-05",
                     "capabilities": {},
-                    "clientInfo": {"name": "OpenResearcher-Image", "version": "1.0.0"},
+                    "clientInfo": {"name": "ClinSeekAgent-Image", "version": "1.0.0"},
                 },
             }
             try:

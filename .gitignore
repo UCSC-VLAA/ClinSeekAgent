@@ -1,38 +1,19 @@
 # Data directories
-data
 data/
 datasets/
 
-# Model weights (root-anchored so verl/verl/models/ and similar Python
-# packages named "models" still get tracked).
-/models
+# Model weights and checkpoints
 /models/
-# verl/verl/models/ is a large Python package (64 files) from the upstream
-# verl tree. We only track the single file we patch in this repo — the
-# Qwen3.5-MoE Ulysses branch in monkey_patch.py — via the whitelist below.
-verl/verl/models/**
-!verl/verl/models/
-!verl/verl/models/transformers/
-!verl/verl/models/transformers/monkey_patch.py
-# Other upstream verl subtrees that happen to contain a "models/" dir —
-# ignore fully (we don't patch anything inside them).
-verl/tests/models/
-verl/verl/experimental/vla/models/
-logs/
+checkpoints/
 *.safetensors
 *.bin
 *.pt
 *.pth
 *.distcp
 
-# Checkpoints
-verl/checkpoints/
-checkpoints/
-
 # Results and outputs
 results/
 outputs/
-verl/outputs/
 openresearcher_ehr/results_benchmark_*/
 openresearcher_ehr/subsets_*/
 openresearcher_ehr/subset_*/
@@ -42,17 +23,16 @@ node-v25.8.1-linux-x64/
 # Environment files
 .env
 
-# Wandb logs
+# Logs and experiment tracking
 wandb/
-
-# Logs
 *.log
-
-# Memory/monitoring CSVs
 *.csv
 
-# Parquet files
+# Dataset artifacts
 *.parquet
+*.db
+*.sqlite
+*.sqlite3
 
 # Python cache
 __pycache__/
@@ -62,7 +42,6 @@ __pycache__/
 # Virtual environments
 .venv/
 venv/
-# Ignore every child of venvs/ EXCEPT venvs/requirements/*.
 venvs/*
 !venvs/requirements/
 !venvs/requirements/**
@@ -70,13 +49,20 @@ venvs/*
 # Temp/scratch artifacts
 tmp/
 
-# HuggingFace cache
+# Hugging Face and agent caches
 .cache/
 .claude/
 .codex/
 
 # OS files
 .DS_Store
+Thumbs.db
 
-# Third-party sources
+# Optional third-party source checkouts
 flash-attention/
+
+# Internal release-only documentation
+docs/data_access.md
+docs/data_release.md
+docs/model_card.md
+docs/public_release_plan.md

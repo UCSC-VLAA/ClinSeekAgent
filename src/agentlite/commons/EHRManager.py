@@ -255,12 +255,3 @@ class EHRManager:
     
     def get_candidate_table_names(self):
         return list(self.candidate_data.keys())
-        
-
-if __name__ == '__main__':
-    ehr_manager = EHRManager(
-        data_path="/home/ma-user/work/liaoyusheng/projects/EHRAgent/datas/EHRAgentBench",
-    )
-
-    ehr_manager.load_ehr_for_sample(subject_id="11398418", timestamp="2133-04-04 11:10:00")
-    print(ehr_manager.get_ehr_data_json()["diagnoses_icd"])

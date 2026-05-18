@@ -5,6 +5,26 @@ from pathlib import Path
 from typing import List
 
 
+def split_roots(raw_value: str) -> List[str]:
+    """Split BENCH_ROOT while preserving Windows drive prefixes."""
+    roots: List[str] = []
+    for chunk in raw_value.split(","):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        is_windows_drive = (
+            len(chunk) >= 3
+            and chunk[1] == ":"
+            and chunk[0].isalpha()
+            and chunk[2] in ("\\", "/")
+        )
+        if is_windows_drive:
+            roots.append(chunk)
+        else:
+            roots.extend(part for part in chunk.split(":") if part)
+    return roots
+
+
 def get_bench_roots() -> List[Path]:
     """Return the list of benchmark roots used to resolve relative image paths.
 
@@ -14,7 +34,7 @@ def get_bench_roots() -> List[Path]:
     value = os.environ.get("BENCH_ROOT", "").strip()
     if not value:
         return [Path.cwd().resolve()]
-    parts = [p for p in value.replace(",", ":").split(":") if p]
+    parts = split_roots(value)
     return [Path(p).resolve() for p in parts]
 
 

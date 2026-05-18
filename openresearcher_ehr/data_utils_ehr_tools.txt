@@ -1,5 +1,5 @@
 
-# EHR Tool Content - ALL 20 tools from AgentEHR MCP server
+# EHR tool content used by ClinSeekAgent
 EHR_TOOL_CONTENT_JSON = '''
 [
   {

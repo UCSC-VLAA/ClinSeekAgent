@@ -1,4 +1,0 @@
-interaction:
-  - name: ehr_eval
-    class_name: verl_rl_ehr.interactions.ehr_evaluation_interaction.EHREvaluationInteraction
-    config: {}

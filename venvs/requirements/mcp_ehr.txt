@@ -3,7 +3,9 @@
 #   Used by: src/run_mcp_server.py
 #            + src/agentlite/mcp_tools/{candidate,record,table,inner,resource}_tools.py
 # Python: 3.12
-# GPU: required for sentence-transformers (BioLORD-2023 semantic search).
+# GPU: optional but recommended for BioLORD semantic search.
+# Set CLINSEEK_BIOLORD_MODEL to a local model path if you do not want the
+# public BioLORD checkpoint downloaded on first semantic-search use.
 # Install a matching torch build for your CUDA.
 # ============================================================================
 

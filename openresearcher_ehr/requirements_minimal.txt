@@ -1,4 +1,4 @@
-# Minimal requirements for OpenResearcher + EHR Integration
+# Minimal requirements for ClinSeekAgent EHR integration
 # Only includes packages actually imported in our code
 
 # AWS Bedrock (bedrock_generator.py)

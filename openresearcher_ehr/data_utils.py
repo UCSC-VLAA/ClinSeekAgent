@@ -1,5 +1,5 @@
 """
-Data utilities for OpenResearcher with EHR integration.
+Data utilities for ClinSeekAgent.
 Combines browser tools with EHR clinical reasoning tools.
 """
 import json
@@ -245,7 +245,7 @@ Your final response should be submitted by calling `ehr.finish` in the required 
 sources=web,ehr
 """
 
-# Browser tool definitions (from OpenResearcher)
+# Browser tool definitions
 BROWSER_TOOL_CONTENT = """
 [
   {
@@ -491,7 +491,7 @@ COMBINED_TOOL_CONTENT = json.dumps(get_combined_tools())
 # For backward compatibility - just browser tools
 TOOL_CONTENT = BROWSER_TOOL_CONTENT
 
-# EHR Tool Content - ALL 20 tools from AgentEHR MCP server
+# EHR tool content
 EHR_TOOL_CONTENT_JSON = '''
 [
   {

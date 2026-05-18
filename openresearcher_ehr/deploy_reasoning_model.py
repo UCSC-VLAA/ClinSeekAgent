@@ -7,15 +7,15 @@ response into a synthetic `ehr.finish` tool call so
 unchanged.
 
 Backends:
-    bedrock   — AWS Bedrock (Anthropic + OpenAI-shape). Supported today.
-    vllm      — local OpenAI-compatible endpoint. Stubbed; raises
+    bedrock   - AWS Bedrock (Anthropic + OpenAI-shape). Supported today.
+    vllm      - local OpenAI-compatible endpoint. Stubbed; raises
                 NotImplementedError. Wiring point is `_invoke_once`.
 
 Usage:
     python deploy_reasoning_model.py \
         --backend bedrock \
         --model "Claude Opus 4.6" \
-        --data /fsx-shared/juncheng/EHR/data/EHR-Bench/ehr_bench_sampled_40_per_task.json \
+        --data data/ClinSeek-Bench/inputs/ehr_bench.json \
         --output-dir ./results/one_shot_opus46_1800 \
         --concurrency 6
 
@@ -141,7 +141,7 @@ def _extract_answer_block(text: str) -> List[str] | None:
         re.finditer(r"<answer[^>]*>\s*(.*?)\s*</answer\s*>", text, re.DOTALL | re.IGNORECASE)
     )
     if not matches:
-        # Unterminated — take tail after the last <answer...>
+        # Unterminated: take tail after the last <answer...>
         m = re.search(r"<answer[^>]*>\s*(.*)$", text, re.DOTALL | re.IGNORECASE)
         if not m:
             return None
@@ -162,7 +162,7 @@ def _clean_answer_line(raw: str) -> str:
     # Numbering: "1.", "1)", "(1)"
     s = re.sub(r"^\(?\d+[.)]\s*", "", s)
     # Bullets
-    s = s.lstrip("-*•").strip()
+    s = s.lstrip("-*\u2022").strip()
     # Markdown bold/italic: **x**, *x*, __x__, _x_. The non-greedy forms
     # handle the common case; as a final pass, strip any leading/trailing
     # unmatched markers too (e.g. "**EW EMER.**" where the regex may not
@@ -198,7 +198,7 @@ def _strip_reasoning_blocks(text: str) -> str:
         return ""
     # Greedy strip of any paired block. Also handles a dangling open tag
     # at end-of-string by dropping from the open tag onward (the model ran
-    # out of max_tokens inside the reasoning — no answer was produced).
+    # out of max_tokens inside the reasoning, so no answer was produced.
     for open_tag, close_tag in (
         ("<reasoning>", "</reasoning>"),
         ("<think>", "</think>"),
@@ -211,7 +211,7 @@ def _strip_reasoning_blocks(text: str) -> str:
                 break
             j = text.find(close_tag, i + len(open_tag))
             if j < 0:
-                # Unterminated — drop from the open tag to end.
+                # Unterminated: drop from the open tag to end.
                 text = text[:i]
                 break
             text = text[:i] + text[j + len(close_tag):]
@@ -332,8 +332,8 @@ def salvage_plain_text(text: str) -> List[str]:
 # Bedrock invoker
 # ----------------------------------------------------------------------------
 
-_REGION_AVAILABILITY_PATH = Path(
-    "/fsx-shared/juncheng/EHR/openresearcher_ehr/bedrock_model_region_availability.json"
+_REGION_AVAILABILITY_PATH = Path(__file__).with_name(
+    "bedrock_model_region_availability.json"
 )
 
 _RETRYABLE_KEYWORDS = (
@@ -467,7 +467,7 @@ class BedrockInvoker:
 
 
 # ----------------------------------------------------------------------------
-# vLLM invoker  (stub — wire in when we have a local server to test against)
+# vLLM invoker  (stub: wire in when we have a local server to test against)
 # ----------------------------------------------------------------------------
 
 
@@ -635,7 +635,7 @@ def _plan_bedrock(args) -> List[Tuple[str, str]]:
         # is large and you want multi-region throughput.
         return list(region_map.items())
     # Default: pick exactly one region. One-shot inference is fast and
-    # fan-out only helps amortize multi-turn tool loops — for single
+    # fan-out only helps amortize multi-turn tool loops; for single
     # invoke_model calls it mostly just exposes us to whichever region has
     # a wedged/slow shard. Preference order: us-east-1, then first OK.
     for preferred in ("us-east-1", "us-west-2", "us-east-2"):
@@ -702,7 +702,7 @@ def main() -> int:
         "--multi-region",
         action="store_true",
         help="Fan out across every OK region for the model. Off by "
-        "default because one-shot inference rarely benefits — a wedged "
+        "default because one-shot inference rarely benefits; a wedged "
         "region just blocks the merge. Set this only for very large "
         "benchmarks where per-region throughput is the bottleneck.",
     )

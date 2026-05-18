@@ -5,8 +5,8 @@ same JSON-RPC 2.0 transport. Tools are registered via import side effects in
 `mcp_image.tools`.
 
 Environment variables:
-- BENCH_ROOT: root directory used to resolve relative image paths (e.g.
-  `/fsx-shared/juncheng/EHR/data/EHR_multimodal_bench/extracted/EHRXQAAgentBench_v3`).
+- BENCH_ROOT: root directory used to resolve relative image paths from a
+  prepared benchmark tree.
 - IMAGE_ARTIFACT_DIR: where generated overlays / processed images are saved.
 - HF_HOME / TRANSFORMERS_CACHE: honored by transformers / torchxrayvision.
 """

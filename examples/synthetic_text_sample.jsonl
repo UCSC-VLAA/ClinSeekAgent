@@ -1,0 +1,1 @@
+{"qid":"synthetic_text_001","subject_id":"10000032","prediction_time":"2150-12-01 10:00:00","question":"Given the synthetic patient record available through the EHR tools, choose the most plausible risk label from the candidate list.","candidates":["low risk","high risk"],"ground_truth":["low risk"]}

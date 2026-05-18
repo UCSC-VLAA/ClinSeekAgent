@@ -15,6 +15,7 @@ botocore>=1.35.0
 httpx>=0.28.0
 aiohttp>=3.9.0
 requests>=2.32.0
+jinja2>=3.1.0
 
 # --- Image handling in deploy_agent_mm.py (base64, resize) ------------------
 Pillow>=10.0.0

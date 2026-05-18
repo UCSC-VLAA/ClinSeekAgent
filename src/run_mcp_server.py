@@ -6,10 +6,8 @@ import json
 from pathlib import Path
 from pydantic import Field
 from typing import Annotated
-from sentence_transformers import SentenceTransformer
-from thefuzz import fuzz
-from fastmcp import FastMCP, Context
-from fastmcp.resources import TextResource, BinaryResource
+from fastmcp import Context
+from fastmcp.resources import TextResource
 from agentlite.commons import EHRManager
 from agentlite.commons.fastmcp import mcp
 from agentlite.mcp_tools.tool_utils import (
@@ -20,7 +18,7 @@ from agentlite.mcp_tools.tool_utils import (
 )
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-DEFAULT_DATA_PATH = Path("../data/AgentEHR-Bench/MIMICIVAgentBench")
+DEFAULT_DATA_PATH = Path("../data/clinseek_bench/ehr")
 
 
 def get_parser():
@@ -33,7 +31,12 @@ def get_parser():
     parser.add_argument(
         '--disable-knowledge-tools',
         action='store_true',
-        help='Do not register corpus retrieval tools from knowledge_tools.py.',
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        '--enable-knowledge-tools',
+        action='store_true',
+        help='Register optional corpus retrieval tools from knowledge_tools.py.',
     )
     return parser.parse_args()
 
@@ -140,7 +143,7 @@ import agentlite.mcp_tools.candidate_tools
 import agentlite.mcp_tools.resource_tools
 import agentlite.mcp_tools.inner_tools
 
-if not args.disable_knowledge_tools:
+if args.enable_knowledge_tools and not args.disable_knowledge_tools:
     import agentlite.mcp_tools.knowledge_tools
 
 

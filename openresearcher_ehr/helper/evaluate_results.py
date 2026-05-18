@@ -20,14 +20,10 @@ from pathlib import Path
 # Defaults
 # ---------------------------------------------------------------------------
 DEFAULT_RESULTS = (
-    "./openresearcher_ehr/results/qa_ehr_bench_sampled_40_per_task_qwen3_5_35b_a3b/results.jsonl"
-    # "./openresearcher_ehr/results/train_trajectory_3k_4ep_nonthinking_done3ep/results.jsonl"
-    # "./openresearcher_ehr/results/subset_500_qwen3_5_35b_a3b_deepmed_6task_sft_epoch2_nothinking/results.jsonl"
+    "./outputs/text_eval/results.jsonl"
 )
 DEFAULT_BENCHMARK = (
-    './data/EHR-Bench/ehr_bench_sampled_40_per_task.json'
-    # "./data/AgentEHR-Bench/MIMICIVAgentBench/train/mix_training_3k.json"
-    # "./data/AgentEHR-Bench/MIMICIVAgentBench/common/subset_500/merged_subsets_500.json"
+    "./data/clinseek_bench/text/test.jsonl"
 )
 
 
@@ -415,7 +411,15 @@ def count_turns(record):
 # ---------------------------------------------------------------------------
 def load_benchmark(path, ehr_bench_mode=False):
     with open(path, "r", encoding="utf-8") as f:
-        data = json.load(f)
+        text = f.read().strip()
+    if not text:
+        data = []
+    elif text[0] in "[{":
+        data = json.loads(text)
+        if isinstance(data, dict):
+            data = list(data.values())
+    else:
+        data = [json.loads(line) for line in text.splitlines() if line.strip()]
     return {build_qid(item, ehr_bench_mode=ehr_bench_mode): item for item in data}
 
 

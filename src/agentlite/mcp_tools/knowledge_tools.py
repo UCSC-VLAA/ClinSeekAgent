@@ -13,10 +13,12 @@ from fastmcp import Context
 from agentlite.commons.fastmcp import mcp
 
 # MedCPT 路径：优先使用共享路径，否则使用本地 Embeddings
-_MEDCPT_DEFAULT = "/sfs/data/ShareModels/Embeddings/MedCPT-Query-Encoder"
 _MEDCPT_LOCAL = os.path.join(os.path.dirname(__file__), "..", "..", "..", "models", "Embeddings", "MedCPT-Query-Encoder")
 def _get_medcpt_path():
-    return _MEDCPT_DEFAULT if os.path.exists(_MEDCPT_DEFAULT) else _MEDCPT_LOCAL
+    configured = os.environ.get("CLINSEEK_MEDCPT_MODEL") or os.environ.get("MEDCPT_MODEL_PATH")
+    if configured:
+        return configured
+    return _MEDCPT_LOCAL if os.path.exists(_MEDCPT_LOCAL) else "ncbi/MedCPT-Query-Encoder"
 
 corpus_names = {
     "PubMed": ["pubmed"],
@@ -151,7 +153,7 @@ class Retriever:
         self.chunk_dir = os.path.join(self.db_dir, self.corpus_name, "chunk")
         if not os.path.exists(self.chunk_dir):
             print("Cloning the {:s} corpus from Huggingface...".format(self.corpus_name))
-            os.system("export HF_ENDPOINT=https://hf-mirror.com\nhuggingface-cli download --repo-type dataset --resume-download {:s} --local-dir {:s} --local-dir-use-symlinks False".format(corpus_name, os.path.join(self.db_dir, self.corpus_name)))
+            os.system("huggingface-cli download --repo-type dataset --resume-download {:s} --local-dir {:s} --local-dir-use-symlinks False".format(self.corpus_name, os.path.join(self.db_dir, self.corpus_name)))
             if self.corpus_name == "statpearls":
                 print("Downloading the statpearls corpus from NCBI bookshelf...")
                 if not os.path.exists(os.path.join(self.db_dir, corpus_name, "statpearls_NBK430685.tar.gz")):
@@ -176,35 +178,12 @@ class Retriever:
                 self.metadatas = [json.loads(line) for line in open(os.path.join(self.index_dir, "metadatas.jsonl")).read().strip().split('\n')]
             else:
                 print("[In progress] Embedding the {:s} corpus with the {:s} retriever...".format(self.corpus_name, self.retriever_name.replace("Query-Encoder", "Article-Encoder")))
-                if self.corpus_name in ["textbooks", "pubmed", "wikipedia"] and (self.retriever_name in ["allenai/specter", "facebook/contriever"] or "MedCPT" in self.retriever_name) and not os.path.exists(os.path.join(self.index_dir, "embedding")):
-                    print("[In progress] Downloading the {:s} embeddings given by the {:s} model...".format(self.corpus_name, self.retriever_name.replace("Query-Encoder", "Article-Encoder")))
-                    os.makedirs(self.index_dir, exist_ok=True)
-                    if self.corpus_name == "textbooks":
-                        if self.retriever_name == "allenai/specter":
-                            os.system("wget -O {:s} https://myuva-my.sharepoint.com/:u:/g/personal/hhu4zu_virginia_edu/EYRRpJbNDyBOmfzCOqfQzrsBwUX0_UT8-j_geDPcVXFnig?download=1".format(os.path.join(self.index_dir, "embedding.zip")))
-                        elif self.retriever_name == "facebook/contriever":
-                            os.system("wget -O {:s} https://myuva-my.sharepoint.com/:u:/g/personal/hhu4zu_virginia_edu/EQqzldVMCCVIpiFV4goC7qEBSkl8kj5lQHtNq8DvHJdAfw?download=1".format(os.path.join(self.index_dir, "embedding.zip")))
-                        elif "MedCPT" in self.retriever_name:
-                            os.system("wget -O {:s} https://myuva-my.sharepoint.com/:u:/g/personal/hhu4zu_virginia_edu/EQ8uXe4RiqJJm0Tmnx7fUUkBKKvTwhu9AqecPA3ULUxUqQ?download=1".format(os.path.join(self.index_dir, "embedding.zip")))
-                    elif self.corpus_name == "pubmed":
-                        if self.retriever_name == "allenai/specter":
-                            os.system("wget -O {:s} https://myuva-my.sharepoint.com/:u:/g/personal/hhu4zu_virginia_edu/Ebz8ySXt815FotxC1KkDbuABNycudBCoirTWkKfl8SEswA?download=1".format(os.path.join(self.index_dir, "embedding.zip")))
-                        elif self.retriever_name == "facebook/contriever":
-                            os.system("wget -O {:s} https://myuva-my.sharepoint.com/:u:/g/personal/hhu4zu_virginia_edu/EWecRNfTxbRMnM0ByGMdiAsBJbGJOX_bpnUoyXY9Bj4_jQ?download=1".format(os.path.join(self.index_dir, "embedding.zip")))
-                        elif "MedCPT" in self.retriever_name:
-                            os.system("wget -O {:s} https://myuva-my.sharepoint.com/:u:/g/personal/hhu4zu_virginia_edu/EVCuryzOqy5Am5xzRu6KJz4B6dho7Tv7OuTeHSh3zyrOAw?download=1".format(os.path.join(self.index_dir, "embedding.zip")))
-                    elif self.corpus_name == "wikipedia":
-                        if self.retriever_name == "allenai/specter":
-                            os.system("wget -O {:s} https://myuva-my.sharepoint.com/:u:/g/personal/hhu4zu_virginia_edu/Ed7zG3_ce-JOmGTbgof3IK0BdD40XcuZ7AGZRcV_5D2jkA?download=1".format(os.path.join(self.index_dir, "embedding.zip")))
-                        elif self.retriever_name == "facebook/contriever":
-                            os.system("wget -O {:s} https://myuva-my.sharepoint.com/:u:/g/personal/hhu4zu_virginia_edu/ETKHGV9_KNBPmDM60MWjEdsBXR4P4c7zZk1HLLc0KVaTJw?download=1".format(os.path.join(self.index_dir, "embedding.zip")))
-                        elif "MedCPT" in self.retriever_name:
-                            os.system("wget -O {:s} https://myuva-my.sharepoint.com/:u:/g/personal/hhu4zu_virginia_edu/EXoxEANb_xBFm6fa2VLRmAcBIfCuTL-5VH6vl4GxJ06oCQ?download=1".format(os.path.join(self.index_dir, "embedding.zip")))
-                    os.system("unzip {:s} -d {:s}".format(os.path.join(self.index_dir, "embedding.zip"), self.index_dir))
-                    os.system("rm {:s}".format(os.path.join(self.index_dir, "embedding.zip")))
-                    h_dim = 768
-                else:
-                    h_dim = embed(chunk_dir=self.chunk_dir, index_dir=self.index_dir, model_name=self.retriever_name.replace("Query-Encoder", "Article-Encoder"), **kwarg)
+                h_dim = embed(
+                    chunk_dir=self.chunk_dir,
+                    index_dir=self.index_dir,
+                    model_name=self.retriever_name.replace("Query-Encoder", "Article-Encoder"),
+                    **kwarg,
+                )
 
                 print("[In progress] Embedding finished! The dimension of the embeddings is {:d}.".format(h_dim))
                 self.index = construct_index(index_dir=self.index_dir, model_name=self.retriever_name.replace("Query-Encoder", "Article-Encoder"), h_dim=h_dim, HNSW=HNSW)
@@ -333,9 +312,12 @@ retriever_name = "BM25"
 # corpus_name = "MedCorp"
 corpus_name = "MedCorp_without_statpearls"
 # 优先使用共享路径，否则使用项目内 datasets 文件夹
-_MEDRAG_DEFAULT = "/sfs/data/Datasets/MedRAG"
 _MEDRAG_LOCAL = os.path.join(os.path.dirname(__file__), "..", "..", "..", "datasets")
-db_dir = _MEDRAG_DEFAULT if os.path.exists(_MEDRAG_DEFAULT) else _MEDRAG_LOCAL
+db_dir = (
+    os.environ.get("CLINSEEK_MEDRAG_DB_DIR")
+    or os.environ.get("MEDRAG_DB_DIR")
+    or _MEDRAG_LOCAL
+)
 
 # Lazy initialization to avoid blocking server startup
 retriever = None
@@ -355,7 +337,7 @@ def _get_retriever():
 def retrieve_pubmed(
     query: Annotated[str, Field(description="The query to retrieve relevant documents from PubMed corpus.")],
 ):
-    return retriever.corpus_retrieve("pubmed", query, k=5)
+    return _get_retriever().corpus_retrieve("pubmed", query, k=5)
 
 @mcp.tool(
     name="retrieve_textbooks",
@@ -364,7 +346,7 @@ def retrieve_pubmed(
 def retrieve_textbooks(
     query: Annotated[str, Field(description="The query to retrieve relevant documents from medical textbooks corpus.")],
 ):
-    return retriever.corpus_retrieve("textbooks", query, k=5)
+    return _get_retriever().corpus_retrieve("textbooks", query, k=5)
 
 @mcp.tool(
     name="retrieve_statpearls",
@@ -373,7 +355,7 @@ def retrieve_textbooks(
 def retrieve_statpearls(
     query: Annotated[str, Field(description="The query to retrieve relevant documents from StatPearls corpus.")],
 ):
-    return retriever.corpus_retrieve("statpearls", query, k=5)
+    return _get_retriever().corpus_retrieve("statpearls", query, k=5)
 
 @mcp.tool(
     name="retrieve_wikipedia",
@@ -382,7 +364,7 @@ def retrieve_statpearls(
 def retrieve_wikipedia(
     query: Annotated[str, Field(description="The query to retrieve relevant documents from Wikipedia corpus.")],
 ):
-    return retriever.corpus_retrieve("wikipedia", query, k=5)
+    return _get_retriever().corpus_retrieve("wikipedia", query, k=5)
 
 
 if __name__ == '__main__':

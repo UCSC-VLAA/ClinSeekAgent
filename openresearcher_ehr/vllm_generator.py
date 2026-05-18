@@ -85,8 +85,9 @@ class VLLMOpenAIAsyncGenerator:
         return "openseeker" in (model_name or "").lower()
 
     @staticmethod
-    def _is_deepmed_sft_model(model_name: Optional[str]) -> bool:
-        return "deepmed-sft" in (model_name or "").lower()
+    def _is_clinseek_sft_model(model_name: Optional[str]) -> bool:
+        model_name_lower = (model_name or "").lower()
+        return "clinseek" in model_name_lower
 
     @staticmethod
     def _normalize_tool_name(function_name: str) -> str:
@@ -281,10 +282,10 @@ class VLLMOpenAIAsyncGenerator:
 
         return prepared
 
-    def _prepare_messages_for_deepmed_sft(
+    def _prepare_messages_for_clinseek_sft(
         self, messages: List[dict]
     ) -> List[Dict[str, Any]]:
-        """Render messages for DeepMed-SFT models.
+        """Render messages for ClinSeek SFT models.
 
         Assistant tool_calls are rendered as [Tool Call: name(args)] inline text.
         Tool results are rendered as plain text in user turns.
@@ -1233,11 +1234,11 @@ class VLLMOpenAIAsyncGenerator:
                 },
             })
 
-        is_deepmed_sft = VLLMOpenAIAsyncGenerator._is_deepmed_sft_model(model_name)
+        is_clinseek_sft = VLLMOpenAIAsyncGenerator._is_clinseek_sft_model(model_name)
 
         if tool_calls:
             output_message["tool_calls"] = tool_calls
-        elif is_deepmed_sft:
+        elif is_clinseek_sft:
             if content:
                 fallback_content, fallback_tool_calls = (
                     VLLMOpenAIAsyncGenerator._extract_bracket_tool_calls(content)
@@ -1499,15 +1500,15 @@ class VLLMOpenAIAsyncGenerator:
             )
             return converted
 
-        is_deepmed_sft = self._is_deepmed_sft_model(model_name)
+        is_clinseek_sft = self._is_clinseek_sft_model(model_name)
 
-        if is_deepmed_sft:
-            prepared_messages = self._prepare_messages_for_deepmed_sft(messages)
+        if is_clinseek_sft:
+            prepared_messages = self._prepare_messages_for_clinseek_sft(messages)
         else:
             prepared_messages = self._prepare_messages(messages)
         extra_body = self._build_extra_body()
 
-        api_tools = None if is_deepmed_sft else tools
+        api_tools = None if is_clinseek_sft else tools
 
         print(
             f"[vLLM] Request: model={model_name}, messages={len(prepared_messages)}, "

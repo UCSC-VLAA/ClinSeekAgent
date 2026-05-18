@@ -261,7 +261,7 @@ def _synthesize_finish_tool_call(
     )
     preview = json.dumps(items)[:160]
     print(
-        f"[qid={qid}] ✅ Round {round_num}: synthesized ehr.finish "
+        f"[qid={qid}] DONE Round {round_num}: synthesized ehr.finish "
         f"from plain-text answer ({len(items)} item(s)): {preview}",
         flush=True,
     )
@@ -519,8 +519,9 @@ async def run_one_native(
     if hasattr(generator, '_init_tokenizer'):
         await generator._init_tokenizer()
 
-    # System prompt — use SFT_MODEL_PROMPT for DeepMed-SFT models
-    if "deepmed-sft" in (model_name or "").lower():
+    # Use the bracketed tool-call prompt for ClinSeek SFT models.
+    model_name_lower = (model_name or "").lower()
+    if "clinseek" in model_name_lower:
         system_prompt = SFT_MODEL_PROMPT
     else:
         system_prompt = DEVELOPER_CONTENT_CLAUDE
@@ -722,7 +723,7 @@ async def run_one_native(
                     messages.append(error_message)
 
             if finish_tool_called:
-                print(f"[qid={qid}] ✅ Round {round_num}: ehr.finish called - DONE", flush=True)
+                print(f"[qid={qid}] DONE Round {round_num}: ehr.finish called", flush=True)
                 break
 
             if browser_tool_calls >= max_browser_tool_calls:
@@ -893,9 +894,9 @@ async def process_query_item(
 async def main():
     """Main entry point."""
     # Load environment variables
-    dotenv.load_dotenv("../.env")
+    dotenv.load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"))
     
-    parser = argparse.ArgumentParser(description="OpenResearcher with EHR integration")
+    parser = argparse.ArgumentParser(description="ClinSeekAgent text evaluation driver")
 
     # Model configuration
     parser.add_argument("--backend", type=str, choices=["bedrock", "vllm"], default="bedrock",
@@ -1153,7 +1154,7 @@ async def main():
                 )
                 await asyncio.gather(*batch_tasks)
 
-    print(f"\n✅ All queries processed. Results in {output_file}")
+    print(f"\nAll queries processed. Results in {output_file}")
 
     # Cleanup
     if ehr_pool:

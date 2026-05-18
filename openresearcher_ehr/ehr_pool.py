@@ -1,8 +1,8 @@
 """
-EHR Tool Pool - MCP client wrapper for EHR tools integration with OpenResearcher.
+EHR Tool Pool - MCP client wrapper for ClinSeekAgent EHR tools.
 
 This module provides a session-based interface to the EHR MCP server,
-allowing OpenResearcher agents to query patient EHR databases.
+allowing ClinSeekAgent runs to query patient EHR databases.
 """
 import asyncio
 import json
@@ -57,7 +57,7 @@ class EHRToolPool:
                     "protocolVersion": "2024-11-05",
                     "capabilities": {},
                     "clientInfo": {
-                        "name": "OpenResearcher-EHR",
+                        "name": "ClinSeekAgent-EHR",
                         "version": "1.0.0"
                     }
                 }

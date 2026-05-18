@@ -1,0 +1,1 @@
+{"qid":"synthetic_mm_001","source_benchmark":"ehrxqa","subject_id":"10000032","prediction_time":"2150-12-01 10:00:00","question":"Given the synthetic patient record and linked image, answer the clinical question.","image_paths":["images/synthetic_cxr.jpg"],"report_paths":[],"ground_truth":["no finding"]}

@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """Convert Megatron distributed checkpoint to HuggingFace safetensors format.
 
+This utility expects VERL to be installed or available on PYTHONPATH. The public
+ClinSeek release vendors VERL under `verl/`, so `PYTHONPATH=verl:$PYTHONPATH`
+is sufficient from the repository root.
+
 Handles Qwen3.5 MoE models whose top-level config is a VL config (Qwen3_5MoeForConditionalGeneration)
 by extracting text_config and presenting it as Qwen3MoeForCausalLM to the merger.
 

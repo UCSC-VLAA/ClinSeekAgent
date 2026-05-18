@@ -185,6 +185,26 @@ def resolve_asset_path(path: str, bench_root) -> Optional[Path]:
     return None
 
 
+def split_bench_roots(raw_value: str) -> List[str]:
+    """Split a BENCH_ROOT value while preserving Windows drive prefixes."""
+    roots: List[str] = []
+    for chunk in raw_value.split(","):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        is_windows_drive = (
+            len(chunk) >= 3
+            and chunk[1] == ":"
+            and chunk[0].isalpha()
+            and chunk[2] in ("\\", "/")
+        )
+        if is_windows_drive:
+            roots.append(chunk)
+        else:
+            roots.extend(part for part in chunk.split(":") if part)
+    return roots
+
+
 def _load_image_as_block(
     path: Path, max_edge: int
 ) -> Optional[Dict[str, Any]]:
@@ -521,7 +541,7 @@ async def run_one_native_mm(
                         "tool_call_id": synth_call["id"],
                     })
                     print(
-                        f"[qid={qid}] ✅ Round {round_num}: synthesized ehr.finish "
+                        f"[qid={qid}] DONE Round {round_num}: synthesized ehr.finish "
                         f"from {len(items)}-line plain-text answer",
                         flush=True,
                     )
@@ -619,7 +639,7 @@ async def run_one_native_mm(
                     messages.append(err_message)
 
             if finish_tool_called:
-                print(f"[qid={qid}] ✅ Round {round_num}: ehr.finish called - DONE", flush=True)
+                print(f"[qid={qid}] DONE Round {round_num}: ehr.finish called", flush=True)
                 break
             continue
 
@@ -782,9 +802,9 @@ async def process_query_item_mm(
 
 
 async def main():
-    dotenv.load_dotenv("../.env")
+    dotenv.load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"))
 
-    parser = argparse.ArgumentParser(description="Multimodal OpenResearcher + EHR pipeline")
+    parser = argparse.ArgumentParser(description="ClinSeekAgent multimodal evaluation driver")
     parser.add_argument("--backend", type=str, choices=["bedrock", "vllm"], default="bedrock",
                         help="LLM backend. 'vllm' requires an OpenAI-compatible server "
                              "serving a multimodal model.")
@@ -940,9 +960,9 @@ async def main():
 
     raw_bench_root = args.bench_root or os.environ.get("BENCH_ROOT")
     if raw_bench_root:
-        # Accept colon- or comma-separated list of roots; pass the list through
-        # to resolve_asset_path which already handles multi-root lookup.
-        parts = [p for p in raw_bench_root.replace(",", ":").split(":") if p]
+        # Accept colon- or comma-separated roots. On Windows, use commas when
+        # passing multiple roots so drive prefixes like D:\ are preserved.
+        parts = split_bench_roots(raw_bench_root)
         bench_root = [str(Path(p).resolve()) for p in parts]
         print(f"Benchmark roots: {bench_root}")
     else:
@@ -1047,7 +1067,7 @@ async def main():
                 )
                 await asyncio.gather(*batch_tasks)
 
-    print(f"\n✅ All multimodal queries processed. Results in {output_file}")
+    print(f"\nAll multimodal queries processed. Results in {output_file}")
 
     if ehr_pool_default:
         await ehr_pool_default.close()

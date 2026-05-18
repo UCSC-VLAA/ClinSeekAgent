@@ -1,9 +1,7 @@
 import io
 import pandas as pd
 import numpy as np
-import torch
 import json
-from sentence_transformers import SentenceTransformer
 from typing import Dict, Any, Union, List
 from thefuzz import fuzz
 

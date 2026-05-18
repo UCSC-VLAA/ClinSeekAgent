@@ -1,7 +1,5 @@
 import os
 import numpy as np
-import torch
-from sentence_transformers import SentenceTransformer
 from typing import Union, List
 from thefuzz import fuzz
 
@@ -126,31 +124,45 @@ async def get_candidates_by_fuzzy_matching(
 
 
 class EmbeddingModel:
-    _default_path = "/sfs/data/ShareModels/Embeddings/BioLORD-2023"
-    _local_path = os.path.join(os.path.dirname(__file__), "..", "..", "..", "models", "BioLORD-2023")
+    _hf_model_id = "FremyCompany/BioLORD-2023"
+    _local_path = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "..", "..", "..", "models", "BioLORD-2023")
+    )
 
     def __init__(
         self,
         model_path: str = None,
     ):
         if model_path is None:
-            model_path = self._default_path if os.path.exists(self._default_path) else self._local_path
+            model_path = (
+                os.environ.get("CLINSEEK_BIOLORD_MODEL")
+                or os.environ.get("BIOLORD_MODEL_PATH")
+                or (self._local_path if os.path.exists(self._local_path) else self._hf_model_id)
+            )
         self.model_path = model_path
         self.embedding_cache = {}
-        self.load_model()
+        self.model = None
     
     def load_model(self):
+        from sentence_transformers import SentenceTransformer
+
         self.model = SentenceTransformer(self.model_path)
+
+    def _ensure_model(self):
+        if self.model is None:
+            self.load_model()
+        return self.model
         
     def _get_embeddings(self, texts: List[str]) -> np.ndarray:
         """Generate embeddings for a list of texts using BioLORD-2023"""
-        if self.model is None:
-            raise RuntimeError("BioLORD-2023 model is not loaded. Cannot generate embeddings.")
+        model = self._ensure_model()
         
         # Generate embeddings
-        embeddings = self.model.encode(texts, convert_to_tensor=True)
+        embeddings = model.encode(texts, convert_to_tensor=True)
         
         # Convert to numpy array and normalize
+        import torch
+
         if isinstance(embeddings, torch.Tensor):
             embeddings = embeddings.cpu().numpy()
         
@@ -177,7 +189,14 @@ class EmbeddingModel:
         return self.embedding_cache[cache_key]
 
 
-ss_model = EmbeddingModel()
+ss_model = None
+
+
+def get_semantic_model() -> EmbeddingModel:
+    global ss_model
+    if ss_model is None:
+        ss_model = EmbeddingModel()
+    return ss_model
 
 @mcp.tool(
     name="get_candidates_by_semantic_similarity",
@@ -223,16 +242,17 @@ async def get_candidates_by_semantic_similarity(
     all_results = []
 
     try:
+        semantic_model = get_semantic_model()
         # Get all unique candidate texts for embedding calculation
         candidate_texts = df["candidate"].astype(str).unique().tolist()
-        candidate_embeddings = ss_model._get_cached_embeddings(table_name, candidate_texts)
+        candidate_embeddings = semantic_model._get_cached_embeddings(table_name, candidate_texts)
         
         for query_text in queries:
             # Generate embedding for the query
-            query_embedding = ss_model._get_embeddings([query_text])
+            query_embedding = semantic_model._get_embeddings([query_text])
             
             # Calculate similarities for unique candidates
-            similarities = ss_model._calculate_similarity(query_embedding, candidate_embeddings)
+            similarities = semantic_model._calculate_similarity(query_embedding, candidate_embeddings)
             
             # Create a mapping from candidate text to similarity score
             candidate_to_similarity = dict(zip(candidate_texts, similarities))
@@ -271,7 +291,11 @@ async def get_candidates_by_semantic_similarity(
         return "\n".join(all_results)
         
     except Exception as e:
-        return f"An error occurred during semantic search: {str(e)}"
+        return (
+            "An error occurred during semantic search: "
+            f"{str(e)}. Set CLINSEEK_BIOLORD_MODEL to a local model path or "
+            "allow download of FremyCompany/BioLORD-2023."
+        )
     
 
 def local_test(query='a'):
@@ -297,14 +321,15 @@ def local_test(query='a'):
 
 # Get all unique candidate texts for embedding calculation
     candidate_texts = ["a", "b", "c", "d", "e", "f", "g"]
-    candidate_embeddings = ss_model._get_cached_embeddings("test", candidate_texts)
+    semantic_model = get_semantic_model()
+    candidate_embeddings = semantic_model._get_cached_embeddings("test", candidate_texts)
     
     for query_text in queries:
         # Generate embedding for the query
-        query_embedding = ss_model._get_embeddings([query_text])
+        query_embedding = semantic_model._get_embeddings([query_text])
         
         # Calculate similarities for unique candidates
-        similarities = ss_model._calculate_similarity(query_embedding, candidate_embeddings)
+        similarities = semantic_model._calculate_similarity(query_embedding, candidate_embeddings)
         
         # Create a mapping from candidate text to similarity score
         candidate_to_similarity = dict(zip(candidate_texts, similarities))
@@ -367,7 +392,6 @@ if __name__ == '__main__':
 #     def _load_model(self):
 #         """Load the BioLORD-2023 model for embedding generation"""
 #         try:
-#             self.model = SentenceTransformer('/remote-home/chuanxuan/model/BioLORD-2023')
 #         except Exception as e:
 #             self.model = None
 
