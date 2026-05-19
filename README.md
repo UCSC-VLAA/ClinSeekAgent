@@ -9,7 +9,7 @@
 [![Benchmark](https://img.shields.io/badge/Benchmark-ClinSeek--Bench-7B61FF)](#data-artifacts)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue)](LICENSE)
 
-[Paper](#citation) • [Quick Start](#quick-start) • [Data](#data-artifacts) • [Docs](#documentation) • [Training](#sft-training) • [Responsible Use](#responsible-use)
+[Paper](#citation) • [Hugging Face Collection](https://huggingface.co/collections/UCSC-VLAA/clinseekagent) • [Quick Start](#quick-start) • [Data](#data-artifacts) • [Docs](#documentation) • [Training](#sft-training) • [Responsible Use](#responsible-use)
 
 </div>
 
