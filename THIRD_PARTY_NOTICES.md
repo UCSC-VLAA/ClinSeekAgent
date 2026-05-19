@@ -48,3 +48,17 @@ The following docs are in `.gitignore` (internal-only drafts), but `README.md` a
 **Paper coordination**
 
 - [ ] After the paper is on arXiv, update README and `CITATION.cff` with the arXiv URL + BibTeX entry.
+
+**Project page (`docs/`, served at <https://ucsc-vlaa.github.io/ClinSeekAgent/>)**
+
+Placeholder CTAs and links currently point at `#` or "coming soon" labels in `docs/index.html`. Update them as artifacts go live:
+
+- [ ] Hero **Paper** button → arXiv URL once the preprint is posted.
+- [ ] Hero **ClinSeek-35B-A3B** button → Hugging Face model URL once weights are uploaded.
+- [ ] Resources grid card **ClinSeek-35B-A3B** (currently `href="#"` with reduced opacity) → same HF model URL; remove the `opacity-70` and "coming soon" tag.
+- [ ] Resources grid card **ClinSeek-Trajectories** (currently `href="#"` with reduced opacity) → HF dataset URL once trajectories are uploaded; same opacity / tag cleanup.
+- [ ] BibTeX block (`#cite`) → replace the placeholder `@article{clinseekagent2026, …}` with the final arXiv-style entry (or `@inproceedings{…}` after acceptance).
+- [ ] "arXiv link will appear here once the preprint is posted." note under BibTeX → replace with the actual arXiv link sentence.
+- [ ] If author list, ordering, or affiliations change in the paper, mirror the change in the hero block of `docs/index.html` (currently UCSC only; add other affiliations + superscripts if needed).
+- [ ] Verify all figures still render correctly after any image-asset replacement: `teaser.png`, `multimodal_result.png`, `case_study.png`, `fail_case_study.png`, `performance.png`, `tool_distribution_pies.png`.
+- [ ] Enable Pages in repo settings (Settings → Pages → Source: `main` / `/docs`) on the first publish.
