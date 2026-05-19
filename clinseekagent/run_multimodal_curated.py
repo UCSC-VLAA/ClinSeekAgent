@@ -1,11 +1,11 @@
 """One-shot reasoning-model evaluation driver for **multimodal** EHR-Bench.
 
-Mirror of `deploy_reasoning_model.py` for the MM pipeline: sends the
+Mirror of `run_text_curated.py` for the MM pipeline: sends the
 benchmark row's pre-rendered `question` + attached CXR image(s) + inlined
 radiology reports to the model in a single invoke, asks for the final
 answer inside an `<answer>...</answer>` block, and wraps the response
-into a synthetic `ehr.finish` tool call so `helper/scorer_mm.py` can
-score the resulting `results.jsonl` unchanged.
+into a synthetic `ehr.finish` tool call so `scoring/score_multimodal.py`
+can score the resulting `results.jsonl` unchanged.
 
 Backends:
     bedrock   - AWS Bedrock (Anthropic content-blocks; OpenAI-shape with
@@ -13,7 +13,7 @@ Backends:
     vllm      - stubbed; raises NotImplementedError.
 
 Usage:
-    python deploy_reasoning_model_mm.py \\
+    python run_multimodal_curated.py \\
         --backend bedrock \\
         --model "Claude Opus 4.6" \\
         --data data/ClinSeek-Bench/inputs/mm_bench.jsonl \\
@@ -53,7 +53,7 @@ _ANSWER_TRAILER = (
 
 
 # ----------------------------------------------------------------------------
-# Image/report attachment  (ported from deploy_agent_mm.py)
+# Image/report attachment  (ported from run_multimodal.py)
 # ----------------------------------------------------------------------------
 
 _VALID_IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
@@ -250,7 +250,7 @@ def build_mm_inputs(
 
 
 # ----------------------------------------------------------------------------
-# Answer extraction  (copied verbatim from deploy_reasoning_model.py)
+# Answer extraction  (copied verbatim from run_text_curated.py)
 # ----------------------------------------------------------------------------
 
 
@@ -455,7 +455,7 @@ def salvage_plain_text(text: str) -> List[str]:
 # ----------------------------------------------------------------------------
 
 _REGION_AVAILABILITY_PATH = Path(__file__).with_name(
-    "bedrock_model_region_availability.json"
+    "bedrock_region_availability.json"
 )
 
 _RETRYABLE_KEYWORDS = (

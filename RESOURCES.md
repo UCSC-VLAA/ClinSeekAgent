@@ -1,7 +1,7 @@
 # Resources
 
 This file records the external artifacts needed to reproduce or inspect the
-ClinSeek release. Large data, model, result, and analysis artifacts are not
+ClinSeekAgent release. Large data, model, result, and analysis artifacts are not
 stored in this Git repository.
 
 ## Artifact Inventory
@@ -16,17 +16,17 @@ stored in this Git repository.
 
 ## Code Entry Points
 
-Agentic evaluation:
+Agentic evaluation (Automated Evidence-Seeking, ClinSeekAgent mode):
 
-- `openresearcher_ehr/deploy_agent.py` - text-only EHR benchmark driver.
-- `openresearcher_ehr/deploy_agent_mm.py` - multimodal benchmark driver.
+- `clinseekagent/run_text.py` - text-only EHR benchmark driver.
+- `clinseekagent/run_multimodal.py` - multimodal benchmark driver.
 - `src/run_mcp_server.py` - EHR MCP server.
 - `src/mcp_image/run_image_mcp_server.py` - image MCP server.
 
-One-shot baseline evaluation:
+Curated-Input baseline evaluation (one-shot from pre-selected context):
 
-- `openresearcher_ehr/deploy_reasoning_model.py` - text-only one-shot driver.
-- `openresearcher_ehr/deploy_reasoning_model_mm.py` - multimodal one-shot driver.
+- `clinseekagent/run_text_curated.py` - text-only baseline driver.
+- `clinseekagent/run_multimodal_curated.py` - multimodal baseline driver.
 
 Public launchers:
 
@@ -38,10 +38,10 @@ Public launchers:
 
 Training:
 
-- `prepare_clinseek_data.py` - trajectory JSONL to parquet preparation.
+- `verl/examples/sft/clinseek/prepare_clinseek_data.py` - trajectory JSONL → parquet preparation.
 - `scripts/train_sft.sh` - public SFT launcher using the vendored `verl/`.
-- `verl/examples/sft/clinseek/` - direct VERL SFT recipes.
-- `convert_dist_ckpt_to_hf.py` - distributed checkpoint conversion.
+- `verl/examples/sft/clinseek/` - direct VERL SFT recipes (Megatron + mbridge).
+- `verl/examples/sft/clinseek/convert_dist_ckpt_to_hf.py` - distributed checkpoint → HF safetensors conversion.
 
 ## ClinSeek-Bench
 

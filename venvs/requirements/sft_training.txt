@@ -1,0 +1,21 @@
+# ============================================================================
+# Venv D — SFT training (Megatron + vendored VERL)
+#   Used by: scripts/train_sft.sh
+#            verl/examples/sft/clinseek/*.sh
+#            verl/examples/sft/clinseek/prepare_clinseek_data.py
+#            verl/examples/sft/clinseek/convert_dist_ckpt_to_hf.py
+# Python: 3.12
+# GPU: 8 H200s recommended (paper recipe: TP=2, EP=8); see docs/sft_training.md.
+# ============================================================================
+
+# --- VERL training stack (CUDA build). Picks up torch, megatron, mbridge,
+#     vllm, ray, and the standard CUDA-side deps it needs.
+-r ../../verl/requirements-cuda.txt
+
+# --- Trajectory parquet preparation (HF download + chat-template rendering)
+huggingface-hub>=0.35.0
+pyarrow>=15.0.0
+transformers>=4.56.0
+
+# --- W&B (used by trainer.logger=wandb in the recipe)
+wandb>=0.18.0

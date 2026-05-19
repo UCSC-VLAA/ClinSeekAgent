@@ -12,9 +12,9 @@ import uuid
 from typing import List, Dict, Any
 import traceback
 
-from browser import BrowserTool, LocalServiceBrowserBackend, SerperServiceBrowserBackend
-from ehr_pool import EHRToolPool
-from data_utils import DEVELOPER_CONTENT_CLAUDE, SFT_MODEL_PROMPT, COMBINED_TOOL_CONTENT_FULL
+from browser_tool import BrowserTool, LocalServiceBrowserBackend, SerperServiceBrowserBackend
+from ehr_tool_pool import EHRToolPool
+from prompts_text import DEVELOPER_CONTENT_CLAUDE, SFT_MODEL_PROMPT, COMBINED_TOOL_CONTENT_FULL
 import dotenv
 
 # Verbose flag
@@ -371,13 +371,13 @@ def resolve_qid(item: Dict[str, Any]) -> str:
 
 def resolve_question(item: Dict[str, Any], data_path: str = "") -> str:
     if "ehr_bench" in os.path.basename(data_path):
-        from data_utils import generate_ehr_bench_prompt
+        from prompts_text import generate_ehr_bench_prompt
         return generate_ehr_bench_prompt(item)
 
     if 'question' in item or 'query' in item:
         return item.get('question', item.get('query', ''))
 
-    from data_utils import generate_question_from_task
+    from prompts_text import generate_question_from_task
     return generate_question_from_task(item)
 
 
@@ -564,11 +564,9 @@ async def run_one_native(
             # Extract message from response
             message = response["choices"][0]["message"]
             content = message.get("content", "")
-            raw_content = message.get("raw_content")
             reasoning_content = (message.get("reasoning_content") or "").strip()
             tool_calls = message.get("tool_calls", [])
             parse_error = (message.get("parse_error") or "").strip()
-            is_openseeker_repo_like = raw_content is not None
 
             preview_text = content or reasoning_content
             preview_text = preview_text[:2000] if len(preview_text) > 2000 else preview_text
@@ -604,7 +602,7 @@ async def run_one_native(
             # Add assistant message
             assistant_message = {
                 "role": "assistant",
-                "content": raw_content if raw_content is not None else content,
+                "content": content,
                 "tool_calls": normalized_tool_calls if normalized_tool_calls else None
             }
             if reasoning_content:
@@ -681,13 +679,9 @@ async def run_one_native(
                     # Add tool response
                     tool_message = {
                         "role": "tool",
-                        "content": result
+                        "content": result,
+                        "tool_call_id": tool_id,
                     }
-                    if is_openseeker_repo_like:
-                        tool_message["name"] = function_name
-                        tool_message["tool_call_id"] = str(uuid.uuid4())
-                    else:
-                        tool_message["tool_call_id"] = tool_id
                     messages.append(tool_message)
 
                     result_preview = result[:200] if len(result) > 200 else result
@@ -713,13 +707,9 @@ async def run_one_native(
                     print(f"[qid={qid}] Round {round_num} TOOL_ERROR[{tc_idx}]: {error_msg}", flush=True)
                     error_message = {
                         "role": "tool",
-                        "content": error_msg
+                        "content": error_msg,
+                        "tool_call_id": tool_id,
                     }
-                    if is_openseeker_repo_like:
-                        error_message["name"] = function_name
-                        error_message["tool_call_id"] = str(uuid.uuid4())
-                    else:
-                        error_message["tool_call_id"] = tool_id
                     messages.append(error_message)
 
             if finish_tool_called:
@@ -1001,7 +991,7 @@ async def main():
     # Initialize generator
     if selected_backend == "bedrock":
         # Import Bedrock generator (local copy to avoid vllm dependency)
-        from bedrock_generator import BedrockAsyncGenerator
+        from bedrock_backend import BedrockAsyncGenerator
 
         bedrock_api_key = configure_bedrock_auth(args.bedrock_api_key)
         resolved_model_id = resolve_bedrock_model_id(
@@ -1024,7 +1014,7 @@ async def main():
             f"thinking={'auto' if args.enable_thinking is None else args.enable_thinking}"
         )
     elif selected_backend == "vllm":
-        from vllm_generator import VLLMOpenAIAsyncGenerator
+        from vllm_backend import VLLMOpenAIAsyncGenerator
 
         generator = VLLMOpenAIAsyncGenerator(
             model_name=args.model_name_or_path,

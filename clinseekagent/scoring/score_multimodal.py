@@ -31,7 +31,7 @@ Outputs:
                                 per_task_unified (len1+len2plus folded).
   <output_dir>/summary.md       Human-readable companion.
 
-The scorer is driven by Bedrock creds (same auth as deploy_agent_mm.py):
+The scorer is driven by Bedrock creds (same auth as run_multimodal.py):
   - AWS_BEARER_TOKEN_BEDROCK or BEDROCK_API_KEY (preferred), or
   - standard boto3 credential chain.
 """
@@ -49,21 +49,22 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-# Look in this dir + parent so the scorer can live at
-# `openresearcher_ehr/scorer_mm.py` or `openresearcher_ehr/helper/scorer_mm.py`.
+# Look in this dir + parent so the scorer resolves backend/runner modules
+# whether it's invoked as `clinseekagent/scoring/score_multimodal.py`
+# (parent = clinseekagent/) or relocated.
 for _candidate in (SCRIPT_DIR, SCRIPT_DIR.parent):
     if str(_candidate) not in sys.path:
         sys.path.insert(0, str(_candidate))
 
-import bedrock_generator as _bgen
-# Runtime shim: bedrock_generator._chat_completion_anthropic references a
+import bedrock_backend as _bgen
+# Runtime shim: bedrock_backend._chat_completion_anthropic references a
 # `use_reasoning_content` variable that is a parameter of chat_completion but
 # was never forwarded to its module scope. Inject so NameErrors don't kill
-# the judge path. Same fix as deploy_agent_mm.py.
+# the judge path. Same fix as run_multimodal.py.
 _bgen.__dict__.setdefault("use_reasoning_content", True)
 
-from bedrock_generator import BedrockAsyncGenerator  # noqa: E402
-from deploy_agent import configure_bedrock_auth, resolve_bedrock_model_id  # noqa: E402
+from bedrock_backend import BedrockAsyncGenerator  # noqa: E402
+from run_text import configure_bedrock_auth, resolve_bedrock_model_id  # noqa: E402
 
 
 # ---------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 """Image Tool Pool - MCP client for the medical-image MCP server.
 
-Mirrors the structure of `ehr_pool.py` (JSON-RPC 2.0 over HTTP, per-qid session
+Mirrors the structure of `ehr_tool_pool.py` (JSON-RPC 2.0 over HTTP, per-qid session
 state, SSE or plain JSON response parsing). Kept deliberately small: this pool
 just forwards calls to the image MCP server; all heavy lifting lives in
 `src/mcp_image/tools/`.

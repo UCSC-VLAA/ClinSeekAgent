@@ -11,19 +11,10 @@ import re
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Optional
 
-import jinja2
 from openai import OpenAI
 
 
 TOOL_CALL_BLOCK_RE = re.compile(
-    r"<tool_call>\s*(.*?)\s*</tool_call>",
-    re.DOTALL,
-)
-OPENSEEKER_TOOL_CALLS_BLOCK_RE = re.compile(
-    r"<tool_calls_begin>\s*(.*?)\s*</tool_calls_end>",
-    re.DOTALL,
-)
-OPENSEEKER_TOOL_CALL_RE = re.compile(
     r"<tool_call>\s*(.*?)\s*</tool_call>",
     re.DOTALL,
 )
@@ -36,13 +27,12 @@ XML_PARAMETER_RE = re.compile(
     re.DOTALL,
 )
 BRACKET_TOOL_CALL_PREFIX = "[Tool Call:"
-OPENSEEKER_GENERATION_PROMPT = "<|im_start|>assistant\n<think>\n"
 
 
 class VLLMOpenAIAsyncGenerator:
     """
     Async wrapper around vLLM's OpenAI-compatible chat completions API.
-    Returns the same minimal OpenAI-style dict shape used by deploy_agent.py.
+    Returns the same minimal OpenAI-style dict shape used by run_text.py.
     """
 
     def __init__(
@@ -62,7 +52,6 @@ class VLLMOpenAIAsyncGenerator:
         self.enable_thinking = enable_thinking
         self.strip_images = strip_images
         self.executor = ThreadPoolExecutor(max_workers=max_workers)
-        self._openseeker_template = None
 
         print(
             f"[vLLM] Initialized with base_url={self.base_url}, "
@@ -77,12 +66,8 @@ class VLLMOpenAIAsyncGenerator:
         return normalized
 
     async def _init_tokenizer(self):
-        """Compatibility no-op; deploy_agent checks for this method."""
+        """Compatibility no-op; run_text checks for this method."""
         return None
-
-    @staticmethod
-    def _is_openseeker_model(model_name: Optional[str]) -> bool:
-        return "openseeker" in (model_name or "").lower()
 
     @staticmethod
     def _is_clinseek_sft_model(model_name: Optional[str]) -> bool:
@@ -363,23 +348,6 @@ class VLLMOpenAIAsyncGenerator:
             base_url=self.base_url,
         )
 
-    def _get_openseeker_template(self):
-        if self._openseeker_template is not None:
-            return self._openseeker_template
-
-        template_path = os.path.join(
-            os.path.dirname(__file__),
-            "openseeker_vllm",
-            "chat_template.jinja",
-        )
-        with open(template_path, "r", encoding="utf-8") as f:
-            template_source = f.read()
-
-        env = jinja2.Environment()
-        env.filters["tojson"] = lambda obj: json.dumps(obj, ensure_ascii=False)
-        self._openseeker_template = env.from_string(template_source)
-        return self._openseeker_template
-
     async def _resolve_model_name(self) -> str:
         if self.model_name and self.model_name != "auto":
             return self.model_name
@@ -447,240 +415,6 @@ class VLLMOpenAIAsyncGenerator:
         if missing_braces > 0:
             value += "}" * missing_braces
         return value
-
-    def _prepare_messages_for_openseeker(
-        self,
-        messages: List[dict],
-    ) -> List[Dict[str, Any]]:
-        prepared: List[Dict[str, Any]] = []
-
-        for original_turn in copy.deepcopy(messages):
-            role = original_turn.get("role")
-            turn: Dict[str, Any] = {"role": role}
-
-            if role == "assistant":
-                assistant_content = self._stringify_message_field(
-                    original_turn.get("content")
-                )
-                if assistant_content:
-                    turn["content"] = assistant_content.replace("<|im_end|>", "")
-                else:
-                    reconstructed_parts: List[str] = []
-                    assistant_reasoning = (
-                        original_turn.get("reasoning")
-                        or original_turn.get("reasoning_content")
-                    )
-                    if assistant_reasoning:
-                        reconstructed_parts.append(
-                            "<think>\n"
-                            f"{self._stringify_message_field(assistant_reasoning).strip()}\n"
-                            "</think>"
-                        )
-
-                    normalized_tool_calls = self._normalize_assistant_tool_calls(
-                        original_turn.get("tool_calls") or []
-                    )
-                    if normalized_tool_calls:
-                        tool_chunks = []
-                        for tool_call in normalized_tool_calls:
-                            tool_chunks.append(
-                                "<tool_call>"
-                                f"{json.dumps(tool_call['function'], ensure_ascii=False)}"
-                                "</tool_call>"
-                            )
-                        reconstructed_parts.append(
-                            "<tool_calls_begin>\n"
-                            + "\n".join(tool_chunks)
-                            + "\n</tool_calls_end>"
-                        )
-
-                    turn["content"] = "\n\n".join(
-                        part for part in reconstructed_parts if part
-                    )
-            else:
-                turn["content"] = self._stringify_message_field(
-                    original_turn.get("content")
-                )
-                if role == "tool":
-                    turn["tool_call_id"] = original_turn.get("tool_call_id")
-
-            prepared.append(turn)
-
-        return prepared
-
-    def _render_openseeker_prompt(
-        self,
-        messages: List[dict],
-        tools: List[dict],
-        *,
-        add_generation_prompt: bool,
-    ) -> str:
-        template = self._get_openseeker_template()
-        prepared_messages = self._prepare_messages_for_openseeker(messages)
-        return template.render(
-            messages=prepared_messages,
-            tools=tools or [],
-            add_generation_prompt=add_generation_prompt,
-        )
-
-    @staticmethod
-    def _split_openseeker_completion_text(
-        completion_text: str,
-    ) -> tuple[str, str]:
-        text = (completion_text or "").strip()
-        if not text:
-            return "", ""
-
-        if text.startswith("<think>"):
-            text = text[len("<think>"):].lstrip("\n")
-
-        if "</think>" in text:
-            reasoning, rest = text.split("</think>", 1)
-            return reasoning.strip(), rest.lstrip("\n").lstrip()
-        return "", text
-
-    @classmethod
-    def _extract_openseeker_tool_calls_repo_like(
-        cls,
-        content: str,
-    ) -> tuple[str, List[Dict[str, Any]], Optional[str]]:
-        if not content:
-            return "", [], "ERROR: No text to parse tool calls"
-
-        tool_calls: List[Dict[str, Any]] = []
-        errors: List[str] = []
-        blocks = [
-            match.group(1)
-            for match in OPENSEEKER_TOOL_CALLS_BLOCK_RE.finditer(content)
-        ]
-        scan_targets = blocks if blocks else [content]
-
-        for chunk in scan_targets:
-            for match in OPENSEEKER_TOOL_CALL_RE.finditer(chunk):
-                inner = (match.group(1) or "").strip()
-                if not inner:
-                    errors.append(
-                        "ERROR: Found empty <tool_call> tag (inner content is empty)"
-                    )
-                    continue
-
-                try:
-                    payload = json.loads(inner)
-                except json.JSONDecodeError:
-                    try:
-                        payload = json.loads(cls._try_fix_incomplete_json(inner))
-                    except Exception:
-                        errors.append(
-                            "ERROR: JSON decode failed even after fix attempt"
-                        )
-                        continue
-                except Exception:
-                    errors.append(
-                        "ERROR: Unexpected exception during JSON parsing"
-                    )
-                    continue
-
-                payload_items = payload if isinstance(payload, list) else [payload]
-                for item in payload_items:
-                    if not isinstance(item, dict):
-                        errors.append("ERROR: Parsed tool call item is not a dict")
-                        continue
-
-                    function_name = item.get("tool_name") or item.get("name")
-                    arguments = item.get("tool_args")
-                    if arguments is None:
-                        arguments = item.get("arguments")
-                    if not isinstance(function_name, str) or not function_name.strip():
-                        errors.append("ERROR: Tool call missing or empty name field")
-                        continue
-                    if isinstance(arguments, str):
-                        try:
-                            arguments = json.loads(arguments)
-                        except Exception:
-                            errors.append(
-                                "ERROR: Failed to parse arguments as JSON string"
-                            )
-                            arguments = {}
-                    if not isinstance(arguments, dict):
-                        errors.append("ERROR: Arguments is not a dict")
-                        arguments = {}
-
-                    tool_calls.append({
-                        "id": f"call_openseeker_{len(tool_calls) + 1}",
-                        "type": "function",
-                        "function": {
-                            "name": cls._normalize_tool_name(function_name.strip()),
-                            "arguments": json.dumps(arguments, ensure_ascii=False),
-                        },
-                    })
-
-        cleaned_content = OPENSEEKER_TOOL_CALLS_BLOCK_RE.sub("", content)
-        return cleaned_content, tool_calls, "\n".join(errors) or None
-
-    @classmethod
-    def _extract_openseeker_tool_calls(
-        cls,
-        content: str,
-    ) -> tuple[str, List[Dict[str, Any]]]:
-        blocks = [
-            match.group(1)
-            for match in OPENSEEKER_TOOL_CALLS_BLOCK_RE.finditer(content)
-        ]
-        if not blocks:
-            return content, []
-
-        tool_calls: List[Dict[str, Any]] = []
-
-        for chunk in blocks:
-            for match in OPENSEEKER_TOOL_CALL_RE.finditer(chunk):
-                inner = (match.group(1) or "").strip()
-                if not inner:
-                    continue
-
-                try:
-                    payload = json.loads(inner)
-                except json.JSONDecodeError:
-                    try:
-                        payload = json.loads(cls._try_fix_incomplete_json(inner))
-                    except Exception:
-                        continue
-                except Exception:
-                    continue
-
-                payload_items = payload if isinstance(payload, list) else [payload]
-                for item in payload_items:
-                    if not isinstance(item, dict):
-                        continue
-                    function_name = item.get("tool_name") or item.get("name")
-                    if not isinstance(function_name, str) or not function_name.strip():
-                        continue
-
-                    arguments = item.get("tool_args")
-                    if arguments is None:
-                        arguments = item.get("arguments")
-                    if isinstance(arguments, str):
-                        try:
-                            arguments = json.loads(arguments)
-                        except Exception:
-                            arguments = {}
-                    if not isinstance(arguments, dict):
-                        arguments = {}
-
-                    tool_calls.append({
-                        "id": f"call_openseeker_{len(tool_calls) + 1}",
-                        "type": "function",
-                        "function": {
-                            "name": cls._normalize_tool_name(function_name.strip()),
-                            "arguments": json.dumps(arguments, ensure_ascii=False),
-                        },
-                    })
-
-        if not tool_calls:
-            return content, []
-
-        cleaned_content = OPENSEEKER_TOOL_CALLS_BLOCK_RE.sub("", content)
-        cleaned_content = OPENSEEKER_TOOL_CALL_RE.sub("", cleaned_content).strip()
-        return cleaned_content, tool_calls
 
     @staticmethod
     def _coerce_xml_argument(raw_value: str) -> Any:
@@ -1204,9 +938,6 @@ class VLLMOpenAIAsyncGenerator:
         content = message.content or ""
         if not isinstance(content, str):
             content = json.dumps(content, ensure_ascii=False)
-        is_openseeker_model = VLLMOpenAIAsyncGenerator._is_openseeker_model(
-            model_name
-        )
 
         output_message: Dict[str, Any] = {
             "role": "assistant",
@@ -1257,123 +988,95 @@ class VLLMOpenAIAsyncGenerator:
                         output_message["reasoning_content"] = cleaned_reasoning
                     output_message["tool_calls"] = fallback_tool_calls
         else:
-            if is_openseeker_model and content:
+            fallback_content, fallback_tool_calls = (
+                VLLMOpenAIAsyncGenerator._extract_xml_tool_calls(content)
+            )
+            if "tool_calls" not in output_message and fallback_tool_calls:
+                output_message["content"] = fallback_content
+                output_message["tool_calls"] = fallback_tool_calls
+            if "tool_calls" not in output_message and content:
                 fallback_content, fallback_tool_calls = (
-                    VLLMOpenAIAsyncGenerator._extract_openseeker_tool_calls(content)
+                    VLLMOpenAIAsyncGenerator._extract_naked_xml_function_calls(
+                        content
+                    )
                 )
                 if fallback_tool_calls:
                     output_message["content"] = fallback_content
                     output_message["tool_calls"] = fallback_tool_calls
-            if not is_openseeker_model:
+            if "tool_calls" not in output_message and content:
                 fallback_content, fallback_tool_calls = (
-                    VLLMOpenAIAsyncGenerator._extract_xml_tool_calls(content)
+                    VLLMOpenAIAsyncGenerator._extract_inline_function_calls(
+                        content
+                    )
                 )
-                if "tool_calls" not in output_message and fallback_tool_calls:
+                if fallback_tool_calls:
                     output_message["content"] = fallback_content
                     output_message["tool_calls"] = fallback_tool_calls
-                if "tool_calls" not in output_message and content:
-                    fallback_content, fallback_tool_calls = (
-                        VLLMOpenAIAsyncGenerator._extract_naked_xml_function_calls(
-                            content
-                        )
-                    )
-                    if fallback_tool_calls:
-                        output_message["content"] = fallback_content
-                        output_message["tool_calls"] = fallback_tool_calls
-                if "tool_calls" not in output_message and content:
-                    fallback_content, fallback_tool_calls = (
-                        VLLMOpenAIAsyncGenerator._extract_inline_function_calls(
-                            content
-                        )
-                    )
-                    if fallback_tool_calls:
-                        output_message["content"] = fallback_content
-                        output_message["tool_calls"] = fallback_tool_calls
-                if "tool_calls" not in output_message and content:
-                    fallback_content, fallback_tool_calls = (
-                        VLLMOpenAIAsyncGenerator._extract_json_tool_calls(content)
-                    )
-                    if fallback_tool_calls:
-                        output_message["content"] = fallback_content
-                        output_message["tool_calls"] = fallback_tool_calls
+            if "tool_calls" not in output_message and content:
+                fallback_content, fallback_tool_calls = (
+                    VLLMOpenAIAsyncGenerator._extract_json_tool_calls(content)
+                )
+                if fallback_tool_calls:
+                    output_message["content"] = fallback_content
+                    output_message["tool_calls"] = fallback_tool_calls
             if "tool_calls" not in output_message and reasoning_content:
-                if is_openseeker_model:
-                    cleaned_reasoning, fallback_tool_calls = (
-                        VLLMOpenAIAsyncGenerator._extract_openseeker_tool_calls(
-                            reasoning_content
-                        )
+                cleaned_reasoning, fallback_tool_calls = (
+                    VLLMOpenAIAsyncGenerator._extract_xml_tool_calls(
+                        reasoning_content
                     )
-                    if cleaned_reasoning != reasoning_content:
-                        output_message["reasoning_content"] = cleaned_reasoning
-                    if fallback_tool_calls:
-                        output_message["tool_calls"] = fallback_tool_calls
-            if not is_openseeker_model:
-                if "tool_calls" not in output_message and reasoning_content:
-                    cleaned_reasoning, fallback_tool_calls = (
-                        VLLMOpenAIAsyncGenerator._extract_xml_tool_calls(
-                            reasoning_content
-                        )
+                )
+                if cleaned_reasoning != reasoning_content:
+                    output_message["reasoning_content"] = cleaned_reasoning
+                if fallback_tool_calls:
+                    output_message["tool_calls"] = fallback_tool_calls
+            if "tool_calls" not in output_message and reasoning_content:
+                cleaned_reasoning, fallback_tool_calls = (
+                    VLLMOpenAIAsyncGenerator._extract_naked_xml_function_calls(
+                        reasoning_content
                     )
-                    if cleaned_reasoning != reasoning_content:
-                        output_message["reasoning_content"] = cleaned_reasoning
-                    if fallback_tool_calls:
-                        output_message["tool_calls"] = fallback_tool_calls
-                if "tool_calls" not in output_message and reasoning_content:
-                    cleaned_reasoning, fallback_tool_calls = (
-                        VLLMOpenAIAsyncGenerator._extract_naked_xml_function_calls(
-                            reasoning_content
-                        )
+                )
+                if cleaned_reasoning != reasoning_content:
+                    output_message["reasoning_content"] = cleaned_reasoning
+                if fallback_tool_calls:
+                    output_message["tool_calls"] = fallback_tool_calls
+            if "tool_calls" not in output_message and reasoning_content:
+                cleaned_reasoning, fallback_tool_calls = (
+                    VLLMOpenAIAsyncGenerator._extract_inline_function_calls(
+                        reasoning_content
                     )
-                    if cleaned_reasoning != reasoning_content:
-                        output_message["reasoning_content"] = cleaned_reasoning
-                    if fallback_tool_calls:
-                        output_message["tool_calls"] = fallback_tool_calls
-                if "tool_calls" not in output_message and reasoning_content:
-                    cleaned_reasoning, fallback_tool_calls = (
-                        VLLMOpenAIAsyncGenerator._extract_inline_function_calls(
-                            reasoning_content
-                        )
+                )
+                if cleaned_reasoning != reasoning_content:
+                    output_message["reasoning_content"] = cleaned_reasoning
+                if fallback_tool_calls:
+                    output_message["tool_calls"] = fallback_tool_calls
+            if "tool_calls" not in output_message and reasoning_content:
+                cleaned_reasoning, fallback_tool_calls = (
+                    VLLMOpenAIAsyncGenerator._extract_json_tool_calls(
+                        reasoning_content
                     )
-                    if cleaned_reasoning != reasoning_content:
-                        output_message["reasoning_content"] = cleaned_reasoning
-                    if fallback_tool_calls:
-                        output_message["tool_calls"] = fallback_tool_calls
-                if "tool_calls" not in output_message and reasoning_content:
-                    cleaned_reasoning, fallback_tool_calls = (
-                        VLLMOpenAIAsyncGenerator._extract_json_tool_calls(
-                            reasoning_content
-                        )
-                    )
-                    if cleaned_reasoning != reasoning_content:
-                        output_message["reasoning_content"] = cleaned_reasoning
-                    if fallback_tool_calls:
-                        output_message["tool_calls"] = fallback_tool_calls
-                if "tool_calls" not in output_message and content:
-                    fallback_content, fallback_tool_calls = (
-                        VLLMOpenAIAsyncGenerator._extract_bracket_tool_calls(content)
-                    )
-                    if fallback_tool_calls:
-                        output_message["content"] = fallback_content
-                        output_message["tool_calls"] = fallback_tool_calls
+                )
+                if cleaned_reasoning != reasoning_content:
+                    output_message["reasoning_content"] = cleaned_reasoning
+                if fallback_tool_calls:
+                    output_message["tool_calls"] = fallback_tool_calls
+            if "tool_calls" not in output_message and content:
+                fallback_content, fallback_tool_calls = (
+                    VLLMOpenAIAsyncGenerator._extract_bracket_tool_calls(content)
+                )
+                if fallback_tool_calls:
+                    output_message["content"] = fallback_content
+                    output_message["tool_calls"] = fallback_tool_calls
 
-                if "tool_calls" not in output_message and reasoning_content:
-                    cleaned_reasoning, fallback_tool_calls = (
-                        VLLMOpenAIAsyncGenerator._extract_bracket_tool_calls(
-                            reasoning_content
-                        )
+            if "tool_calls" not in output_message and reasoning_content:
+                cleaned_reasoning, fallback_tool_calls = (
+                    VLLMOpenAIAsyncGenerator._extract_bracket_tool_calls(
+                        reasoning_content
                     )
-                    if cleaned_reasoning != reasoning_content:
-                        output_message["reasoning_content"] = cleaned_reasoning
-                    if fallback_tool_calls:
-                        output_message["tool_calls"] = fallback_tool_calls
-
-        if (
-            is_openseeker_model and output_message.get("tool_calls")
-        ):
-            # OpenSeeker often leaves malformed closing tags in content even
-            # when tool calls were already extracted. Do not feed those tags
-            # back into the next assistant turn.
-            output_message["content"] = ""
+                )
+                if cleaned_reasoning != reasoning_content:
+                    output_message["reasoning_content"] = cleaned_reasoning
+                if fallback_tool_calls:
+                    output_message["tool_calls"] = fallback_tool_calls
 
         finish_reason = choice.finish_reason
         if output_message.get("tool_calls") and finish_reason != "tool_calls":
@@ -1396,84 +1099,6 @@ class VLLMOpenAIAsyncGenerator:
             "usage": usage_dict,
         }
 
-    async def _chat_completion_openseeker(
-        self,
-        model_name: str,
-        messages: List[dict],
-        tools: Optional[List[dict]] = None,
-        temperature: float = 1.0,
-        max_tokens: Optional[int] = None,
-        use_reasoning_content: bool = True,
-    ) -> Dict[str, Any]:
-        prompt_text = self._render_openseeker_prompt(
-            messages,
-            tools or [],
-            add_generation_prompt=True,
-        )
-
-        print(
-            f"[vLLM] OpenSeeker request: model={model_name}, "
-            f"messages={len(messages)}, tools={len(tools) if tools else 0}"
-        )
-
-        loop = asyncio.get_event_loop()
-        response = await loop.run_in_executor(
-            self.executor,
-            lambda: self._make_client().completions.create(
-                model=model_name,
-                prompt=prompt_text,
-                max_tokens=max_tokens or self.max_tokens_default,
-                temperature=temperature,
-                extra_body={"skip_special_tokens": False},
-            ),
-        )
-
-        choice = response.choices[0]
-        raw_completion = getattr(choice, "text", "") or ""
-        if not isinstance(raw_completion, str):
-            raw_completion = json.dumps(raw_completion, ensure_ascii=False)
-
-        raw_completion = raw_completion.replace("<|im_end|>", "")
-        raw_completion = raw_completion.replace(OPENSEEKER_GENERATION_PROMPT, "")
-        reasoning_content, content_raw = self._split_openseeker_completion_text(
-            raw_completion
-        )
-        cleaned_content, tool_calls, parse_error = (
-            self._extract_openseeker_tool_calls_repo_like(content_raw)
-        )
-
-        output_message: Dict[str, Any] = {
-            "role": "assistant",
-            "content": cleaned_content,
-            "raw_content": raw_completion,
-        }
-        if reasoning_content:
-            output_message["reasoning_content"] = reasoning_content
-        if tool_calls:
-            output_message["tool_calls"] = tool_calls
-        if parse_error:
-            output_message["parse_error"] = parse_error
-
-        usage = getattr(response, "usage", None)
-        usage_dict = {}
-        if usage is not None:
-            usage_dict = {
-                "prompt_tokens": getattr(usage, "prompt_tokens", None),
-                "completion_tokens": getattr(usage, "completion_tokens", None),
-                "total_tokens": getattr(usage, "total_tokens", None),
-            }
-
-        converted = {
-            "choices": [{
-                "message": output_message,
-                "finish_reason": getattr(choice, "finish_reason", None),
-            }],
-            "usage": usage_dict,
-        }
-        if not use_reasoning_content:
-            converted["choices"][0]["message"].pop("reasoning_content", None)
-        return converted
-
     async def chat_completion(
         self,
         messages: List[dict],
@@ -1485,20 +1110,6 @@ class VLLMOpenAIAsyncGenerator:
     ) -> Dict[str, Any]:
         await self._init_tokenizer()
         model_name = await self._resolve_model_name()
-        if self._is_openseeker_model(model_name):
-            converted = await self._chat_completion_openseeker(
-                model_name=model_name,
-                messages=messages,
-                tools=tools,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                use_reasoning_content=use_reasoning_content,
-            )
-            print(
-                "[vLLM] Response received: "
-                f"finish_reason={converted['choices'][0]['finish_reason']}"
-            )
-            return converted
 
         is_clinseek_sft = self._is_clinseek_sft_model(model_name)
 

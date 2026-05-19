@@ -1,9 +1,9 @@
 cff-version: 1.2.0
 message: "If you use ClinSeekAgent, please cite the associated paper."
-title: "ClinSeek: Automating Multimodal Evidence Seeking for Agentic Clinical Reasoning"
+title: "ClinSeekAgent: Automating Multimodal Evidence Seeking for Agentic Clinical Reasoning"
 authors:
-  - name: "ClinSeek authors"
+  - name: "ClinSeekAgent authors"
 year: 2026
 version: "0.1.0"
-repository-code: "https://github.com/<org>/ClinSeekAgent"
-license: "LicenseRef-Pending"
+repository-code: "https://github.com/UCSC-VLAA/ClinSeekAgent"
+license: "Apache-2.0"

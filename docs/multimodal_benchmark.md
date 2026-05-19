@@ -35,7 +35,7 @@ Use `--enable_image` only when the image MCP server and model dependencies are a
 ## Score
 
 ```bash
-python openresearcher_ehr/helper/scorer_mm.py \
+python clinseekagent/scoring/score_multimodal.py \
   --results outputs/mm_eval/results.jsonl \
   --output-root outputs/mm_eval/scored
 ```

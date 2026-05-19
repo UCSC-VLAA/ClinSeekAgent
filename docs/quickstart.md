@@ -44,7 +44,7 @@ bash scripts/run_mm_eval.sh
 Text-only scoring:
 
 ```bash
-python openresearcher_ehr/helper/evaluate_results.py \
+python clinseekagent/scoring/score_text.py \
   --results outputs/text_eval/results.jsonl \
   --benchmark $CLINSEEK_DATA_ROOT/text/test.jsonl \
   --output outputs/text_eval/summary.json
@@ -53,7 +53,7 @@ python openresearcher_ehr/helper/evaluate_results.py \
 Multimodal scoring:
 
 ```bash
-python openresearcher_ehr/helper/scorer_mm.py \
+python clinseekagent/scoring/score_multimodal.py \
   --results outputs/mm_eval/results.jsonl \
   --output-root outputs/mm_eval/scored
 ```

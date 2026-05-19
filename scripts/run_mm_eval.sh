@@ -26,7 +26,7 @@ MAX_TOOL_RESULT_CHARS="${MAX_TOOL_RESULT_CHARS:-100000}"
 PYTHON_BIN="${PYTHON_BIN:-python}"
 ENABLE_IMAGE="${ENABLE_IMAGE:-1}"
 
-export PYTHONPATH="${REPO_ROOT}/openresearcher_ehr:${REPO_ROOT}/src:${PYTHONPATH:-}"
+export PYTHONPATH="${REPO_ROOT}/clinseekagent:${REPO_ROOT}/src:${PYTHONPATH:-}"
 
 COMMON_ARGS=(
   --data_path "${DATA_PATH}"
@@ -53,4 +53,4 @@ else
   COMMON_ARGS+=(--api_base_url "${VLLM_BASE_URL}" --api_key "${VLLM_API_KEY}")
 fi
 
-exec "${PYTHON_BIN}" "${REPO_ROOT}/openresearcher_ehr/deploy_agent_mm.py" "${COMMON_ARGS[@]}" "$@"
+exec "${PYTHON_BIN}" "${REPO_ROOT}/clinseekagent/run_multimodal.py" "${COMMON_ARGS[@]}" "$@"

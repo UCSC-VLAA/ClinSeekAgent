@@ -14,10 +14,10 @@ checkpoints/
 # Results and outputs
 results/
 outputs/
-openresearcher_ehr/results_benchmark_*/
-openresearcher_ehr/subsets_*/
-openresearcher_ehr/subset_*/
-openresearcher_ehr/diagnoses_*/
+clinseekagent/results_benchmark_*/
+clinseekagent/subsets_*/
+clinseekagent/subset_*/
+clinseekagent/diagnoses_*/
 node-v25.8.1-linux-x64/
 
 # Environment files

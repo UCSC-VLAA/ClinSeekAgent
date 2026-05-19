@@ -7,7 +7,7 @@
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](#install)
 [![MCP](https://img.shields.io/badge/MCP-EHR%20%2B%20Image-0E7C7B)](#repository-layout)
 [![Benchmark](https://img.shields.io/badge/Benchmark-ClinSeek--Bench-7B61FF)](#data-artifacts)
-[![License](https://img.shields.io/badge/License-Pending-lightgrey)](LICENSE)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue)](LICENSE)
 
 [Paper](#citation) • [Quick Start](#quick-start) • [Data](#data-artifacts) • [Training](#sft-training) • [Responsible Use](#responsible-use)
 
@@ -17,55 +17,122 @@ ClinSeekAgent is a multimodal evidence-seeking pipeline for agentic clinical rea
 
 This repository is prepared as the public code release for:
 
-> **ClinSeek: Automating Multimodal Evidence Seeking for Agentic Clinical Reasoning**
+> **ClinSeekAgent: Automating Multimodal Evidence Seeking for Agentic Clinical Reasoning**
 
 > [!IMPORTANT]
 > This public release intentionally does **not** include raw MIMIC data, generated patient databases, chest X-ray files, private trajectories, model weights, or experiment logs. Data and model artifacts should be released separately on Hugging Face after the relevant access and license checks.
 
-<a id="why-clinseekagent"></a>
-## ✨ Why ClinSeekAgent?
+<p align="center">
+  <img src="assets/teaser.png" alt="ClinSeekAgent overview" width="92%">
+</p>
 
-ClinSeekAgent turns clinical QA into an evidence-seeking workflow: the model must decide what to inspect, which tools to call, and how to assemble evidence across structured EHR tables, candidate sets, web search, and medical images.
+## 📊 Headline Results
 
-```mermaid
-flowchart LR
-    Q[Clinical question] --> A[Agentic host model]
-    A --> E[EHR MCP tools]
-    A --> I[Image MCP tools]
-    A --> W[Web search tools]
-    E --> R[Evidence-grounded answer]
-    I --> R
-    W --> R
-```
+ClinSeekAgent shifts evaluation from passive consumption of pre-curated context to *active* evidence acquisition across raw EHR tables, web search, and medical imaging. Compared with the paired **Curated Input** baseline (same task, same label, but evidence pre-selected by the source benchmark):
+
+**Text-only EHR tasks (ClinSeek-Bench, overall F1):**
+
+| Host model | Curated Input | ClinSeekAgent | Δ |
+| --- | ---: | ---: | ---: |
+| Claude Opus 4.6 | 60.0 | **63.2** | **+3.2** |
+| MiniMax M2.5 | 43.1 | **47.3** | **+4.2** |
+
+7 / 9 evaluated host models improve on the risk-prediction split.
+
+**Multimodal tasks (ClinSeek-Bench, overall F1):**
+
+| Host model | Curated Input | ClinSeekAgent | Δ |
+| --- | ---: | ---: | ---: |
+| Claude Opus 4.6 | 47.5 | **62.6** | **+15.1** |
+| Claude Sonnet 4.6 | 48.0 | **54.9** | **+6.9** |
+| Qwen3-VL-235B | 43.9 | **49.8** | **+5.9** |
+| Gemma-4-26B-A4B-it | 38.2 | **44.9** | **+6.7** |
+
+5 / 6 evaluated host models improve overall; on Phenotype reasoning Opus 4.6 alone gains **+34.0 points**.
+
+**Distilled student (AgentEHR-Bench, average F1):**
+
+| Model | Average F1 |
+| --- | ---: |
+| Qwen3.5-35B-A3B (base) | 22.1 |
+| **ClinSeek-35B-A3B (ours, SFT on ClinSeekAgent trajectories)** | **34.0 (+11.9)** |
+| Claude Sonnet 4.6 | 32.7 |
+| Claude Opus 4.6 (teacher) | 36.0 |
+
+`ClinSeek-35B-A3B` is the strongest open-source model in our evaluation, surpassing Kimi K2.5 (29.9), MiniMax M2.5 (27.7), GLM-4.7 (27.6), and Qwen3-235B-A22B (20.5), while reaching 94.4% of its teacher's performance.
+
+<p align="center">
+  <img src="assets/performance.png" alt="ClinSeek-35B-A3B on AgentEHR-Bench" width="78%">
+</p>
 
 <a id="repository-layout"></a>
 ## 🧩 Repository Layout
 
 | Path | Purpose |
 | --- | --- |
-| `openresearcher_ehr/` | Agentic and one-shot drivers, LLM backends, tool pools, and scorers |
+| `clinseekagent/` | Agentic and curated-input drivers, LLM backends (Bedrock + vLLM), tool pools, and scorers |
 | `src/run_mcp_server.py` | EHR MCP server |
 | `src/agentlite/mcp_tools/` | EHR table, SQL, candidate, and utility tools |
 | `src/mcp_image/` | Medical-image MCP server and image tools |
-| `verl/` | Vendored VERL training code and ClinSeek SFT recipes |
+| `verl/` | Vendored VERL training code and ClinSeekAgent SFT recipes |
 | `scripts/` | Public launchers for MCP servers, evaluation, vLLM, and SFT |
 | `docs/` | Release, data, benchmark, and training documentation |
-| `venvs/requirements/` | Split dependency files for agent, EHR MCP, and image MCP roles |
+| `venvs/requirements/` | Per-role dependency files (agent driver, EHR MCP, image MCP, SFT training) |
+| `assets/` | Figures used in this README (teaser, performance plot, case study) |
 | `examples/` | Synthetic manifest examples only |
 
 <a id="install"></a>
 ## ⚙️ Install
 
-Use separate environments for the lightweight agent driver, the EHR MCP server, and the image MCP server when running the full multimodal pipeline.
+ClinSeekAgent is intentionally split into **four roles** with separate dependency files so you only install what you need. The agent driver and the MCP servers should each live in their own venv: the agent driver is a thin HTTP/SDK client, but the MCP servers and SFT training pull in heavy GPU and ML stacks.
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env
+cp .env.example .env   # fill values for the roles you plan to run
 ```
 
-Role-specific dependencies are available in `venvs/requirements/`.
+### 1. Agent driver — `venvs/requirements/bedrock_agent.txt`
+
+Run inference + scoring. No GPU. Install this whether you use Bedrock or a self-hosted vLLM endpoint.
+
+```bash
+python -m venv .venvs/agent && source .venvs/agent/bin/activate
+pip install -r venvs/requirements/bedrock_agent.txt
+```
+
+### 2. EHR MCP server — `venvs/requirements/mcp_ehr.txt`
+
+Serves `ehr.*` tool calls over MCP. GPU optional (used only for BioLORD semantic search). Install only on the host that runs `scripts/run_ehr_mcp.sh`.
+
+```bash
+python -m venv .venvs/mcp-ehr && source .venvs/mcp-ehr/bin/activate
+# Install a torch build matching your CUDA before pip-installing this file.
+pip install torch==2.8.0 --index-url https://download.pytorch.org/whl/cu121
+pip install -r venvs/requirements/mcp_ehr.txt
+```
+
+### 3. Image MCP server — `venvs/requirements/mcp_image.txt`
+
+Serves `image.*` CXR tool calls (classifier, report generator, phrase grounding, segmentation). **GPU required** (4 GPUs recommended). Install only on the host that runs `scripts/run_image_mcp.sh`.
+
+```bash
+python -m venv .venvs/mcp-image && source .venvs/mcp-image/bin/activate
+pip install --pre torch==2.9.0+cu128 torchvision==0.24.0+cu128 \
+    --index-url https://download.pytorch.org/whl/cu128
+pip install -r venvs/requirements/mcp_image.txt
+```
+
+> **Important:** the image MCP pins `transformers==4.46.3` to keep MAIRA-2 working. Do not co-install this venv with the agent venv.
+
+### 4. SFT training — `venvs/requirements/sft_training.txt`
+
+Distill ClinSeekAgent trajectories into a smaller student (paper recipe: Qwen3.5-35B-A3B on 8× H200). Install only on the training node.
+
+```bash
+python -m venv .venvs/sft && source .venvs/sft/bin/activate
+pip install -r venvs/requirements/sft_training.txt
+```
+
+See [`docs/sft_training.md`](docs/sft_training.md) for the full paper recipe.
 
 <a id="data-artifacts"></a>
 ## 📦 Data & Artifacts
@@ -128,7 +195,7 @@ The example files are schema examples, not a replacement for the benchmark data.
 Prepare trajectory parquet files:
 
 ```bash
-python prepare_clinseek_data.py \
+python verl/examples/sft/clinseek/prepare_clinseek_data.py \
   --repo_id <hf-org-or-user>/<trajectory-dataset> \
   --filename clinseek_trajectories.jsonl \
   --model_name Qwen/Qwen3.5-35B-A3B \

@@ -1,22 +1,22 @@
-"""Multimodal deploy agent — Bedrock Claude with EHR + Browser + Image tools.
+"""Multimodal ClinSeekAgent runner — Bedrock Claude with EHR + Browser + Image tools.
 
-This file is the multimodal twin of `deploy_agent.py`. The text-only pipeline
+This file is the multimodal twin of `run_text.py`. The text-only pipeline
 is never touched. Key differences:
 
 1. User message is built as a list of Anthropic content blocks: the sample's
    pre-rendered `question` text, each `image_paths[*]` attached as a base64
    image block (downscaled to `--image_max_edge`), and each `report_paths[*]`
-   inlined as an extra text block. The existing Bedrock generator already
-   supports list-typed `content` for user messages (bedrock_generator.py:258).
+   inlined as an extra text block. The existing Bedrock backend already
+   supports list-typed `content` for user messages.
 
-2. Tool schemas come from `data_utils_mm.COMBINED_TOOL_CONTENT_MM` (EHR +
+2. Tool schemas come from `prompts_multimodal.COMBINED_TOOL_CONTENT_MM` (EHR +
    browser + 6 Meissa image tools).
 
-3. `image_pool.ImageToolPool` routes `image.*` tool calls to the image MCP
-   server (default http://127.0.0.1:5203/mcp).
+3. `image_tool_pool.ImageToolPool` routes `image.*` tool calls to the image
+   MCP server (default http://127.0.0.1:5203/mcp).
 
 Shared helpers (normalize_tool_calls, truncate_tool_result, load_query_data,
-BrowserPool, BedrockAsyncGenerator, ...) are imported from `deploy_agent.py`
+BrowserPool, BedrockAsyncGenerator, ...) are imported from `run_text.py`
 unchanged.
 """
 import argparse
@@ -32,8 +32,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import dotenv
 
-# --- Re-use unmodified helpers from the text-only deploy_agent. ---------------
-from deploy_agent import (
+# --- Re-use unmodified helpers from the text-only agentic runner. -------------
+from run_text import (
     BEDROCK_MODEL_ALIASES,
     DEFAULT_BEDROCK_MODEL_ID,
     DEFAULT_BEDROCK_REGION,
@@ -54,9 +54,9 @@ from deploy_agent import (
     summarize_conversation_completion,
     truncate_tool_result,
 )
-from ehr_pool import EHRToolPool
-from image_pool import ImageToolPool
-from data_utils_mm import (
+from ehr_tool_pool import EHRToolPool
+from image_tool_pool import ImageToolPool
+from prompts_multimodal import (
     COMBINED_TOOL_CONTENT_MM,
     DEVELOPER_CONTENT_CLAUDE_MM,
 )
@@ -460,11 +460,9 @@ async def run_one_native_mm(
 
             message = response["choices"][0]["message"]
             content = message.get("content") or ""
-            raw_content = message.get("raw_content")
             reasoning_content = (message.get("reasoning_content") or "").strip()
             tool_calls = message.get("tool_calls") or []
             parse_error = (message.get("parse_error") or "").strip()
-            is_openseeker_repo_like = raw_content is not None
 
             preview_text = content or reasoning_content
             preview_text = preview_text[:2000] if len(preview_text) > 2000 else preview_text
@@ -495,7 +493,7 @@ async def run_one_native_mm(
 
             assistant_message = {
                 "role": "assistant",
-                "content": raw_content if raw_content is not None else content,
+                "content": content,
                 "tool_calls": normalized_tool_calls if normalized_tool_calls else None,
             }
             if reasoning_content:
@@ -596,12 +594,11 @@ async def run_one_native_mm(
                     original_result_len = len(result) if isinstance(result, str) else None
                     result = truncate_tool_result(result, max_tool_result_chars)
 
-                    tool_message = {"role": "tool", "content": result}
-                    if is_openseeker_repo_like:
-                        tool_message["name"] = function_name
-                        tool_message["tool_call_id"] = str(uuid.uuid4())
-                    else:
-                        tool_message["tool_call_id"] = tool_id
+                    tool_message = {
+                        "role": "tool",
+                        "content": result,
+                        "tool_call_id": tool_id,
+                    }
                     messages.append(tool_message)
 
                     result_preview = result[:200] if len(result) > 200 else result
@@ -630,12 +627,11 @@ async def run_one_native_mm(
                         f"[qid={qid}] Round {round_num} TOOL_ERROR[{tc_idx}]: {error_msg}",
                         flush=True,
                     )
-                    err_message = {"role": "tool", "content": error_msg}
-                    if is_openseeker_repo_like:
-                        err_message["name"] = function_name
-                        err_message["tool_call_id"] = str(uuid.uuid4())
-                    else:
-                        err_message["tool_call_id"] = tool_id
+                    err_message = {
+                        "role": "tool",
+                        "content": error_msg,
+                        "tool_call_id": tool_id,
+                    }
                     messages.append(err_message)
 
             if finish_tool_called:
@@ -883,15 +879,15 @@ async def main():
         raise ValueError("--use_bedrock conflicts with --backend vllm")
 
     if selected_backend == "bedrock":
-        import bedrock_generator as _bgen
-        from bedrock_generator import BedrockAsyncGenerator
+        import bedrock_backend as _bgen
+        from bedrock_backend import BedrockAsyncGenerator
 
-        # Runtime shim: bedrock_generator.py has a latent NameError at line 555
+        # Runtime shim: bedrock_backend.py has a latent NameError at line 555
         # (`use_reasoning_content` is a parameter of chat_completion(), not a
         # local of _chat_completion_anthropic). The text-only pipeline never hits
         # the path where the tool_use branch runs under our invocation pattern, but
         # the multimodal run does. Inject the name into the module globals so the
-        # reference always resolves — no edit to bedrock_generator.py.
+        # reference always resolves — no edit to bedrock_backend.py.
         _bgen.__dict__.setdefault("use_reasoning_content", True)
 
         bedrock_api_key = configure_bedrock_auth(args.bedrock_api_key)
@@ -914,7 +910,7 @@ async def main():
             f"thinking={'auto' if args.enable_thinking is None else args.enable_thinking}"
         )
     elif selected_backend == "vllm":
-        from vllm_generator import VLLMOpenAIAsyncGenerator
+        from vllm_backend import VLLMOpenAIAsyncGenerator
 
         # If user didn't override --model_name_or_path, fall back to auto-resolve
         # from the vLLM /v1/models endpoint instead of passing a Bedrock model ID.

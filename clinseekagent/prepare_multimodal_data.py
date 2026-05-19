@@ -7,7 +7,7 @@ emit only rows that match the requested tasks / scope and optionally keep just
 a small sample for smoke tests.
 
 Usage:
-    python prepare_mm_data.py \
+    python prepare_multimodal_data.py \
       --src .../EHRXQAAgentBench_v3/common/ready/test.json \
       --tasks ehrxqa_image,ehrxqa_image_table \
       --scope patient_scope \

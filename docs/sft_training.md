@@ -22,7 +22,7 @@ Paper settings:
 ## Prepare Data
 
 ```bash
-python prepare_clinseek_data.py \
+python verl/examples/sft/clinseek/prepare_clinseek_data.py \
   --repo_id <hf-org-or-user>/<trajectory-dataset> \
   --filename clinseek_trajectories.jsonl \
   --model_name Qwen/Qwen3.5-35B-A3B \
@@ -53,7 +53,7 @@ bash verl/examples/sft/clinseek/run_qwen3_5_35b_a3b_sft_megatron_52k.sh
 
 ```bash
 PYTHONPATH=verl:$PYTHONPATH \
-python convert_dist_ckpt_to_hf.py \
+python verl/examples/sft/clinseek/convert_dist_ckpt_to_hf.py \
   --ckpt_dir /path/to/global_step_N \
   --output_dir /path/to/hf_output \
   --model_path /path/to/Qwen3.5-35B-A3B

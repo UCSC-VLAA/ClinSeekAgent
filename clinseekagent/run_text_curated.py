@@ -3,7 +3,7 @@
 Sends the benchmark row's fully-rendered `question` directly to the model
 once, asks it to return strict JSON `{"response": [...]}`, then wraps the
 response into a synthetic `ehr.finish` tool call so
-`helper/evaluate_results.py` can score the resulting `results.jsonl`
+`scoring/score_text.py` can score the resulting `results.jsonl`
 unchanged.
 
 Backends:
@@ -12,7 +12,7 @@ Backends:
                 NotImplementedError. Wiring point is `_invoke_once`.
 
 Usage:
-    python deploy_reasoning_model.py \
+    python run_text_curated.py \
         --backend bedrock \
         --model "Claude Opus 4.6" \
         --data data/ClinSeek-Bench/inputs/ehr_bench.json \
@@ -20,7 +20,7 @@ Usage:
         --concurrency 6
 
 For Bedrock, `--model` accepts any friendly name from
-`bedrock_model_region_availability.json`; rows are round-robin partitioned
+`bedrock_region_availability.json`; rows are round-robin partitioned
 across every OK region for that model. When vllm is implemented,
 `--api-base-url` and `--model-id` will point at the local server.
 """
@@ -72,7 +72,7 @@ def build_user_content(row: Dict[str, Any]) -> str:
 
 
 # ----------------------------------------------------------------------------
-# Response parsing  (same shape as deploy_agent._salvage_plain_text_answer)
+# Response parsing  (same shape as run_text._salvage_plain_text_answer)
 # ----------------------------------------------------------------------------
 
 
@@ -333,7 +333,7 @@ def salvage_plain_text(text: str) -> List[str]:
 # ----------------------------------------------------------------------------
 
 _REGION_AVAILABILITY_PATH = Path(__file__).with_name(
-    "bedrock_model_region_availability.json"
+    "bedrock_region_availability.json"
 )
 
 _RETRYABLE_KEYWORDS = (

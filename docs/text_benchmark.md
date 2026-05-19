@@ -17,7 +17,7 @@ Each JSONL row should include:
 }
 ```
 
-Rows can also follow the EHR-Bench style fields consumed by `openresearcher_ehr/data_utils.py`.
+Rows can also follow the EHR-Bench style fields consumed by `clinseekagent/prompts_text.py`.
 
 ## Run
 
@@ -32,7 +32,7 @@ bash scripts/run_text_eval.sh
 ## Score
 
 ```bash
-python openresearcher_ehr/helper/evaluate_results.py \
+python clinseekagent/scoring/score_text.py \
   --results outputs/text_eval/results.jsonl \
   --benchmark $CLINSEEK_DATA_ROOT/text/test.jsonl \
   --output outputs/text_eval/summary.json

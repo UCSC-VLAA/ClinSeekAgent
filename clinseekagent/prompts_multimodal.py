@@ -1,12 +1,12 @@
-"""Multimodal counterpart of `data_utils.py`.
+"""Multimodal counterpart of `prompts_text.py`.
 
 Only adds: the 6 ported Meissa image tool schemas, a multimodal system prompt,
 and a combined tool registry (EHR + browser + image). Everything else is
-imported from the text-only `data_utils.py` — we never modify it.
+imported from the text-only `prompts_text.py` — we never modify it.
 """
 import json
 
-from data_utils import (  # noqa: F401 - re-exported for convenience
+from prompts_text import (  # noqa: F401 - re-exported for convenience
     BROWSER_TOOL_CONTENT,
     EHR_TOOL_CONTENT_JSON,
     TASK_PROMPT_TEMPLATES,

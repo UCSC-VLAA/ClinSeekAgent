@@ -22,7 +22,7 @@ RUNS_PER_QUESTION="${RUNS_PER_QUESTION:-1}"
 MAX_TOOL_RESULT_CHARS="${MAX_TOOL_RESULT_CHARS:-100000}"
 PYTHON_BIN="${PYTHON_BIN:-python}"
 
-export PYTHONPATH="${REPO_ROOT}/openresearcher_ehr:${REPO_ROOT}/src:${PYTHONPATH:-}"
+export PYTHONPATH="${REPO_ROOT}/clinseekagent:${REPO_ROOT}/src:${PYTHONPATH:-}"
 
 COMMON_ARGS=(
   --data_path "${DATA_PATH}"
@@ -43,4 +43,4 @@ else
   COMMON_ARGS+=(--api_base_url "${VLLM_BASE_URL}" --api_key "${VLLM_API_KEY}")
 fi
 
-exec "${PYTHON_BIN}" "${REPO_ROOT}/openresearcher_ehr/deploy_agent.py" "${COMMON_ARGS[@]}" "$@"
+exec "${PYTHON_BIN}" "${REPO_ROOT}/clinseekagent/run_text.py" "${COMMON_ARGS[@]}" "$@"

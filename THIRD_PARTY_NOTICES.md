@@ -17,6 +17,34 @@ This release includes code that interfaces with or depends on external assets. C
 
 ## Required Final Checks
 
-- Replace `LICENSE` with the approved project license.
-- Fill concrete authors, repository URL, model URL, and dataset URL in `CITATION.cff`, `docs/model_card.md`, and `docs/data_release.md`.
-- Re-run secret and private-path scans before publishing.
+Before publishing the repo and paper, walk through this list and remove items as they are completed.
+
+**Authorship and citation**
+
+- [ ] Fill concrete authors, repository URL, model URL, and dataset URL in `CITATION.cff` and any model/dataset cards.
+- [ ] Re-run secret and private-path scans before publishing.
+
+**Documentation that is currently gitignored**
+
+The following docs are in `.gitignore` (internal-only drafts), but `README.md` and `RESOURCES.md` cross-link them. A public clone will 404 on those links until public-safe versions are committed (or the links are removed):
+
+- [ ] `docs/data_access.md`
+- [ ] `docs/data_release.md`
+- [ ] `docs/model_card.md`
+- [ ] `docs/public_release_plan.md`
+
+**Hugging Face artifacts**
+
+- [ ] Verify `https://huggingface.co/datasets/UCSC-VLAA/ClinSeek-Bench` is live and accessible to reviewers (or document the access process if it stays controlled).
+- [ ] Verify `https://huggingface.co/datasets/UCSC-VLAA/ClinSeek-Evaluation-Results` is live.
+- [ ] Publish open-source **training trajectory** dataset (e.g. `UCSC-VLAA/ClinSeek-Trajectories`) so reviewers can reproduce SFT; link it from `RESOURCES.md` and from `docs/sft_training.md`.
+- [ ] Publish `ClinSeek-35B-A3B` model weights on Hugging Face; link from README + `RESOURCES.md`.
+- [ ] Update README badge state from "pending" to "live" for all of the above.
+
+**Reproducibility**
+
+- [ ] Make the Quick Start end-to-end runnable: either ship a tiny synthetic patient SQLite under `examples/` so `bash scripts/run_text_eval.sh DATA_PATH=examples/synthetic_text_sample.jsonl ...` actually executes, or document the data prerequisite up-front in the README.
+
+**Paper coordination**
+
+- [ ] After the paper is on arXiv, update README and `CITATION.cff` with the arXiv URL + BibTeX entry.

@@ -1,0 +1,95 @@
+[
+  {
+    "type": "function",
+    "function": {
+      "name": "browser.search",
+      "description": "Searches for information related to a query and displays top N results. Returns a list of search results with titles, URLs, and summaries.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "The search query string"
+          },
+          "topn": {
+            "type": "integer",
+            "description": "Number of results to display",
+            "default": 10
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "browser.open",
+      "description": "Opens a link from the current page or a fully qualified URL. Can scroll to a specific location and display a specific number of lines. Valid link ids are displayed with the formatting: 【{id}†.*】.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "Link id from current page (integer) or fully qualified URL (string). Default is -1 (most recent page)",
+            "default": -1
+          },
+          "cursor": {
+            "type": "integer",
+            "description": "Page cursor to operate on. If not provided, the most recent page is implied",
+            "default": -1
+          },
+          "loc": {
+            "type": "integer",
+            "description": "Starting line number. If not provided, viewport will be positioned at the beginning or centered on relevant passage",
+            "default": -1
+          },
+          "num_lines": {
+            "type": "integer",
+            "description": "Number of lines to display",
+            "default": -1
+          },
+          "view_source": {
+            "type": "boolean",
+            "description": "Whether to view page source",
+            "default": false
+          },
+          "source": {
+            "type": "string",
+            "description": "The source identifier (e.g., 'web')"
+          }
+        },
+        "required": []
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "browser.find",
+      "description": "Finds exact matches of a pattern in the current page or a specified page by cursor.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "pattern": {
+            "type": "string",
+            "description": "The exact text pattern to search for"
+          },
+          "cursor": {
+            "type": "integer",
+            "description": "Page cursor to search in. If not provided, searches in the current page",
+            "default": -1
+          }
+        },
+        "required": [
+          "pattern"
+        ]
+      }
+    }
+  }
+]
