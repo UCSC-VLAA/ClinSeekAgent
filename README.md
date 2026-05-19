@@ -9,11 +9,11 @@
 [![Benchmark](https://img.shields.io/badge/Benchmark-ClinSeek--Bench-7B61FF)](#data-artifacts)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue)](LICENSE)
 
-[Paper](#citation) • [Quick Start](#quick-start) • [Data](#data-artifacts) • [Training](#sft-training) • [Responsible Use](#responsible-use)
+[Paper](#citation) • [Quick Start](#quick-start) • [Data](#data-artifacts) • [Docs](#documentation) • [Training](#sft-training) • [Responsible Use](#responsible-use)
 
 </div>
 
-ClinSeekAgent is a multimodal evidence-seeking pipeline for agentic clinical reasoning. It gives a host model access to patient-level EHR tools, web search tools, and medical-image tools, then evaluates the model in an automated evidence-seeking setting instead of a curated-context setting.
+ClinSeekAgent is a multimodal evidence-seeking pipeline for agentic clinical reasoning. It gives a host model access to patient-level EHR retrieval, browser tools for external medical knowledge, and medical imaging tools, then evaluates the model under the **Automated Evidence-Seeking** setting instead of the paired **Curated Input** setting.
 
 This repository is prepared as the public code release for:
 
@@ -28,7 +28,7 @@ This repository is prepared as the public code release for:
 
 ## 📊 Headline Results
 
-ClinSeekAgent shifts evaluation from passive consumption of pre-curated context to *active* evidence acquisition across raw EHR tables, web search, and medical imaging. Compared with the paired **Curated Input** baseline (same task, same label, but evidence pre-selected by the source benchmark):
+ClinSeekAgent shifts evaluation from passive consumption of pre-selected evidence to *active* evidence acquisition across raw EHR tables, external medical knowledge search, and medical imaging. Compared with the paired **Curated Input** setting (same task, same label, but evidence pre-selected by the source benchmark):
 
 **Text-only EHR tasks (ClinSeek-Bench, overall F1):**
 
@@ -70,7 +70,7 @@ ClinSeekAgent shifts evaluation from passive consumption of pre-curated context 
 
 | Path | Purpose |
 | --- | --- |
-| `clinseekagent/` | Agentic and curated-input drivers, LLM backends (Bedrock + vLLM), tool pools, and scorers |
+| `clinseekagent/` | Automated Evidence-Seeking and Curated Input drivers, LLM backends (Bedrock + vLLM), tool pools, and scorers |
 | `src/run_mcp_server.py` | EHR MCP server |
 | `src/agentlite/mcp_tools/` | EHR table, SQL, candidate, and utility tools |
 | `src/mcp_image/` | Medical-image MCP server and image tools |
@@ -146,10 +146,20 @@ export CLINSEEK_MODEL_DIR=/path/to/model_or_served_model
 
 Primary external artifacts:
 
-- 🧪 Benchmark inputs and DBs: [`UCSC-VLAA/ClinSeek-Bench`](https://huggingface.co/datasets/UCSC-VLAA/ClinSeek-Bench)
+- 🧪 Benchmark inputs and prepared databases: [`UCSC-VLAA/ClinSeek-Bench`](https://huggingface.co/datasets/UCSC-VLAA/ClinSeek-Bench)
+- 🤖 ClinSeek-35B-A3B model checkpoint: [`UCSC-VLAA/ClinSeek-35B-A3B`](https://huggingface.co/UCSC-VLAA/ClinSeek-35B-A3B)
 - 📊 Evaluation results: [`UCSC-VLAA/ClinSeek-Evaluation-Results`](https://huggingface.co/datasets/UCSC-VLAA/ClinSeek-Evaluation-Results)
 
-See [`RESOURCES.md`](RESOURCES.md), [`docs/data_access.md`](docs/data_access.md), and [`docs/data_release.md`](docs/data_release.md) for access notes and expected release structure.
+See [`RESOURCES.md`](RESOURCES.md) and the documentation below for access notes and expected release structure.
+
+<a id="documentation"></a>
+## 📖 Documentation
+
+For the text-only split of **ClinSeek-Bench**, use the following release guides:
+
+- [`docs/ClinSeek-Bench_text_data_prepare.md`](docs/ClinSeek-Bench_text_data_prepare.md): prepare the patient-level EHR assets used by ClinSeekAgent, including MIMIC-IV / MIMIC-IV-Note / MIMIC-IV-ED layout and per-patient SQLite database generation.
+- [`docs/ClinSeek-Bench_text_evaluation.md`](docs/ClinSeek-Bench_text_evaluation.md): run ClinSeekAgent under the **Automated Evidence-Seeking** setting, where the model retrieves evidence from raw EHR tables through ClinSeekAgent tools.
+- [`docs/ClinSeek-Bench_text_curated_input_evaluation.md`](docs/ClinSeek-Bench_text_curated_input_evaluation.md): run the paired **Curated Input** baseline, where the model answers from the benchmark-provided evidence package without tool access.
 
 <a id="quick-start"></a>
 ## 🚀 Quick Start
@@ -183,9 +193,9 @@ The example files are schema examples, not a replacement for the benchmark data.
 <a id="supported-workflows"></a>
 ## 🧪 Supported Workflows
 
-- ✨ **Agentic text-only evaluation** over patient-level EHR tables and candidate sets.
+- ✨ **Automated Evidence-Seeking text-only evaluation** over patient-level EHR tables and candidate sets.
 - 🩻 **Multimodal evaluation** that combines EHR evidence with linked chest X-ray inputs.
-- 🧠 **One-shot baselines** for comparing curated-context reasoning against tool-mediated evidence seeking.
+- 🧠 **Curated Input baselines** for comparing pre-selected evidence against tool-mediated evidence seeking.
 - 🛠️ **MCP tool serving** for EHR tables, SQL-style access, candidates, image inputs, and utility tools.
 - 📚 **SFT data preparation and training recipes** using the vendored `verl/` training code.
 

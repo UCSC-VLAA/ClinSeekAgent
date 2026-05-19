@@ -32,7 +32,12 @@ DEFAULT_BENCHMARK = (
 # ---------------------------------------------------------------------------
 def is_ehr_bench_path(path):
     p = str(path).lower()
-    return "ehrbench" in p or "ehr_bench" in p
+    return (
+        "ehrbench" in p
+        or "ehr_bench" in p
+        or "clinseek-bench" in p
+        or "clinseek_bench" in p
+    )
 
 
 def build_qid(record, ehr_bench_mode=False):
