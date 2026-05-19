@@ -85,7 +85,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--render-input-text",
         action="store_true",
-        help="Render input_text from the rebuilt patient DB instead of preserving the released HF JSONL field.",
+        help=(
+            "Render input_text from the rebuilt patient DB. This is required for "
+            "source-only manifests and forces regeneration if an input_text field exists."
+        ),
     )
     parser.add_argument(
         "--copy-cxr-context",
@@ -705,7 +708,7 @@ def main() -> None:
         "linked_image_refs": linked_image_count,
         "linked_report_refs": linked_report_count,
         "copy_cxr_context": args.copy_cxr_context,
-        "input_text_source": "rendered_from_db" if need_rendered_input_text else "released_hf_jsonl",
+        "input_text_source": "rendered_from_db" if need_rendered_input_text else "existing_jsonl_input_text",
         "input_file": "inputs/mm_bench_ehrxqa.jsonl",
         "bench_root": "data/mm_bench/ehrxqa",
         "asset_prefix": args.asset_prefix,

@@ -82,7 +82,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--render-input-text",
         action="store_true",
-        help="Render input_text from the rebuilt patient DB instead of preserving the released HF JSONL field.",
+        help=(
+            "Render input_text from the rebuilt patient DB. This is required for "
+            "source-only manifests and forces regeneration if an input_text field exists."
+        ),
     )
     return parser.parse_args()
 
@@ -642,7 +645,7 @@ def main() -> None:
         "input_file": "inputs/mm_bench_medmod.jsonl",
         "bench_root": "data/mm_bench/medmod",
         "asset_prefix": args.asset_prefix,
-        "input_text_source": "rendered_from_db" if need_rendered_input_text else "released_hf_jsonl",
+        "input_text_source": "rendered_from_db" if need_rendered_input_text else "existing_jsonl_input_text",
         "stats": dict(sorted(stats.items())),
         "path_contract": {
             "image_paths": "strip asset_prefix, then resolve relative to bench_root",
