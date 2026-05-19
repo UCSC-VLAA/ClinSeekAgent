@@ -9,8 +9,8 @@ ClinSeekAgent tools before producing the final answer.
 Run all commands from the repository root:
 
 ```bash
-cd /path/to/ClinSeekAgent
-export CLINSEEK_DATA_ROOT="${CLINSEEK_DATA_ROOT:-$PWD/data}"
+cd ClinSeekAgent
+export CLINSEEK_DATA_ROOT="${CLINSEEK_DATA_ROOT:-./data/clinseek_bench}"
 ```
 
 ## Data Requirements
@@ -53,7 +53,7 @@ The wrapper scripts set `PYTHONPATH` automatically. If your environment uses a
 non-default interpreter, pass it through `PYTHON_BIN`:
 
 ```bash
-PYTHON_BIN=/path/to/python DATA_PATH=... bash scripts/run_text_eval.sh
+PYTHON_BIN=.venvs/agent/bin/python DATA_PATH=... bash scripts/run_text_eval.sh
 ```
 
 ## Start The EHR MCP Server
@@ -107,7 +107,7 @@ For a local OpenAI-compatible vLLM backend, start a model server in another
 terminal:
 
 ```bash
-MODEL_PATH=/path/to/model \
+MODEL_PATH=./models/my-model \
 SERVED_MODEL_NAME=my-model \
 TENSOR_PARALLEL_SIZE=1 \
 MAX_MODEL_LEN=65536 \

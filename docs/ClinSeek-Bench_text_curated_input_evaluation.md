@@ -12,8 +12,8 @@ answer labels; only the evidence-access pattern changes.
 Run all commands from the repository root:
 
 ```bash
-cd /path/to/ClinSeekAgent
-export CLINSEEK_DATA_ROOT="${CLINSEEK_DATA_ROOT:-$PWD/data}"
+cd ClinSeekAgent
+export CLINSEEK_DATA_ROOT="${CLINSEEK_DATA_ROOT:-./data/clinseek_bench}"
 ```
 
 ## Evaluation Settings

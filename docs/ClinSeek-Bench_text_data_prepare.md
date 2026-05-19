@@ -14,7 +14,7 @@ patient databases can be generated directly from those IDs.
 Set a data root before running the commands below:
 
 ```bash
-export CLINSEEK_DATA_ROOT=/path/to/clinseek_bench
+export CLINSEEK_DATA_ROOT=./data/clinseek_bench
 ```
 
 Expected final layout:
@@ -67,9 +67,9 @@ module directories into one local root:
 mkdir -p "$CLINSEEK_DATA_ROOT/raw/MIMIC-IV/mimic_iv"
 
 # Replace these with your actual PhysioNet download locations.
-MIMIC_IV_SRC=/path/to/mimiciv/3.1
-MIMIC_NOTE_SRC=/path/to/mimic-iv-note/2.2
-MIMIC_ED_SRC=/path/to/mimic-iv-ed/2.2
+MIMIC_IV_SRC=./externals/mimiciv/3.1
+MIMIC_NOTE_SRC=./externals/mimic-iv-note/2.2
+MIMIC_ED_SRC=./externals/mimic-iv-ed/2.2
 
 rsync -a "$MIMIC_IV_SRC/hosp" "$CLINSEEK_DATA_ROOT/raw/MIMIC-IV/mimic_iv/"
 rsync -a "$MIMIC_IV_SRC/icu" "$CLINSEEK_DATA_ROOT/raw/MIMIC-IV/mimic_iv/"
@@ -131,12 +131,6 @@ Example path:
 
 ```text
 $CLINSEEK_DATA_ROOT/text/ClinSeek-Bench_text.json
-```
-
-In this workspace, the benchmark file is:
-
-```text
-/home/lzhan239/workspace/ClinSeekAgent/ClinSeekAgent/data/text/ClinSeek-Bench_text.json
 ```
 
 Representative row schema:

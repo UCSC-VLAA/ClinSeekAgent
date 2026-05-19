@@ -143,8 +143,8 @@ See [`docs/sft_training.md`](docs/sft_training.md) for the full paper recipe.
 Data is not stored in Git. Set `CLINSEEK_DATA_ROOT` to a prepared benchmark tree after obtaining the required credentialed datasets from their official sources.
 
 ```bash
-export CLINSEEK_DATA_ROOT=/path/to/clinseek_bench
-export CLINSEEK_MODEL_DIR=/path/to/model_or_served_model
+export CLINSEEK_DATA_ROOT=./data/clinseek_bench
+export CLINSEEK_MODEL_DIR=./models/clinseek-35b-a3b
 ```
 
 Primary external artifacts:
@@ -221,7 +221,7 @@ Run SFT with the vendored VERL training code:
 ```bash
 TRAIN_FILES=data/clinseek_trajectory_qwen35_52k/train.parquet \
 VAL_FILES=data/clinseek_trajectory_qwen35_52k/val.parquet \
-MODEL_PATH=/path/to/Qwen3.5-35B-A3B \
+MODEL_PATH=./models/Qwen3.5-35B-A3B \
 bash scripts/train_sft.sh
 ```
 
