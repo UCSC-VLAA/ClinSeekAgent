@@ -8,8 +8,11 @@
 [![MCP](https://img.shields.io/badge/MCP-EHR%20%2B%20Image-0E7C7B)](#repository-layout)
 [![Benchmark](https://img.shields.io/badge/Benchmark-ClinSeek--Bench-7B61FF)](#data-artifacts)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue)](LICENSE)
+<br>
+[![arXiv](https://img.shields.io/badge/arXiv-Paper-B31B1B?logo=arxiv&logoColor=white)](#citation)
+[![Hugging Face](https://img.shields.io/badge/Hugging%20Face-Collection-FFD21E?logo=huggingface&logoColor=black)](https://huggingface.co/collections/UCSC-VLAA/clinseekagent)
 
-[Paper](#citation) • [Hugging Face Collection](https://huggingface.co/collections/UCSC-VLAA/clinseekagent) • [Quick Start](#quick-start) • [Data](#data-artifacts) • [Docs](#documentation) • [Training](#sft-training) • [Responsible Use](#responsible-use)
+[Quick Start](#quick-start) • [Data](#data-artifacts) • [Docs](#documentation) • [Training](#sft-training) • [Responsible Use](#responsible-use)
 
 </div>
 
