@@ -5,10 +5,10 @@ pipeline. It supports EHRXQA-style question answering and MedMod-style
 prediction tasks when manifests provide resolvable image/report paths.
 
 The released ClinSeek-Bench multimodal split is source-only on Hugging Face. It
-contains the 989-row `inputs/mm_bench.jsonl` manifest and reconstruction scripts
-under `rebuild/mm_bench/`, but it does not redistribute protected MIMIC-derived
-patient databases, CXR JPG files, or report text. The same scripts are mirrored
-in this GitHub repository under `scripts/data_build/`; users rebuild the assets
+contains the 989-row `inputs/mm_bench.jsonl` manifest, but it does not
+redistribute protected MIMIC-derived patient databases, CXR JPG files, radiology
+reports, or pre-rendered EHR context. Reconstruction scripts are maintained in
+this GitHub repository under `scripts/data_build/`; users rebuild the assets
 locally from official source downloads.
 
 The multimodal reconstruction workflow is documented in
@@ -34,7 +34,7 @@ Set `BENCH_ROOT` to the directory used to resolve relative image and report path
 ## Validate Download
 
 ```bash
-python "$CLINSEEK_BENCH_ROOT/rebuild/mm_bench/validate_multimodal_release.py" \
+python scripts/data_build/validate_multimodal_release.py \
   --bench-root "$CLINSEEK_BENCH_ROOT" \
   --manifest-only
 ```

@@ -128,6 +128,8 @@ def validate(args: argparse.Namespace) -> tuple[dict[str, Any], list[dict[str, A
         qid = row.get("qid")
         source = str(row.get("source_benchmark") or "")
         subject_id = safe_int(row.get("subject_id"))
+        if args.manifest_only and row.get("input_text"):
+            errors.append({"qid": qid, "kind": "protected_input_text_in_manifest"})
         if source not in {"ehrxqa", "medmod"}:
             errors.append({"qid": qid, "kind": "bad_source", "value": source})
             continue
@@ -142,6 +144,8 @@ def validate(args: argparse.Namespace) -> tuple[dict[str, Any], list[dict[str, A
             errors.append({"qid": qid, "kind": "missing_database", "path": db_rel})
 
         for raw_path in row.get("image_paths") or []:
+            if Path(str(raw_path)).is_absolute():
+                errors.append({"qid": qid, "kind": "absolute_image_path", "path": str(raw_path)})
             rel = release_asset_relpath(source, str(raw_path))
             images_by_source[source].add(rel)
             if not args.manifest_only and not exists(rel, root=bench_root, tree=tree):
@@ -149,6 +153,8 @@ def validate(args: argparse.Namespace) -> tuple[dict[str, Any], list[dict[str, A
                 errors.append({"qid": qid, "kind": "missing_image", "path": rel})
 
         for raw_path in row.get("report_paths") or []:
+            if Path(str(raw_path)).is_absolute():
+                errors.append({"qid": qid, "kind": "absolute_report_path", "path": str(raw_path)})
             rel = release_asset_relpath(source, str(raw_path))
             reports_by_source[source].add(rel)
             if not args.manifest_only and not exists(rel, root=bench_root, tree=tree):

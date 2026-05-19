@@ -12,26 +12,17 @@ chest X-ray JPG files, or radiology report text. Users must download the
 required source datasets under their own credentialed access and data-use
 agreements, then run the reconstruction scripts locally.
 
-The released Hugging Face dataset provides the multimodal manifest and a copy of the reconstruction scripts:
+The released Hugging Face dataset provides the multimodal manifest:
 
 ```text
 ClinSeek-Bench/
-├── inputs/
-│   └── mm_bench.jsonl
-└── rebuild/
-    └── mm_bench/
-        ├── README.md
-        ├── build_ehrxqa_release_original_subset.py
-        ├── build_ehrxqa_clinseek_mm_subset.py
-        ├── build_medmod_release_original_subset.py
-        ├── build_medmod_clinseek_mm_subset.py
-        ├── combine_clinseek_mm_bench.py
-        └── validate_multimodal_release.py
+└── inputs/
+    └── mm_bench.jsonl
 ```
 
-The same reconstruction scripts are mirrored in the GitHub codebase under
-`ClinSeekAgent/scripts/data_build/` for consistency with the text benchmark
-preparation workflow.
+The reconstruction scripts are maintained in the GitHub codebase under
+`ClinSeekAgent/scripts/data_build/`, matching the text benchmark preparation
+workflow.
 
 `inputs/mm_bench.jsonl` is the source of truth for released `qid`s, questions,
 labels, patient identifiers, linked CXR image paths, and report paths. It does
@@ -61,13 +52,14 @@ Clone the released benchmark manifest and the ClinSeekAgent codebase:
 
 ```bash
 git clone https://huggingface.co/datasets/UCSC-VLAA/ClinSeek-Bench
-git clone https://github.com/UCSC-VLAA/ClinSeekAgent.git  # optional mirror of the same scripts
+git clone https://github.com/UCSC-VLAA/ClinSeekAgent.git
 ```
 
 Then set local paths:
 
 ```bash
 export CLINSEEK_BENCH=/path/to/ClinSeek-Bench
+export CLINSEEK_AGENT=/path/to/ClinSeekAgent
 export BUILD_ROOT=/path/to/clinseek-mm-build
 
 export EHRXQA_ROOT=/path/to/ehrxqa/1.0.0
@@ -89,7 +81,7 @@ released rows can be traced back to EHRXQA and MedMod. They are not runtime
 model inputs, because they may contain label-bearing metadata.
 
 ```bash
-python "$CLINSEEK_BENCH/rebuild/mm_bench/build_ehrxqa_release_original_subset.py" \
+python "$CLINSEEK_AGENT/scripts/data_build/build_ehrxqa_release_original_subset.py" \
   --input "$CLINSEEK_BENCH/inputs/mm_bench.jsonl" \
   --output-root "$BUILD_ROOT/source/EHRXQA" \
   --ehrxqa-root "$EHRXQA_ROOT" \
@@ -99,7 +91,7 @@ python "$CLINSEEK_BENCH/rebuild/mm_bench/build_ehrxqa_release_original_subset.py
   --mimic-iv-note-root "$MIMIC_IV_NOTE_ROOT" \
   --overwrite
 
-python "$CLINSEEK_BENCH/rebuild/mm_bench/build_medmod_release_original_subset.py" \
+python "$CLINSEEK_AGENT/scripts/data_build/build_medmod_release_original_subset.py" \
   --input "$CLINSEEK_BENCH/inputs/mm_bench.jsonl" \
   --output-root "$BUILD_ROOT/source/MedMod" \
   --medmod-repo-root "$MEDMOD_REPO_ROOT" \
@@ -120,12 +112,12 @@ The second stage creates local patient SQLite databases, copies linked CXR
 assets, and renders model-ready `input_text` from the rebuilt local databases.
 
 ```bash
-python "$CLINSEEK_BENCH/rebuild/mm_bench/build_ehrxqa_clinseek_mm_subset.py" \
+python "$CLINSEEK_AGENT/scripts/data_build/build_ehrxqa_clinseek_mm_subset.py" \
   --original-root "$BUILD_ROOT/source/EHRXQA" \
   --output-root "$BUILD_ROOT/runtime/EHRXQA" \
   --overwrite
 
-python "$CLINSEEK_BENCH/rebuild/mm_bench/build_medmod_clinseek_mm_subset.py" \
+python "$CLINSEEK_AGENT/scripts/data_build/build_medmod_clinseek_mm_subset.py" \
   --original-root "$BUILD_ROOT/source/MedMod" \
   --output-root "$BUILD_ROOT/runtime/MedMod" \
   --overwrite
@@ -136,7 +128,7 @@ python "$CLINSEEK_BENCH/rebuild/mm_bench/build_medmod_clinseek_mm_subset.py" \
 ## Step 3: Combine The Final Multimodal Package
 
 ```bash
-python "$CLINSEEK_BENCH/rebuild/mm_bench/combine_clinseek_mm_bench.py" \
+python "$CLINSEEK_AGENT/scripts/data_build/combine_clinseek_mm_bench.py" \
   --reference-input "$CLINSEEK_BENCH/inputs/mm_bench.jsonl" \
   --ehrxqa-root "$BUILD_ROOT/runtime/EHRXQA" \
   --medmod-root "$BUILD_ROOT/runtime/MedMod" \
@@ -170,7 +162,7 @@ Validate the source-only Hugging Face manifest without requiring protected
 assets:
 
 ```bash
-python "$CLINSEEK_BENCH/rebuild/mm_bench/validate_multimodal_release.py" \
+python "$CLINSEEK_AGENT/scripts/data_build/validate_multimodal_release.py" \
   --bench-root "$CLINSEEK_BENCH" \
   --manifest-only
 ```
@@ -178,7 +170,7 @@ python "$CLINSEEK_BENCH/rebuild/mm_bench/validate_multimodal_release.py" \
 Validate the locally rebuilt runtime package:
 
 ```bash
-python "$CLINSEEK_BENCH/rebuild/mm_bench/validate_multimodal_release.py" \
+python "$CLINSEEK_AGENT/scripts/data_build/validate_multimodal_release.py" \
   --bench-root "$BUILD_ROOT/final/ClinSeek-MM-Bench"
 ```
 
