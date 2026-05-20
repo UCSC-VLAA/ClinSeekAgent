@@ -12,6 +12,8 @@
 [![arXiv](https://img.shields.io/badge/arXiv-Paper-B31B1B?logo=arxiv&logoColor=white)](#citation)
 [![Hugging Face](https://img.shields.io/badge/Hugging%20Face-Collection-FFD21E?logo=huggingface&logoColor=black)](https://huggingface.co/collections/UCSC-VLAA/clinseekagent)
 
+🌐 Project page: https://ucsc-vlaa.github.io/ClinSeekAgent/
+
 [Quick Start](#quick-start) • [Data](#data-artifacts) • [Docs](#documentation) • [Training](#sft-training) • [Responsible Use](#responsible-use)
 
 </div>
