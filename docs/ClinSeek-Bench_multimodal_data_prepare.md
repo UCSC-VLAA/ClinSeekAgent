@@ -16,19 +16,18 @@ The released Hugging Face dataset provides the multimodal manifest:
 
 ```text
 ClinSeek-Bench/
-└── inputs/
-    └── mm_bench.jsonl
+└── ClinSeek-Bench_multimodal.jsonl
 ```
 
 The reconstruction scripts are maintained in the GitHub codebase under
 `ClinSeekAgent/scripts/data_build/`, matching the text benchmark preparation
 workflow.
 
-`inputs/mm_bench.jsonl` is the source of truth for released `qid`s, questions,
-labels, patient identifiers, linked CXR image paths, and report paths. It does
-not store pre-rendered `input_text`, because that field contains MIMIC-derived
-EHR table rows. The reconstruction scripts render `input_text` locally from the
-rebuilt patient databases.
+`ClinSeek-Bench_multimodal.jsonl` is the source of truth for released `qid`s,
+questions, labels, patient identifiers, linked CXR image paths, and report
+paths. It does not store pre-rendered `input_text`, because that field contains
+MIMIC-derived EHR table rows. The reconstruction scripts render `input_text`
+locally from the rebuilt patient databases.
 
 ---
 
@@ -58,7 +57,8 @@ git clone https://github.com/UCSC-VLAA/ClinSeekAgent.git
 Then set local paths:
 
 ```bash
-export CLINSEEK_BENCH=/path/to/ClinSeek-Bench
+export CLINSEEK_BENCH=/home/lzhan239/workspace/ClinSeekAgent/ClinSeekAgent/data/ClinSeek-Bench
+export CLINSEEK_MULTIMODAL_MANIFEST="$CLINSEEK_BENCH/ClinSeek-Bench_multimodal.jsonl"
 export CLINSEEK_AGENT=/path/to/ClinSeekAgent
 export BUILD_ROOT=/path/to/clinseek-mm-build
 
@@ -82,7 +82,7 @@ model inputs, because they may contain label-bearing metadata.
 
 ```bash
 python "$CLINSEEK_AGENT/scripts/data_build/build_ehrxqa_release_original_subset.py" \
-  --input "$CLINSEEK_BENCH/inputs/mm_bench.jsonl" \
+  --input "$CLINSEEK_MULTIMODAL_MANIFEST" \
   --output-root "$BUILD_ROOT/source/EHRXQA" \
   --ehrxqa-root "$EHRXQA_ROOT" \
   --cxr-root "$MIMIC_CXR_ROOT" \
@@ -92,7 +92,7 @@ python "$CLINSEEK_AGENT/scripts/data_build/build_ehrxqa_release_original_subset.
   --overwrite
 
 python "$CLINSEEK_AGENT/scripts/data_build/build_medmod_release_original_subset.py" \
-  --input "$CLINSEEK_BENCH/inputs/mm_bench.jsonl" \
+  --input "$CLINSEEK_MULTIMODAL_MANIFEST" \
   --output-root "$BUILD_ROOT/source/MedMod" \
   --medmod-repo-root "$MEDMOD_REPO_ROOT" \
   --cxr-jpg-root "$MIMIC_CXR_JPG_ROOT" \
@@ -102,7 +102,8 @@ python "$CLINSEEK_AGENT/scripts/data_build/build_medmod_release_original_subset.
 ```
 
 The MedMod script intentionally rebuilds only the MedMod rows present in
-`inputs/mm_bench.jsonl`; it does not rebuild the full MedMod benchmark.
+`ClinSeek-Bench_multimodal.jsonl`; it does not rebuild the full MedMod
+benchmark.
 
 ---
 
@@ -129,7 +130,7 @@ python "$CLINSEEK_AGENT/scripts/data_build/build_medmod_clinseek_mm_subset.py" \
 
 ```bash
 python "$CLINSEEK_AGENT/scripts/data_build/combine_clinseek_mm_bench.py" \
-  --reference-input "$CLINSEEK_BENCH/inputs/mm_bench.jsonl" \
+  --reference-input "$CLINSEEK_MULTIMODAL_MANIFEST" \
   --ehrxqa-root "$BUILD_ROOT/runtime/EHRXQA" \
   --medmod-root "$BUILD_ROOT/runtime/MedMod" \
   --output-root "$BUILD_ROOT/final/ClinSeek-MM-Bench" \
@@ -164,6 +165,7 @@ assets:
 ```bash
 python "$CLINSEEK_AGENT/scripts/data_build/validate_multimodal_release.py" \
   --bench-root "$CLINSEEK_BENCH" \
+  --input "$CLINSEEK_MULTIMODAL_MANIFEST" \
   --manifest-only
 ```
 
