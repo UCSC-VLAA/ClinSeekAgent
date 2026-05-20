@@ -149,7 +149,9 @@ export CLINSEEK_DATA_ROOT=./data/clinseek_bench
 export CLINSEEK_MODEL_DIR=./models/clinseek-35b-a3b
 ```
 
-Primary external artifacts:
+The [ClinSeekAgent Hugging Face collection](https://huggingface.co/collections/UCSC-VLAA/clinseekagent)
+contains the released model, benchmark metadata, and evaluation-result
+artifacts:
 
 - 🧪 Benchmark inputs and prepared databases: [`UCSC-VLAA/ClinSeek-Bench`](https://huggingface.co/datasets/UCSC-VLAA/ClinSeek-Bench)
 - 🤖 ClinSeek-35B-A3B model checkpoint: [`UCSC-VLAA/ClinSeek-35B-A3B`](https://huggingface.co/UCSC-VLAA/ClinSeek-35B-A3B)
