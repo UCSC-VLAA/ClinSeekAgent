@@ -127,6 +127,12 @@ already include the MIMIC-IV identifiers needed to build patient databases. It
 contains 40 sampled examples from each of 45 EHR-Bench subtasks, resulting in
 1,800 text-based evaluation examples.
 
+Download `ClinSeek-Bench_text.json` from the ClinSeek-Bench Hugging Face
+dataset:
+
+- Dataset: https://huggingface.co/datasets/UCSC-VLAA/ClinSeek-Bench
+- Folder: https://huggingface.co/datasets/UCSC-VLAA/ClinSeek-Bench/tree/main/rebuild/text_bench
+
 Example path:
 
 ```text
