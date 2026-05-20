@@ -9,7 +9,7 @@
 [![Benchmark](https://img.shields.io/badge/Benchmark-ClinSeek--Bench-7B61FF)](#data-artifacts)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue)](LICENSE)
 <br>
-[![arXiv](https://img.shields.io/badge/arXiv-Paper-B31B1B?logo=arxiv&logoColor=white)](#citation)
+[![arXiv](https://img.shields.io/badge/arXiv-Paper-B31B1B?logo=arxiv&logoColor=white)](https://arxiv.org/abs/2605.20176)
 [![Hugging Face](https://img.shields.io/badge/Hugging%20Face-Collection-FFD21E?logo=huggingface&logoColor=black)](https://huggingface.co/collections/UCSC-VLAA/clinseekagent)
 
 🌐 Project page: https://ucsc-vlaa.github.io/ClinSeekAgent/
@@ -22,7 +22,7 @@ ClinSeekAgent is a multimodal evidence-seeking pipeline for agentic clinical rea
 
 This repository is prepared as the public code release for:
 
-> **ClinSeekAgent: Automating Multimodal Evidence Seeking for Agentic Clinical Reasoning**
+> **[ClinSeekAgent: Automating Multimodal Evidence Seeking for Agentic Clinical Reasoning](https://arxiv.org/abs/2605.20176)**
 
 > [!IMPORTANT]
 > This public release intentionally does **not** include raw MIMIC data, generated patient databases, chest X-ray files, private trajectories, model weights, or experiment logs. Data and model artifacts should be released separately on Hugging Face after the relevant access and license checks.
@@ -237,4 +237,16 @@ ClinSeekAgent is for research on clinical evidence seeking. It is not a medical 
 <a id="citation"></a>
 ## 📚 Citation
 
-See [`CITATION.cff`](CITATION.cff). Update author metadata and paper URL before the final public push.
+If you use ClinSeekAgent, ClinSeek-Bench, or ClinSeek-35B-A3B, please cite:
+
+```bibtex
+@misc{wu2026clinseekagent,
+  title        = {ClinSeekAgent: Automating Multimodal Evidence Seeking for Agentic Clinical Reasoning},
+  author       = {Wu, Juncheng and Zhang, Letian and Wang, Yuhan and Tu, Haoqin and Chen, Hardy and Wang, Zijun and Xie, Cihang and Zhou, Yuyin},
+  year         = {2026},
+  eprint       = {2605.20176},
+  archivePrefix = {arXiv},
+  primaryClass = {cs.CL},
+  url          = {https://arxiv.org/abs/2605.20176}
+}
+```
