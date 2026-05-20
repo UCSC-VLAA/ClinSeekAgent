@@ -131,7 +131,6 @@ Download `ClinSeek-Bench_text.json` from the ClinSeek-Bench Hugging Face
 dataset:
 
 - Dataset: https://huggingface.co/datasets/UCSC-VLAA/ClinSeek-Bench
-- Folder: https://huggingface.co/datasets/UCSC-VLAA/ClinSeek-Bench/tree/main/rebuild/text_bench
 
 Example path:
 
