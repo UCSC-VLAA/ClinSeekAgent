@@ -5,7 +5,7 @@
 #            verl/examples/sft/clinseek/prepare_clinseek_data.py
 #            verl/examples/sft/clinseek/convert_dist_ckpt_to_hf.py
 # Python: 3.12
-# GPU: 8 H200s recommended (paper recipe: TP=2, EP=8); see docs/sft_training.md.
+# GPU: paper recipe on 2x H200 (TP=2, EP=2, ~1 TB host RAM); see docs/sft_training.md.
 # ============================================================================
 
 # --- VERL training stack (CUDA build). Picks up torch, megatron, mbridge,
@@ -13,9 +13,11 @@
 -r ../../verl/requirements-cuda.txt
 
 # --- Trajectory parquet preparation (HF download + chat-template rendering)
+# Qwen3.5 (and its chat template) needs transformers 5.x; the paper run used
+# 5.4.0.
 huggingface-hub>=0.35.0
 pyarrow>=15.0.0
-transformers>=4.56.0
+transformers>=5.4.0
 
-# --- W&B (used by trainer.logger=wandb in the recipe)
+# --- W&B (optional: LOGGER='["console","wandb"]' in scripts/train_sft.sh)
 wandb>=0.18.0

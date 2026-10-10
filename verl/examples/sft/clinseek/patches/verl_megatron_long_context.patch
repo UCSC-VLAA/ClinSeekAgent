@@ -1,0 +1,289 @@
+diff --git a/verl/verl/trainer/sft_trainer.py b/verl/verl/trainer/sft_trainer.py
+index 1492469..717b437 100644
+--- a/verl/verl/trainer/sft_trainer.py
++++ b/verl/verl/trainer/sft_trainer.py
+@@ -72,6 +72,35 @@ class SFTTrainer:
+         # Initialize resume-related variables
+         self.resume_global_step = self.ckpt_handler.load_checkpoint()
+ 
++        # The HF-bridge checkpoint path (save_contents without "optimizer") never restores the
++        # LR scheduler or the Adam moments. On resume: (1) fast-forward the scheduler so the
++        # decay matches an uninterrupted run; (2) ramp the LR linearly over the first
++        # VERL_RESUME_LR_WARMUP_STEPS steps (default 10) so freshly initialised Adam moments do
++        # not produce full-size sign-like updates (observed: loss 0.23 -> 0.78 after one step).
++        if self.resume_global_step and self.resume_global_step > 0:
++            sched = getattr(self.engine, "lr_scheduler", None)
++            if sched is not None and getattr(sched, "num_steps", None) == 0:
++                import os as _os
++
++                ramp = int(_os.environ.get("VERL_RESUME_LR_WARMUP_STEPS", "10"))
++                resume_step = self.resume_global_step
++                orig_get_lr = sched.get_lr
++
++                def _ramped_get_lr(param_group, _orig=orig_get_lr, _sched=sched):
++                    lr = _orig(param_group)
++                    k = _sched.num_steps - resume_step
++                    if ramp > 0 and 0 <= k < ramp:
++                        lr = lr * (k + 1) / (ramp + 1)
++                    return lr
++
++                sched.get_lr = _ramped_get_lr
++                sched.step(resume_step)
++                lr_now = sched.optimizer.param_groups[0].get("lr")
++                log_with_rank(
++                    f"Fast-forwarded LR scheduler to step {resume_step} with {ramp}-step re-warmup: lr={lr_now}",
++                    logger=logger, rank=self.rank, log_only_rank_0=True,
++                )
++
+         self.device_name = self.config.trainer.device
+ 
+         if self.rank == 0:
+@@ -348,7 +377,10 @@ class SFTTrainer:
+         train_time = 0
+         total_tokens = 0
+         for epoch in range(start_epoch, self.config.trainer.total_epochs):
+-            self.train_sampler.set_epoch(epoch=epoch)
++            # VERL_EPOCH_SEED_OFFSET shifts the shuffle seed: used when a resumed run has to
++            # replay an epoch index whose order was already consumed (dataloader state dropped).
++            import os as _os
++            self.train_sampler.set_epoch(epoch=epoch + int(_os.environ.get("VERL_EPOCH_SEED_OFFSET", "0")))
+ 
+             aggressive_empty_cache(force_sync=True)
+             log_gpu_memory_usage(f"rank {self.rank}: At start of epoch {epoch}", logger=logger)
+diff --git a/verl/verl/utils/checkpoint/megatron_checkpoint_manager.py b/verl/verl/utils/checkpoint/megatron_checkpoint_manager.py
+index d2dd29f..9601928 100644
+--- a/verl/verl/utils/checkpoint/megatron_checkpoint_manager.py
++++ b/verl/verl/utils/checkpoint/megatron_checkpoint_manager.py
+@@ -429,6 +429,20 @@ class MegatronCheckpointManager(BaseCheckpointManager):
+             else:
+                 self.bridge.load_hf_weights(self.model, hf_model_path)
+             log_with_rank(f"Loaded HF model checkpoint from {hf_model_path} with bridge", rank=self.rank, logger=logger)
++            # The bridge only wrote the checkpoint weights into the (bf16) model params. The
++            # optimizer's fp32 main params were initialised from the *initial* model weights when the
++            # optimizer was built, so the first optimizer step would overwrite the loaded weights
++            # with base-model weights (+ one update). Megatron handles this on its own load path by
++            # refreshing the main params from the model params; do the same here whenever the
++            # optimizer state itself is not being restored.
++            if getattr(self, "optimizer", None) is not None and not self.should_load_optimizer:
++                reload = getattr(self.optimizer, "reload_model_params", None)
++                if reload is not None:
++                    reload()
++                    log_with_rank(
++                        "Reloaded optimizer main params from the bridge-loaded model weights",
++                        rank=self.rank, logger=logger,
++                    )
+         # Load PEFT adapter checkpoint if available
+         if self.should_load_model and self.peft_cls is not None:
+             adapter_ckpt_path = os.path.join(local_path, "adapter_checkpoint")
+diff --git a/verl/verl/utils/megatron/optimizer.py b/verl/verl/utils/megatron/optimizer.py
+index 625cd24..2aafb4f 100644
+--- a/verl/verl/utils/megatron/optimizer.py
++++ b/verl/verl/utils/megatron/optimizer.py
+@@ -53,7 +53,12 @@ def init_megatron_optim_config(
+         )
+     override_config = optim_config.get("override_optimizer_config", {})
+     if override_config:
++        from verl.utils.torch_dtypes import PrecisionType
++
+         for k, v in override_config.items():
++            # allow dtype overrides (e.g. main_grads_dtype=bf16) to be given as strings from hydra
++            if k.endswith("_dtype") and isinstance(v, str):
++                v = PrecisionType.to_dtype(v)
+             optim_args[k] = v
+ 
+     print_rank_0(f"optimizer config after override: {optim_args}")
+diff --git a/verl/verl/utils/megatron/tensor_parallel.py b/verl/verl/utils/megatron/tensor_parallel.py
+index d4a99b9..502ca35 100644
+--- a/verl/verl/utils/megatron/tensor_parallel.py
++++ b/verl/verl/utils/megatron/tensor_parallel.py
+@@ -151,13 +151,49 @@ def vocab_parallel_entropy(vocab_parallel_logits: torch.Tensor) -> torch.Tensor:
+     return _VocabParallelEntropy.apply(vocab_parallel_logits)
+ 
+ 
+-def vocab_parallel_log_probs_from_logits(logits, labels):
+-    """TODO(zhangchi.usc1992): We may change the implementation later"""
++def _vocab_parallel_neg_ce(logits, labels):
+     from megatron.core import tensor_parallel
+ 
++    # Megatron's cross entropy upcasts with .float() (a no-op for fp32 input) and then modifies the
++    # tensor in place. When `logits` is a chunk view of a larger tensor that would bump the version
++    # counter of the shared base and break autograd, so always hand it a fresh fp32 copy.
++    logits = logits.float() if logits.dtype != torch.float32 else logits.clone()
+     return -tensor_parallel.vocab_parallel_cross_entropy(vocab_parallel_logits=logits, target=labels)
+ 
+ 
++def vocab_parallel_log_probs_from_logits(logits, labels, chunk_size: int | None = None):
++    """Vocab-parallel log-probs of `labels` given TP-sharded `logits` ([..., seq, vocab/tp]).
++
++    When VERL_LOGPROB_CHUNK_SIZE (or `chunk_size`) > 0 the sequence dimension is processed in
++    chunks under activation checkpointing, so the full-sequence softmax intermediates that
++    Megatron's cross-entropy saves for backward are never materialized at once. This keeps
++    long-context (e.g. 50K+ tokens) training within GPU memory at the cost of recomputing the
++    cheap cross-entropy in backward. All TP ranks chunk identically, so the all-reduces match.
++    """
++    import os
++
++    if chunk_size is None:
++        chunk_size = int(os.environ.get("VERL_LOGPROB_CHUNK_SIZE", "0"))
++    seq_len = logits.shape[-2]
++    if chunk_size <= 0 or seq_len <= chunk_size or not torch.is_grad_enabled() or not logits.requires_grad:
++        return _vocab_parallel_neg_ce(logits, labels)
++
++    from torch.utils.checkpoint import checkpoint
++
++    outs = []
++    for start in range(0, seq_len, chunk_size):
++        end = min(start + chunk_size, seq_len)
++        outs.append(
++            checkpoint(
++                _vocab_parallel_neg_ce,
++                logits[..., start:end, :],
++                labels[..., start:end],
++                use_reentrant=False,
++            )
++        )
++    return torch.cat(outs, dim=-1)
++
++
+ def vocab_parallel_log_probs_from_logits_response_rmpad(input_ids, attention_mask, logits_rmpad, response_length):
+     """Similar to log_probs_from_logits_response_rmpad, but the logits_rmpad is now spliited across tensor parallel
+     region.
+diff --git a/verl/verl/workers/engine/megatron/transformer_impl.py b/verl/verl/workers/engine/megatron/transformer_impl.py
+index 0be4afc..74a2bae 100644
+--- a/verl/verl/workers/engine/megatron/transformer_impl.py
++++ b/verl/verl/workers/engine/megatron/transformer_impl.py
+@@ -317,10 +317,53 @@ class MegatronEngine(BaseEngine):
+             and mpu.get_context_parallel_rank() == 0
+         )
+ 
++    @staticmethod
++    def _maybe_keep_bf16_logits():
++        """Float16Module upcasts the whole model output (full-vocab logits) to fp32 on the last
++        pipeline stage. For long sequences that copy alone is tens of GB; the vocab-parallel cross
++        entropy upcasts per chunk anyway, so optionally skip it (VERL_MEGATRON_KEEP_BF16_LOGITS=1)."""
++        import os
++
++        if os.environ.get("VERL_MEGATRON_KEEP_BF16_LOGITS", "0") != "1":
++            return
++        from megatron.core.transformer import module as mcore_module
++
++        if getattr(mcore_module.Float16Module, "_verl_keep_bf16", False):
++            return
++
++        orig_forward = mcore_module.Float16Module.forward
++
++        def forward(self, *inputs, fp32_output=False, **kwargs):
++            return orig_forward(self, *inputs, fp32_output=fp32_output, **kwargs)
++
++        mcore_module.Float16Module.forward = forward
++        mcore_module.Float16Module._verl_keep_bf16 = True
++        logger.warning_once("Float16Module patched to keep bf16 outputs (no fp32 logits upcast).")
++
++    @staticmethod
++    def _log_mem(tag):
++        import torch as _torch
++
++        dev = _torch.cuda.current_device()
++        a = _torch.cuda.memory_allocated(dev) / 2**30
++        r = _torch.cuda.memory_reserved(dev) / 2**30
++        m = _torch.cuda.max_memory_allocated(dev) / 2**30
++        print(f"[MEM rank{_torch.distributed.get_rank()}] {tag}: allocated={a:.1f}GB reserved={r:.1f}GB max_allocated={m:.1f}GB", flush=True)
++
+     def initialize(self):
+         self._build_tf_config()
+ 
++        _frac = os.environ.get("VERL_CUDA_MEMORY_FRACTION", "")
++        if _frac:
++            # Leave headroom for non-PyTorch CUDA allocations (Triton autotune launches, NCCL, TE
++            # workspaces). Together with garbage_collection_threshold this also bounds how much the
++            # caching allocator keeps reserved.
++            torch.cuda.set_per_process_memory_fraction(float(_frac))
++            print(f"[MEM] per-process CUDA memory fraction set to {_frac}", flush=True)
++
++        self._maybe_keep_bf16_logits()
+         self.module = self._build_megatron_module()
++        self._log_mem("after model build + weight load")
+ 
+         self._maybe_enable_fused_kernels()
+ 
+@@ -337,6 +380,8 @@ class MegatronEngine(BaseEngine):
+ 
+         self.optimizer = self._build_optimizer()
+         self.lr_scheduler = self._build_lr_scheduler()
++        torch.cuda.empty_cache()  # release cached blocks left over from weight loading
++        self._log_mem("after optimizer build (+empty_cache)")
+ 
+         full_reshardable = self.engine_config.dist_ckpt_optim_fully_reshardable
+         mem_eff = self.engine_config.distrib_optim_fully_reshardable_mem_efficient
+@@ -581,12 +626,22 @@ class MegatronEngine(BaseEngine):
+ 
+         tu.assign_non_tensor(data, num_micro_batch=n_micro_batch)
+ 
+-        forward_step = partial(
++        _forward_step = partial(
+             self.forward_step,
+             logits_processor_func=loss_function,
+             postprocess_micro_batch_func=postprocess_micro_batch_func,
+         )
+ 
++        if os.environ.get("VERL_EMPTY_CACHE_PER_MICROBATCH", "0") == "1":
++            # Long-context training on tight GPUs: release cached-but-free allocator blocks before
++            # each micro-batch so non-PyTorch allocations (Triton launches, NCCL, TE workspaces)
++            # never race a fragmented cache for the last few GB.
++            def forward_step(*args, **kwargs):
++                torch.cuda.empty_cache()
++                return _forward_step(*args, **kwargs)
++        else:
++            forward_step = _forward_step
++
+         enable_routing_replay = tu.get_non_tensor_data(data, key="enable_routing_replay", default=False)
+ 
+         if enable_routing_replay:
+@@ -601,15 +656,30 @@ class MegatronEngine(BaseEngine):
+ 
+         # TODO: we may use the new schedule instead
+         # for flash-attn: (seq_len, batch_size, hidden_size) = (mbs*seq_len, 1, hidden_size)
+-        losses_reduced = forward_backward_func(
+-            forward_step_func=forward_step,
+-            data_iterator=batch_generator,
+-            model=self.module,
+-            num_microbatches=n_micro_batch,
+-            seq_length=1,  # the communication shape is obtained via p2p comm
+-            micro_batch_size=1,  # the communication shape is obtained via p2p comm
+-            forward_only=forward_only,
+-        )
++        import os as _os
++
++        _snap = _os.environ.get("VERL_MEM_SNAPSHOT", "")
++        if _snap and not getattr(self, "_mem_hist_on", False):
++            torch.cuda.memory._record_memory_history(max_entries=200000)
++            self._mem_hist_on = True
++        torch.cuda.reset_peak_memory_stats()
++        try:
++            losses_reduced = forward_backward_func(
++                forward_step_func=forward_step,
++                data_iterator=batch_generator,
++                model=self.module,
++                num_microbatches=n_micro_batch,
++                seq_length=1,  # the communication shape is obtained via p2p comm
++                micro_batch_size=1,  # the communication shape is obtained via p2p comm
++                forward_only=forward_only,
++            )
++        except RuntimeError as e:
++            if _snap and "out of memory" in str(e).lower():
++                path = f"{_snap}/mem_snapshot_rank{torch.distributed.get_rank()}.pickle"
++                torch.cuda.memory._dump_snapshot(path)
++                print(f"[MEM] dumped snapshot to {path}", flush=True)
++            raise
++        self._log_mem("after forward_backward_batch")
+ 
+         if self.model_config.mtp.enable and self.is_mp_src_rank_with_outputs():
+             # add mtp_losses
+@@ -807,6 +877,7 @@ class MegatronEngineWithLMHead(MegatronEngine):
+ 
+             def logits_processor(logits, label, temperature):
+                 assert logits.shape[:2] == label.shape[:2]
++                self._log_mem(f"forward done, logits {tuple(logits.shape)} {logits.dtype}")
+                 # avoid non-positive temperature such as padding
+                 temperature[temperature <= 0] = 1e-8
+                 assert torch.all(temperature > 0).item(), f"temperature tensor must be positive. Got {temperature}"

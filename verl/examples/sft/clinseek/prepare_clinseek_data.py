@@ -1,13 +1,38 @@
 #!/usr/bin/env python3
 """
-Prepare ClinSeek trajectory data for VERL SFT training.
+Prepare ClinSeekAgent trajectory data for VERL SFT training.
 
-Loads from HuggingFace, preserves OpenAI-native tool-calling schema so the
-tokenizer's chat template (e.g. Qwen3.5) can render native <tool_call> /
-<tool_response> blocks, then splits into train/val and saves as parquet.
+Reads trajectory JSONL (ClinSeekAgent `results.jsonl` rows, from local files
+via --local_path or from a Hugging Face dataset via --repo_id), preserves the
+OpenAI-native tool-calling schema so the tokenizer's chat template (e.g.
+Qwen3.5) renders native <tool_call> / <tool_response> blocks, then splits into
+train/val and saves as parquet.
+
+Paper recipe (ClinSeek-35B-A3B): teacher trajectories that end with an answer
+(--success_only), with the teacher's `ehr.think` calls folded into the
+student's native thinking block (--merge_think --strip_think_protocol), capped
+at 52K tokens, 2% random validation split (seed 42):
+
+    python verl/examples/sft/clinseek/prepare_clinseek_data.py \
+        --local_path /path/to/teacher_results.jsonl \
+        --success_only --merge_think --strip_think_protocol \
+        --model_name /path/to/Qwen3.5-35B-A3B --max_token_length 52000 \
+        --output_dir data/clinseek_sft_52k
+
+--merge_think: each assistant turn that only calls `ehr.think` is removed
+together with its tool response, and its text becomes the `reasoning_content`
+of the next assistant turn (consecutive think turns are joined with blank
+lines); in a turn that mixes `ehr.think` with other calls only the think call
+is removed. The chat template renders `reasoning_content` as the native
+<think>...</think> block, so the student reasons in its thinking channel
+instead of calling a tool. The provider's own reasoning is dropped unless
+--keep_provider_reasoning. --strip_think_protocol removes the "REASONING TRACE
+PROTOCOL" section (the instruction to call `ehr.think` before every action)
+from the system prompt, so the training prompt matches deployment.
 
 Output parquet rows have shape:
-    {"messages": [ {role, content, [tool_calls], [tool_call_id]}, ... ]}
+    {"messages": [ {role, content, [tool_calls], [tool_call_id],
+                    [reasoning_content]}, ... ], "qid": str, "source": str}
 
 Assistant turns keep structured tool_calls:
     tool_calls = [{"id": str, "type": "function",
@@ -19,8 +44,10 @@ The script filters samples whose rendered length exceeds --max_token_length.
 """
 
 import argparse
+import collections
 import json
 import os
+import re
 from concurrent.futures import ProcessPoolExecutor
 
 import pandas as pd
@@ -81,6 +108,8 @@ def _normalize_message(m):
     out = {"role": role, "content": content}
 
     if role == "assistant":
+        if m.get("reasoning_content"):
+            out["reasoning_content"] = m["reasoning_content"]
         raw_calls = m.get("tool_calls")
         if raw_calls:
             if isinstance(raw_calls, str):
@@ -106,8 +135,90 @@ def _normalize_message(m):
     return out
 
 
-def build_messages(item):
-    return [_normalize_message(m) for m in item["messages"]]
+def merge_think_calls(messages, think_tool="ehr.think", keep_provider_reasoning=False, stats=None):
+    """Turn `think -> (tool response) -> action` rounds into a single action turn whose
+    reasoning_content carries the think text, so the chat template renders it as a native
+    <think> block instead of a tool call. Consecutive think turns are concatenated. Works on
+    already-normalized messages (tool_call arguments are dicts)."""
+    out, pending, skip_ids = [], [], set()
+    for m in messages:
+        if m["role"] == "tool" and m.get("tool_call_id") in skip_ids:
+            skip_ids.discard(m["tool_call_id"])
+            continue
+        if m["role"] == "assistant":
+            calls = m.get("tool_calls") or []
+            names = {c["function"]["name"] for c in calls}
+            if calls and names == {think_tool}:
+                for c in calls:
+                    args = c["function"]["arguments"]
+                    text = args.get("response") if isinstance(args, dict) else None
+                    if text is None:
+                        text = json.dumps(args, ensure_ascii=False) if isinstance(args, dict) else str(args)
+                    pending.append(text.strip())
+                    if c.get("id"):
+                        skip_ids.add(c["id"])
+                if m.get("content"):
+                    pending.append(m["content"].strip())
+                if stats is not None:
+                    stats["think_turns_folded"] += 1
+                continue
+            if think_tool in names:  # mixed turn: strip the think call, keep the rest
+                kept = []
+                for c in calls:
+                    if c["function"]["name"] == think_tool:
+                        args = c["function"]["arguments"]
+                        pending.append((args.get("response") if isinstance(args, dict) else str(args)) or "")
+                        if c.get("id"):
+                            skip_ids.add(c["id"])
+                    else:
+                        kept.append(c)
+                m = dict(m)
+                m["tool_calls"] = kept
+                if stats is not None:
+                    stats["mixed_turns_split"] += 1
+            if pending:
+                parts = [p for p in pending if p]
+                if keep_provider_reasoning and m.get("reasoning_content"):
+                    parts.append(m["reasoning_content"].strip())
+                m = dict(m)
+                m["reasoning_content"] = "\n\n".join(parts)
+                pending = []
+            elif not keep_provider_reasoning:
+                m = dict(m)
+                m.pop("reasoning_content", None)
+        out.append(m)
+    if pending and stats is not None:
+        stats["dangling_think_dropped"] += 1
+    return out
+
+
+_PROTOCOL_RE = re.compile(r"\n*-{3,}\s*\nREASONING TRACE PROTOCOL.*", re.S)
+
+
+def strip_think_prompt(system_content, think_tool="ehr.think", drop_tool_line=False, stats=None):
+    new = _PROTOCOL_RE.sub("", system_content)
+    if new != system_content and stats is not None:
+        stats["protocol_blocks_stripped"] += 1
+    if drop_tool_line:
+        new2 = re.sub(r"^- " + re.escape(think_tool) + r":[^\n]*\n", "", new, flags=re.M)
+        if new2 != new and stats is not None:
+            stats["think_tool_lines_dropped"] += 1
+        new = new2
+    return new.rstrip() + "\n"
+
+
+def build_messages(item, merge_think=False, think_tool="ehr.think", keep_provider_reasoning=False, stats=None,
+                   strip_protocol=False, drop_tool_line=False):
+    messages = [_normalize_message(m) for m in item["messages"]]
+    if merge_think:
+        messages = merge_think_calls(messages, think_tool, keep_provider_reasoning, stats)
+        if (strip_protocol or drop_tool_line) and messages and messages[0]["role"] == "system":
+            messages[0] = dict(messages[0])
+            messages[0]["content"] = strip_think_prompt(messages[0]["content"], think_tool, drop_tool_line, stats)
+    elif not keep_provider_reasoning:
+        for m in messages:
+            m.pop("reasoning_content", None)
+    return messages
 
 
 def main():
@@ -117,9 +228,29 @@ def main():
     parser.add_argument("--model_name", type=str, default="Qwen/Qwen3.5-35B-A3B",
                         help="Model name or local path for tokenizer / chat template")
     parser.add_argument("--output_dir", type=str,
-                        default=os.path.expanduser('~/data/clinseek_trajectory'),
+                        default="data/clinseek_sft",
                         help="Output directory for train/val parquet files")
-    parser.add_argument("--repo_id", type=str, required=True,
+    parser.add_argument("--local_path", type=str, default=None, nargs="+",
+                        help="Use one or more local JSONL files instead of downloading from --repo_id")
+    parser.add_argument("--split_by_qid", action="store_true",
+                        help="Assign train/val by qid (all trajectories of a question land in the same split); "
+                             "use when several rollouts of the same prompt are present")
+    parser.add_argument("--success_only", action="store_true",
+                        help="Keep only rows with status == 'success' (drops errored rollouts)")
+    parser.add_argument("--merge_think", action="store_true",
+                        help="Fold each `ehr.think` tool call into the next assistant turn's reasoning_content "
+                             "(rendered as <think>...</think> by the Qwen3.5 template) and drop the think "
+                             "tool call together with its 'Thinking Finish' tool response")
+    parser.add_argument("--think_tool_name", type=str, default="ehr.think")
+    parser.add_argument("--strip_think_protocol", action="store_true",
+                        help="With --merge_think, delete the 'REASONING TRACE PROTOCOL' section (the mandatory "
+                             "ehr.think instruction) from the system prompt so the prompt matches deployment")
+    parser.add_argument("--drop_think_tool_line", action="store_true",
+                        help="Also remove the '- ehr.think: ...' entry from the system prompt's tool list")
+    parser.add_argument("--keep_provider_reasoning", action="store_true",
+                        help="With --merge_think, append the provider's own reasoning_content (when present) "
+                             "after the folded think text instead of discarding it")
+    parser.add_argument("--repo_id", type=str, default=None,
                         help="Hugging Face dataset repo containing the trajectory JSONL")
     parser.add_argument("--filename", type=str, default="clinseek_trajectories.jsonl",
                         help="JSONL file inside --repo_id")
@@ -132,23 +263,38 @@ def main():
     # Read the raw JSONL directly. `datasets.load_dataset` fails on this repo
     # because the `label` column has inconsistent struct schemas across rows;
     # we only need `messages`, so sidestep the arrow cast entirely.
-    print("Downloading ClinSeek trajectory JSONL from Hugging Face...")
-    jsonl_path = hf_hub_download(
-        repo_id=args.repo_id,
-        filename=args.filename,
-        repo_type="dataset",
-    )
-    print(f"  {jsonl_path}")
+    if args.local_path:
+        jsonl_paths = list(args.local_path)
+        print(f"Using local trajectory JSONL(s): {jsonl_paths}")
+    else:
+        assert args.repo_id, "--repo_id is required when --local_path is not given"
+        print("Downloading ClinSeek trajectory JSONL from Hugging Face...")
+        jsonl_path = hf_hub_download(
+            repo_id=args.repo_id,
+            filename=args.filename,
+            repo_type="dataset",
+        )
+        print(f"  {jsonl_path}")
+        jsonl_paths = [jsonl_path]
 
     print("Normalizing messages (preserving structured tool_calls / tool_call_id)...")
     rows = []
-    with open(jsonl_path) as f:
-        for line in f:
-            if not line.strip():
-                continue
-            item = json.loads(line)
-            rows.append({"messages": build_messages(item)})
+    merge_stats = collections.Counter()
+    for jsonl_path in jsonl_paths:
+        with open(jsonl_path) as f:
+            for line in f:
+                if not line.strip():
+                    continue
+                item = json.loads(line)
+                if args.success_only and item.get("status", "success") != "success":
+                    continue
+                rows.append({"messages": build_messages(item, args.merge_think, args.think_tool_name,
+                                                        args.keep_provider_reasoning, merge_stats,
+                                                        args.strip_think_protocol, args.drop_think_tool_line),
+                             "qid": item.get("qid", ""), "source": os.path.basename(jsonl_path)})
     print(f"Total samples: {len(rows)}")
+    if args.merge_think:
+        print(f"merge_think stats: {dict(merge_stats)}")
     df = pd.DataFrame(rows)
     print(f"Total samples before filtering: {len(df)}")
 
@@ -210,8 +356,27 @@ def main():
     print(f"\nSplitting dataset into train/val ({1 - args.val_ratio:.0%}/{args.val_ratio:.0%})...")
     df = df.sample(frac=1, random_state=args.seed).reset_index(drop=True)
     val_size = max(1, int(len(df) * args.val_ratio))
-    val_df = df.iloc[:val_size].reset_index(drop=True)
-    train_df = df.iloc[val_size:].reset_index(drop=True)
+    if args.split_by_qid and "qid" in df.columns:
+        import numpy as _np
+        rng = _np.random.RandomState(args.seed)
+        qids = df["qid"].unique().tolist()
+        rng.shuffle(qids)
+        val_qids, count = set(), 0
+        for q in qids:
+            if count >= val_size:
+                break
+            val_qids.add(q)
+            count += int((df["qid"] == q).sum())
+        is_val = df["qid"].isin(val_qids)
+        val_df = df[is_val].reset_index(drop=True)
+        train_df = df[~is_val].reset_index(drop=True)
+        print(f"Split by qid: {len(val_qids)} val questions -> {len(val_df)} val rows; "
+              f"train/val qid overlap = {len(set(train_df['qid']) & val_qids)}")
+    else:
+        val_df = df.iloc[:val_size].reset_index(drop=True)
+        train_df = df.iloc[val_size:].reset_index(drop=True)
+    if "source" in df.columns:
+        print("rows per source file:", df["source"].value_counts().to_dict())
     print(f"Train samples: {len(train_df)}")
     print(f"Val samples: {len(val_df)}")
 
@@ -240,6 +405,7 @@ def main():
         ("content", pa.string()),
         ("tool_calls", pa.list_(tool_call_struct)),
         ("tool_call_id", pa.string()),
+        ("reasoning_content", pa.string()),
     ])
     schema = pa.schema([("messages", pa.list_(message_struct))])
 
@@ -251,6 +417,7 @@ def main():
                 "content": m.get("content") or "",
                 "tool_calls": None,
                 "tool_call_id": m.get("tool_call_id"),
+                "reasoning_content": m.get("reasoning_content") or None,
             }
             if m.get("tool_calls"):
                 entry["tool_calls"] = [{
