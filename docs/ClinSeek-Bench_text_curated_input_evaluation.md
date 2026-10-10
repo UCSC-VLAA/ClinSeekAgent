@@ -73,6 +73,15 @@ python scripts/clean_data/build_evidence_corpus.py --bench mm \
   --policy-mode aggressive
 ```
 
+The multimodal availability filter scans `hosp/admissions.csv`,
+`hosp/labevents.csv`, `icu/chartevents.csv`, `icu/outputevents.csv`, and
+`note/radiology.csv` (the first run reads the multi-GB `chartevents.csv`; the
+result is cached under `--cache-dir`) and the packaged report `.txt` files.
+Rebuilt on samples (45 text and 38 multimodal questions), the corpus CSVs and
+the prompts produced by `record_context` are byte-identical to the paper
+corpus; for some multimodal rows the stored `input_text` field differs, but
+only its `<ehr_context>` body, which `record_context` re-renders from the CSVs.
+
 Both builds can be sharded (`--shard I/N`, then `--merge-shards N`); run them
 in the agent environment (pandas 3.0.5 is required for byte-identical renders).
 `scripts/clean_data/audit_evidence_corpus.py` re-checks a finished corpus.
