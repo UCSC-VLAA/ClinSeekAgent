@@ -1,72 +1,78 @@
 # `clinseekagent/` — agent driver package
 
-This package contains everything that runs **on the agent / client side** during evaluation: the four entry-point runners, the LLM backends (Bedrock, vLLM), the three tool-pool clients (browser, EHR, image), prompt registries, scoring utilities, and a few data-prep helpers. The MCP **servers** (which actually expose the EHR DB and the medical-image models) live separately under `src/`.
+This package contains everything that runs **on the agent / client side**
+during evaluation: the runners for the four inference modes, the LLM backends
+(AWS Bedrock, Google Vertex AI, OpenAI-compatible / vLLM), the tool-pool
+clients (EHR, image, optional browser), prompt registries, record renderers,
+and scoring. The MCP **servers** (which expose the EHR databases and the
+medical-image models) live under `src/`.
 
-The package is not installed as a Python module; the scripts under `../scripts/` add this directory to `PYTHONPATH` so the files import each other by bare name (e.g. `from run_text import ...`).
+The package is not installed as a Python module; the scripts under
+`../scripts/` add this directory to `PYTHONPATH` so the files import each other
+by bare name (e.g. `from run_text import ...`), and the repository's
+`conftest.py` does the same for the tests.
 
 ## Layout
 
 | Path | Purpose |
 | --- | --- |
-| `run_text.py` | **Agentic** evaluation driver, text-only EHR tasks (paper's *Automated Evidence-Seeking* mode). |
-| `run_multimodal.py` | Agentic driver for multimodal tasks (EHR + CXR + browser). Reuses helpers from `run_text.py`. |
-| `run_text_curated.py` | One-shot **Curated Input** baseline, text-only. Sends pre-selected EHR context to the model without tools. |
-| `run_multimodal_curated.py` | Curated-Input baseline for multimodal tasks (attaches CXR images + report text in a single shot). |
-| `bedrock_backend.py` | Async generator wrapping AWS Bedrock (Anthropic content-blocks API). |
-| `vllm_backend.py` | Async generator wrapping a vLLM OpenAI-compatible server. Handles tool-call extraction from native + several fallback formats. |
-| `bedrock_region_availability.json` | Friendly-name → region availability map used by the Bedrock invokers in the curated baselines. |
-| `browser_tool.py` | Client wrapper around the OpenAI Harmony / `gpt_oss` browser tool stack. |
-| `ehr_tool_pool.py` | Per-qid MCP client pool that forwards `ehr.*` tool calls to the EHR MCP server (`src/run_mcp_server.py`). |
-| `image_tool_pool.py` | Per-qid MCP client pool that forwards `image.*` tool calls to the image MCP server (`src/mcp_image/run_image_mcp_server.py`). |
-| `prompts_text.py` | Task-prompt templates, `<developer>` system prompts, and the canonical browser + EHR **tool schemas** (loaded by both text and multimodal runners). |
-| `prompts_multimodal.py` | Multimodal additions: 6 image-tool schemas + combined registry. Re-exports browser + EHR pieces from `prompts_text.py` unchanged. |
-| `prepare_multimodal_data.py` | Filters a source multimodal manifest into a JSONL the runners can consume. |
-| `generate_ehr_tools_schema.py` | One-off utility for regenerating the EHR tool JSON schema. |
-| `scoring/score_text.py` | F1 scorer for text-only EHR-Bench results. |
-| `scoring/score_multimodal.py` | F1 scorer for multimodal results; uses Bedrock as a judge for free-form answers. |
+| `run_text.py` | ClinSeekAgent on text tasks: the agentic loop (default) or Single-Pass Retrieval (`--retrieval_mode single_shot`). 16 EHR tools; browser tools only with `--enable_browser`. |
+| `run_multimodal.py` | ClinSeekAgent on multimodal tasks: EHR + image tools (`--enable_image`), CXR images attached to the first turn, one EHR MCP server per source benchmark. |
+| `run_text_curated.py` | Curated Input (`--view recent`) and Full-Record Input (`--view full`) for text: one prompt rendered from the policy-filtered record (`--corpus-root`), no tools. |
+| `run_multimodal_curated.py` | The same for multimodal tasks (rendered EHR context + up to 4 images + report text). |
+| `curated_invokers.py` | Single-call invokers (Bedrock, Vertex, OpenAI-compatible) shared by the curated runners, with the same reasoning settings as the agentic backends. |
+| `record_context.py` | Renders a corpus row's record at the `recent` / `full` width and truncates the full record oldest-first to the prompt budget. |
+| `question_render.py`, `mm_context_render.py`, `ehr_r1_selection.py` | Record renderers used by `record_context.py` and the corpus builder (`scripts/clean_data/`). |
+| `context_limits.py` | Model context windows, the 100k-token prompt window of the record modes, and the calibrated characters-per-token ratio. |
+| `bedrock_backend.py` | Async generator for AWS Bedrock (Anthropic Messages API; OpenAI shape for other Bedrock models). Holds the Claude thinking / sampling rules. |
+| `vertex_backend.py` | Async generator for Claude on Google Vertex AI (reuses the Bedrock message conversion). |
+| `vllm_backend.py` | Async generator for OpenAI-compatible endpoints: native tool calls for vLLM-served models, `reasoning_effort` / `max_completion_tokens` for OpenAI reasoning models, retries. |
+| `ehr_tool_pool.py` | Per-question MCP client for `ehr.*` calls; binds the trusted row metadata (patient, cutoff, task, target encounter, CXR scope) into every `load_ehr`. |
+| `image_tool_pool.py` | Per-question MCP client for `image.*` calls; restricts calls to the row's linked images. |
+| `multimodal_manifest_policy.py` | Fail-closed checks on multimodal manifests (trusted metadata present; strict marker on rendered context). |
+| `browser_tool.py` | Optional browser tools (OpenAI Harmony / `gpt_oss` stack). |
+| `prompts_text.py` | System prompts and the EHR (+ optional browser) tool schemas; the EHR-Bench agentic prompt. |
+| `prompts_multimodal.py` | Multimodal prompts and the 6 image-tool schemas; `get_tools_mm(browser, image)`. |
+| `resources/task_taxonomy.json` | The paper's 13 text / 6 multimodal task categories. |
+| `resources/agentehr_common_sample500.json` | qids of the paper's AgentEHR-Bench evaluation sample. |
+| `scoring/score_text.py` | Sample-wise F1 for text results (and AgentEHR-Bench); per task, task type, and category. |
+| `scoring/score_multimodal.py` | Multimodal scorer: LLM judge for single-label rows, vocabulary-mapped set F1 for multi-label rows; unified F1 per task and category. |
+| `scoring/report_by_category.py`, `scoring/categories.py` | Per-category tables and paired-bootstrap comparisons between runs. |
+| `prepare_multimodal_data.py`, `generate_ehr_tools_schema.py` | Small data / schema utilities. |
+| `bedrock_region_availability.json` | Friendly-name -> region map for the Bedrock curated invoker. |
 
-## Environment variables consumed
-
-These are all read at startup and exposed in `.env.example` at the repo root:
+## Environment variables
 
 | Variable | Used by | Note |
 | --- | --- | --- |
 | `EHR_MCP_URL` | `ehr_tool_pool.py` | Default `http://127.0.0.1:5003/mcp`. |
 | `IMAGE_MCP_URL` | `image_tool_pool.py` | Default `http://127.0.0.1:5203/mcp`. |
-| `BENCH_ROOT` | `run_multimodal.py`, `run_multimodal_curated.py` | Root dir where relative image/report paths in manifests are resolved. |
-| `IMAGE_ARTIFACT_DIR` | `image_tool_pool.py` / image MCP | Where image tool outputs (visualizations, masks) are written. |
-| `BEDROCK_API_KEY` / `AWS_BEARER_TOKEN_BEDROCK` | `bedrock_backend.py` | Optional bearer token; falls back to the default AWS credential chain. |
-| `BEDROCK_REGION` / `AWS_DEFAULT_REGION` | `bedrock_backend.py` | Defaults to `us-east-1`. |
-| `VLLM_BASE_URL`, `VLLM_API_KEY`, `VLLM_MODEL` | `vllm_backend.py` | OpenAI-compatible endpoint for self-hosted models. |
-| `SERPER_API_KEY` | `browser_tool.py` | Optional — enables the Serper search backend; otherwise falls back to the local browser. |
+| `BENCH_ROOT` | multimodal runners | Root(s) against which manifest image/report paths resolve (colon-separated). |
+| `BEDROCK_API_KEY` / `AWS_BEARER_TOKEN_BEDROCK`, `BEDROCK_REGION` | `bedrock_backend.py` | Optional bearer token; otherwise the AWS credential chain. |
+| `ANTHROPIC_VERTEX_PROJECT_ID`, `VERTEX_REGION` / `CLOUD_ML_REGION`, `VERTEX_MODEL_ID` | `vertex_backend.py` | Application Default Credentials. |
+| `VLLM_BASE_URL`, `VLLM_API_KEY`, `VLLM_MODEL` | `vllm_backend.py` | Any OpenAI-compatible endpoint. |
+| `CLINSEEK_MAX_PARALLEL_QUERIES` | runners | Concurrency ceiling (default 20). |
+| `SERPER_API_KEY` | `browser_tool.py` | Optional; Serper search for `--enable_browser`. |
 
-## Two evaluation modes the runners implement
+## Inference modes
 
-The paper defines two paired modes for every benchmark example:
+| Mode | Runner | Evidence access |
+| --- | --- | --- |
+| ClinSeekAgent | `run_text.py` / `run_multimodal.py` | multi-round tool calls over the whole pre-cutoff record (up to 200 rounds) |
+| Single-Pass Retrieval | same, `--retrieval_mode single_shot` | same tools, but all retrieval calls in one turn, then answer |
+| Curated Input | `run_*_curated.py --view recent` | the source benchmark's evidence package, re-rendered from the policy-filtered record |
+| Full-Record Input | `run_*_curated.py --view full` | the whole pre-cutoff record in the prompt, truncated oldest-first to 100k tokens |
 
-- **Curated Input** — the source benchmark's pre-selected EHR/CXR context is handed to the model in one shot, with no tools. Run by `run_text_curated.py` / `run_multimodal_curated.py`.
-- **Automated Evidence-Seeking (ClinSeekAgent)** — the curated context is stripped; the model receives only the patient identifier + a prediction-time cutoff + access to the ClinSeekAgent tool space, and must retrieve evidence itself across multiple turns. Run by `run_text.py` / `run_multimodal.py`.
-
-The same input manifest and same ground-truth labels are used for both, so the difference in F1 measures the contribution of active evidence seeking.
-
-## Entry points (typical command lines)
+All four share the strict temporal policy and the same reasoning and output
+settings; `scripts/run_four_modes.sh` runs them, `scripts/score_four_modes.sh`
+scores them.
 
 ```bash
-# Start the MCP servers in their own venvs first (see venvs/requirements/).
-bash scripts/run_ehr_mcp.sh
-bash scripts/run_image_mcp.sh  # multimodal only
-
-# Agentic text-only evaluation
+# MCP servers first (see the README); then, e.g.
 DATA_PATH=... OUTPUT_DIR=outputs/text bash scripts/run_text_eval.sh
-
-# Agentic multimodal evaluation
-DATA_PATH=... OUTPUT_DIR=outputs/mm   bash scripts/run_mm_eval.sh
-
-# Curated-input baselines (no tool calls)
-python clinseekagent/run_text_curated.py        --backend bedrock --model "Claude Opus 4.6" --data .../ehr_bench.json --output-dir outputs/text_curated
-python clinseekagent/run_multimodal_curated.py  --backend bedrock --model "Claude Opus 4.6" --data .../mm_bench.jsonl --bench-root .../mm_bench --output-dir outputs/mm_curated
-
-# Score
-python clinseekagent/scoring/score_text.py        --results outputs/text/results.jsonl --benchmark .../ehr_bench.json --output outputs/text/summary.json
-python clinseekagent/scoring/score_multimodal.py  --results outputs/mm/results.jsonl  --output-root outputs/mm/scored
+DATA_PATH=... BENCH_ROOT=... OUTPUT_DIR=outputs/mm bash scripts/run_mm_eval.sh
+python clinseekagent/run_text_curated.py --backend vertex --model claude-opus-4-6 \
+  --corpus-root /path/to/text_corpus --view recent --output-dir outputs/text_recent
+python clinseekagent/scoring/score_text.py --results outputs/text/results.jsonl \
+  --benchmark /path/to/ClinSeek-Bench_text.json --output-dir outputs/text/scores
 ```
