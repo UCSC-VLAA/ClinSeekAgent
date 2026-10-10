@@ -194,7 +194,14 @@ def table_to_text(table_name: str, frame: pd.DataFrame, max_rows: int) -> str:
 
 
 def render_ehr_context_from_manager(manager: Any, sample: dict[str, Any], max_table_rows: int) -> str:
-    manager.load_ehr_for_sample(str(sample["subject_id"]), sample["prediction_time"])
+    manager.load_ehr_for_sample(
+        str(sample["subject_id"]),
+        sample["prediction_time"],
+        linked_study_ids=sample.get("study_ids"),
+        scope=sample.get("scope"),
+        task=sample.get("task"),
+        modalities=sample.get("modalities"),
+    )
     blocks = []
     for table_name in sorted(manager.ehr_data):
         blocks.append(table_to_text(table_name, manager.ehr_data[table_name], max_table_rows))
@@ -685,6 +692,10 @@ def main() -> None:
                 "ground_truth": row.get("ground_truth"),
                 "answer_type": row.get("answer_type"),
                 "modalities": row.get("modalities") or ["cxr_table", "cxr_image"],
+                "scope": row.get("scope"),
+                "study_ids": row.get("study_ids") or [],
+                "dicom_ids": row.get("dicom_ids") or [],
+                "snapshot_spec": row.get("snapshot_spec"),
             }
         )
         stats[f"task:{row.get('task')}"] += 1
