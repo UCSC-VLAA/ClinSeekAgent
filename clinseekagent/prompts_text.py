@@ -116,6 +116,7 @@ Patient Subject ID: {subject_id}
 
 EHR_Bench_Prompt = """<task_instruction>
 {instruction}
+{temporal_scope}
 
 Analyze the patient's EHR records up to the current time to make your prediction.
 Do not assume any unseen future events beyond the current time.
@@ -126,6 +127,7 @@ Submit your final answer through `ehr.finish`. Your answer must be chosen only f
 <patient_info>
 Current Time: {prediction_time}
 Patient Subject ID: {subject_id}
+{index_admission}
 </patient_info>
 
 <candidate_answers>
@@ -149,10 +151,30 @@ def generate_ehr_bench_prompt(task_data):
     else:
         candidates_str = str(candidates)
 
+    task = str(task_data.get("task") or "").strip()
+    if task in {"Readmission_30day", "Readmission_60day"}:
+        temporal_scope = (
+            "Readmission episode policy: make the prediction at completion "
+            "of the index admission. The EHR runtime exposes that admission "
+            "and its discharge summary, and withholds every event after its "
+            "actual discharge time."
+        )
+        hadm_id = task_data.get("hadm_id")
+        index_admission = (
+            f"Index Admission ID: {hadm_id}"
+            if hadm_id not in (None, "")
+            else "Index Admission ID: resolved from the discharge event"
+        )
+    else:
+        temporal_scope = ""
+        index_admission = ""
+
     return EHR_Bench_Prompt.format(
         instruction=task_data["instruction"],
+        temporal_scope=temporal_scope,
         prediction_time=task_data["prediction_time"],
         subject_id=task_data["subject_id"],
+        index_admission=index_admission,
         candidates=candidates_str,
     )
 
@@ -203,6 +225,30 @@ The `cursor` appears in brackets before each browsing display: `[{cursor}]`.
 Cite web sources using: 【{cursor}†L{line_start}(-L{line_end})?】
 
 sources=web,ehr
+"""
+
+# EHR-only ablation: the browser tools are withheld from the tool list, so the
+# system prompt must not advertise them either (a model told to search the web
+# with no browser.search available burns rounds on unknown-tool errors).
+DEVELOPER_CONTENT_CLAUDE_EHR_ONLY = """
+You are a research assistant with access to clinical EHR tools.
+
+**EHR Tools** (for clinical data analysis):
+- ehr.load_ehr: Load patient EHR database (must be called first for clinical tasks)
+- ehr.get_table_names: List available patient data tables
+- ehr.get_column_names: Get table column information
+- ehr.get_records_by_time: Query patient records within time range
+- ehr.run_sql_query: Execute SQL queries on patient database
+- ehr.get_candidates_by_semantic_similarity: Search medical terminology/diagnosis codes
+- ehr.get_candidates_by_keyword: Search diagnosis codes by keyword
+- ehr.think: Record your reasoning process
+- ehr.finish: Submit your final answer
+
+**Important:** No web browsing is available in this setting. Base every
+conclusion on the patient data returned by the EHR tools and on your own
+clinical knowledge; do not attempt to search the web.
+
+sources=ehr
 """
 
 SFT_MODEL_PROMPT = """
@@ -263,3 +309,6 @@ def get_combined_tools_with_all_ehr():
 
 # Default tool registry consumed by run_text.py (browser + full EHR tool set)
 COMBINED_TOOL_CONTENT_FULL = json.dumps(get_combined_tools_with_all_ehr())
+
+# EHR-only registry for the no-browser ablation (--disable_browser).
+EHR_ONLY_TOOL_CONTENT_FULL = json.dumps(json.loads(EHR_TOOL_CONTENT_JSON))

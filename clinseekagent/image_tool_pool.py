@@ -4,12 +4,23 @@ Mirrors the structure of `ehr_tool_pool.py` (JSON-RPC 2.0 over HTTP, per-qid ses
 state, SSE or plain JSON response parsing). Kept deliberately small: this pool
 just forwards calls to the image MCP server; all heavy lifting lives in
 `src/mcp_image/tools/`.
+
+The one thing it does not merely forward is the asset path. The image MCP
+server resolves any path that exists on disk, so without a client-side check a
+model could name a CXR outside this question's scope — a later study for the
+same patient, for instance. `configure_session` binds each qid to the assets
+its benchmark row links, exactly as `EHRToolPool` binds patient and cutoff.
 """
 import asyncio
 import json
-from typing import Any, Dict
+import os
+from typing import Any, Dict, Iterable, List, Optional, Set
 
 import httpx
+
+
+# Tool arguments that name a file on the image server's filesystem.
+_PATH_ARGS = ("image_path", "dicom_path")
 
 
 class ImageToolPool:
@@ -27,8 +38,106 @@ class ImageToolPool:
                 "mcp_session_id": None,
                 "mcp_initialized": False,
                 "mcp_init_lock": asyncio.Lock(),
+                "allowed_assets": None,
             }
         return self.sessions[qid]
+
+    @staticmethod
+    def _asset_keys(path: Any) -> Set[str]:
+        """Every spelling of one path that should compare equal.
+
+        The manifest stores bench-root-relative paths, the run_context preamble
+        shows the model absolute ones, and the server may hand back a third
+        form for a generated artifact. Normalizing to a small key set keeps a
+        legitimate call from being rejected over a `./` or a symlink.
+        """
+        if not isinstance(path, str) or not path.strip():
+            return set()
+        raw = path.strip()
+        keys = {raw, os.path.normpath(raw)}
+        try:
+            keys.add(os.path.realpath(raw))
+        except OSError:
+            pass
+        # Manifest paths carry an upstream package prefix
+        # (`MedModOriginalLinked_v1/...`) that the release loader strips before
+        # resolving under its bench root, so the same asset legitimately
+        # appears both ways. The remaining tail still pins study and dicom id,
+        # so accepting it does not widen scope to another study.
+        normalized = os.path.normpath(raw)
+        head, _, tail = normalized.partition(os.sep)
+        if head and tail and not normalized.startswith(os.sep):
+            keys.add(tail)
+        return {key for key in keys if key}
+
+    def configure_session(
+        self,
+        qid: Any,
+        item: Dict[str, Any],
+        resolved_assets: Optional[Iterable[str]] = None,
+    ) -> None:
+        """Bind a query session to the assets its benchmark row links.
+
+        Models may choose which image to analyze and in what order, but they
+        must not choose an image this row does not link. `resolved_assets`
+        carries the absolute paths the runner actually attached, since those
+        are the spellings the model is shown.
+        """
+        session = self._get_or_create_session(qid)
+        allowed: Set[str] = set()
+        for path in list(item.get("image_paths") or []) + list(
+            item.get("report_paths") or []
+        ):
+            allowed |= self._asset_keys(path)
+        for path in resolved_assets or []:
+            allowed |= self._asset_keys(path)
+        session["allowed_assets"] = allowed
+
+    def _check_asset_scope(
+        self,
+        qid: Any,
+        tool_args: Dict[str, Any],
+    ) -> Optional[str]:
+        """Return an error string if the call names an out-of-scope asset."""
+        allowed = self.sessions[qid].get("allowed_assets")
+        if allowed is None:
+            return (
+                "Error: image session has no trusted asset scope; refusing "
+                "model-controlled image path."
+            )
+        for arg in _PATH_ARGS:
+            value = tool_args.get(arg)
+            if value in (None, ""):
+                continue
+            if not self._asset_keys(value) & allowed:
+                return (
+                    f"Error: '{value}' is not one of the images linked to this "
+                    "question. Use only the paths listed under image_paths in "
+                    "the run context."
+                )
+        return None
+
+    def _register_generated_assets(self, qid: Any, result: Any) -> None:
+        """Allow re-use of artifacts the server just derived from allowed input.
+
+        Overlay and visualization tools write a new PNG and return its path;
+        chaining a second tool onto that artifact is legitimate, and it carries
+        no data the source image did not already have.
+        """
+        allowed = self.sessions.get(qid, {}).get("allowed_assets")
+        if allowed is None:
+            return
+        stack: List[Any] = [result]
+        while stack:
+            node = stack.pop()
+            if isinstance(node, dict):
+                for key, value in node.items():
+                    if isinstance(value, str) and key.endswith("path"):
+                        allowed |= self._asset_keys(value)
+                    else:
+                        stack.append(value)
+            elif isinstance(node, list):
+                stack.extend(node)
 
     async def _init_mcp_session(self, qid: Any) -> str:
         session = self._get_or_create_session(qid)
@@ -171,7 +280,12 @@ class ImageToolPool:
         if tool_name.startswith("image."):
             tool_name = tool_name[len("image."):]
 
+        scope_error = self._check_asset_scope(qid, tool_args)
+        if scope_error:
+            return scope_error
+
         result = await self._call_mcp_tool(qid, tool_name, tool_args)
+        self._register_generated_assets(qid, result)
         if isinstance(result, (dict, list)):
             return json.dumps(result, indent=2, ensure_ascii=False)
         return str(result)

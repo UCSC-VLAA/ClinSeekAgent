@@ -126,20 +126,36 @@ def get_combined_tools_mm():
 COMBINED_TOOL_CONTENT_MM = json.dumps(get_combined_tools_mm())
 
 
-DEVELOPER_CONTENT_CLAUDE_MM = """
+def get_tools_mm(browser_enabled: bool = True, image_enabled: bool = True):
+    """Tool list for one ablation arm. EHR tools are always present."""
+    tools = json.loads(EHR_TOOL_CONTENT_JSON)
+    if browser_enabled:
+        tools += json.loads(BROWSER_TOOL_CONTENT)
+    if image_enabled:
+        tools += json.loads(IMAGE_TOOL_CONTENT_JSON)
+    return tools
+
+
+def get_tool_content_mm(browser_enabled: bool = True,
+                        image_enabled: bool = True) -> str:
+    return json.dumps(get_tools_mm(browser_enabled, image_enabled))
+
+
+_DEVELOPER_CONTENT_MM_FULL = """
 You are a clinical research assistant with access to three tool families plus native vision.
 
 Every user turn starts with a short `<run_context>` block stating exactly what
 is attached to *this* sample:
 - `images_attached`: number of CXR / medical images inlined as image content blocks.
 - `reports_inlined`: number of linked radiology reports inlined as text blocks.
-- `patient_ehr_available`: whether a patient-scope EHR database can be loaded.
+- `ehr_database_available`: whether the row's packaged patient or
+  cohort-pseudo-subject EHR database can be loaded.
 
 **Never** call a tool whose precondition is not met:
 - If `images_attached == 0`, do not call any `image.*` tool (they require an image_path).
-- If `patient_ehr_available == no`, do not call `ehr.load_ehr`; answer from the
-  question text (and browser, if helpful). This covers cohort-scope questions
-  where the answer is computed over all patients, not a single one.
+- If `ehr_database_available == no`, do not call `ehr.load_ehr`; answer from
+  the question text (and browser, if helpful). Cohort-scope questions with a
+  packaged pseudo-subject database set this flag to `yes`.
 - If the sample has no image and no EHR, the question is a text-only lookup or
   reasoning task — answer directly (optionally with `browser.*`).
 
@@ -176,3 +192,104 @@ Cite web sources using: 【{cursor}†L{line_start}(-L{line_end})?】
 
 sources=web,ehr,image
 """
+
+
+# ── Tool-family ablation ─────────────────────────────────────────────────────
+# The variants are cut from the full prompt rather than written out separately,
+# so the all-tools arm is byte-identical to what earlier runs used and the
+# ablations cannot drift from it.
+
+_BROWSER_TOOLS_BLOCK = """**Browser Tools** (web research and medical knowledge):
+- browser.search: Search the web for information, guidelines, criteria.
+- browser.open: Open and read a page returned by search.
+- browser.find: Find text within the current page.
+
+"""
+
+_IMAGE_TOOLS_BLOCK = """**Image Tools** (chest X-ray specialist models — MCP):
+- image.image_visualizer: Render an annotated copy of an image for later tools.
+- image.dicom_processor: Convert a DICOM to PNG; use this before other tools when the source is .dcm.
+- image.chest_xray_classifier: Get 18-pathology probabilities (torchxrayvision DenseNet).
+- image.chest_xray_report_generator: Generate a FINDINGS + IMPRESSION narrative.
+- image.xray_phrase_grounding: Locate a specific finding phrase with MAIRA-2; returns bounding boxes + overlay.
+- image.chest_xray_segmentation: Segment 14 anatomical structures with PSPNet.
+
+"""
+
+_CITATION_BLOCK = """
+The `cursor` appears in brackets before each browsing display: `[{cursor}]`.
+Cite web sources using: 【{cursor}†L{line_start}(-L{line_end})?】
+"""
+
+
+def _cut(text: str, fragment: str, replacement: str = "") -> str:
+    """Remove or replace one exact fragment, failing loudly if it moved."""
+    if fragment not in text:
+        raise ValueError(f"prompt fragment not found: {fragment[:60]!r}")
+    return text.replace(fragment, replacement, 1)
+
+
+def get_developer_content_mm(browser_enabled: bool = True,
+                             image_enabled: bool = True) -> str:
+    """System prompt naming only the tool families actually offered.
+
+    A prompt that advertises a withheld family makes the model spend rounds on
+    unknown-tool errors, so the text has to track the tool list exactly.
+    """
+    text = _DEVELOPER_CONTENT_MM_FULL
+    if not browser_enabled:
+        text = _cut(text, _BROWSER_TOOLS_BLOCK)
+        text = _cut(
+            text,
+            "answer from\n  the question text (and browser, if helpful).",
+            "answer from\n  the question text.",
+        )
+        text = _cut(
+            text,
+            "  reasoning task — answer directly (optionally with `browser.*`).",
+            "  reasoning task — answer directly.",
+        )
+        text = _cut(text, _CITATION_BLOCK)
+    if not image_enabled:
+        text = _cut(text, _IMAGE_TOOLS_BLOCK)
+        text = _cut(
+            text,
+            "- If `images_attached == 0`, do not call any `image.*` tool "
+            "(they require an image_path).\n",
+        )
+        text = _cut(
+            text,
+            "- When the question is about a specific CXR study, you may either "
+            "reason from the attached image directly or call the image tools to "
+            "ground your answer. Prefer tool-grounded evidence for any claim you "
+            "make about the image.",
+            "- When the question is about a specific CXR study, reason from the "
+            "attached image directly; no image analysis tools are available in "
+            "this setting.",
+        )
+        text = _cut(
+            text,
+            "- If tool output contains file paths (e.g. segmentation overlays), "
+            "you may mention the paths in your reasoning but do not rely on the "
+            "user to open them.\n",
+        )
+
+    families = ["EHR"] + (["browser"] if browser_enabled else []) + (
+        ["image"] if image_enabled else [])
+    count = {1: "one tool family", 2: "two tool families",
+             3: "three tool families"}[len(families)]
+    text = _cut(
+        text,
+        "access to three tool families plus native vision.",
+        f"access to {count} plus native vision.",
+    )
+    # Keep the original web,ehr,image ordering so the full arm is unchanged.
+    sources = ",".join(
+        (["web"] if browser_enabled else []) + ["ehr"]
+        + (["image"] if image_enabled else []))
+    text = _cut(text, "sources=web,ehr,image", f"sources={sources}")
+    return text
+
+
+# Backward-compatible name: the full three-family prompt.
+DEVELOPER_CONTENT_CLAUDE_MM = get_developer_content_mm(True, True)

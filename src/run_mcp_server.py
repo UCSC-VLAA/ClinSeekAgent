@@ -5,7 +5,7 @@ import numpy as np
 import json
 from pathlib import Path
 from pydantic import Field
-from typing import Annotated
+from typing import Annotated, List, Optional
 from fastmcp import Context
 from fastmcp.resources import TextResource
 from agentlite.commons import EHRManager
@@ -95,7 +95,14 @@ async def get_descriptions_resource():
 async def load_ehr(
     ctx: Context,
     subject_id: Annotated[str, Field(description="The unique identifier for the patient whose EHR database needs to be loaded (e.g., '10000032').")],
-    timestamp: Annotated[str, Field(description="The current timestamp in 'YYYY-MM-DD HH:MM:SS' format (e.g., '2150-12-01 10:00:00').")]
+    timestamp: Annotated[str, Field(description="The current timestamp in 'YYYY-MM-DD HH:MM:SS' format (e.g., '2150-12-01 10:00:00').")],
+    linked_study_ids: Optional[List[str]] = None,
+    scope: Optional[str] = None,
+    task: Optional[str] = None,
+    hadm_id: Optional[str] = None,
+    target_hadm_id: Optional[str] = None,
+    target_stay_id: Optional[str] = None,
+    modalities: Optional[List[str]] = None,
 ) -> str:
     """
     Loads the EHR database for a specific patient by subject ID.
@@ -107,20 +114,125 @@ async def load_ehr(
     """
     try:
         # EHRManager keeps patient tables in a mutable process-global dict, so
-        # concurrent load_ehr calls must snapshot sequentially before handing
-        # the data off to session-local state.
+        # concurrent load_ehr calls must bind and snapshot atomically before
+        # handing the data off to session-local state.
         async with load_ehr_lock:
-            load_log = ehr_manager.load_ehr_for_sample(subject_id, timestamp)
-            session_ehr_data = ehr_manager.get_ehr_data_json()
-            session_table_names = list(ehr_manager.ehr_data.keys())
+            existing = ehr_session_store.get(ctx.session_id)
+            if existing is not None:
+                existing_subject = str(
+                    existing.get(SESSION_EHR_SUBJECT_ID_KEY, "")
+                )
+                existing_timestamp = pd.Timestamp(
+                    existing.get(
+                        "requested_prediction_time",
+                        existing.get(SESSION_EHR_TIMESTAMP_KEY),
+                    )
+                )
+                requested_timestamp = pd.Timestamp(timestamp)
+                existing_task = existing.get("trusted_task")
+                requested_task = str(task) if task is not None else None
+                existing_hadm_id = existing.get("trusted_hadm_id")
+                requested_hadm_id = (
+                    str(hadm_id) if hadm_id not in (None, "") else None
+                )
+                existing_target_hadm_id = existing.get(
+                    "trusted_target_hadm_id"
+                )
+                requested_target_hadm_id = (
+                    str(target_hadm_id)
+                    if target_hadm_id not in (None, "")
+                    else None
+                )
+                existing_target_stay_id = existing.get(
+                    "trusted_target_stay_id"
+                )
+                requested_target_stay_id = (
+                    str(target_stay_id)
+                    if target_stay_id not in (None, "")
+                    else None
+                )
+                if (
+                    str(subject_id) != existing_subject
+                    or requested_timestamp != existing_timestamp
+                    or requested_task != existing_task
+                    or requested_hadm_id != existing_hadm_id
+                    or requested_target_hadm_id
+                    != existing_target_hadm_id
+                    or requested_target_stay_id
+                    != existing_target_stay_id
+                ):
+                    return (
+                        "Error: this MCP session is already bound to a "
+                        "different patient, prediction cutoff, task, or "
+                        "index/target encounter."
+                    )
+                return (
+                    "EHR snapshot already loaded for this session under "
+                    "temporal policy "
+                    f"{existing.get('temporal_policy_version', 'unknown')}."
+                )
+
+            ehr_manager.load_ehr_for_sample(
+                subject_id,
+                timestamp,
+                linked_study_ids=linked_study_ids,
+                scope=scope,
+                task=task,
+                hadm_id=hadm_id,
+                target_hadm_id=target_hadm_id,
+                target_stay_id=target_stay_id,
+                modalities=modalities,
+            )
+            all_session_ehr_data = ehr_manager.get_ehr_data_json()
+            # Do not reveal the existence of a patient table that has no
+            # pre-cutoff rows. In per-patient databases, table presence itself
+            # can otherwise reveal a future event category.
+            session_table_names = [
+                table_name
+                for table_name, frame in ehr_manager.ehr_data.items()
+                if not frame.empty
+            ]
+            session_ehr_data = {
+                table_name: all_session_ehr_data[table_name]
+                for table_name in session_table_names
+            }
+            temporal_policy_version = ehr_manager.temporal_policy_version
+            temporal_report = ehr_manager.last_temporal_report
 
         ehr_session_store[ctx.session_id] = {
             SESSION_EHR_SUBJECT_ID_KEY: subject_id,
-            SESSION_EHR_TIMESTAMP_KEY: timestamp,
+            # Time-aware query tools must use the effective runtime boundary.
+            # For readmission this is the real index dischtime + 1 second,
+            # not the source note's midnight charttime + 1 second.
+            SESSION_EHR_TIMESTAMP_KEY: str(
+                pd.Timestamp(ehr_manager.last_prediction_time)
+            ),
+            "requested_prediction_time": str(pd.Timestamp(timestamp)),
+            "trusted_task": str(task) if task is not None else None,
+            "trusted_hadm_id": (
+                str(hadm_id) if hadm_id not in (None, "") else None
+            ),
+            "trusted_target_hadm_id": (
+                str(target_hadm_id)
+                if target_hadm_id not in (None, "")
+                else None
+            ),
+            "trusted_target_stay_id": (
+                str(target_stay_id)
+                if target_stay_id not in (None, "")
+                else None
+            ),
             SESSION_EHR_DATA_KEY: session_ehr_data,
             SESSION_EHR_TABLE_NAMES_KEY: session_table_names,
+            "temporal_policy_version": temporal_policy_version,
+            # Server-side audit evidence. Never include row/drop/redaction
+            # counts in the model-visible load_ehr observation.
+            "temporal_report": temporal_report,
         }
-        return load_log
+        return (
+            "EHR snapshot loaded successfully under temporal policy "
+            f"{temporal_policy_version}."
+        )
     except Exception as e:
         return f"An error occurred while loading EHR database: {str(e)}"
 

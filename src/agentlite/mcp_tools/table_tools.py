@@ -31,8 +31,16 @@ async def get_column_names(
         str: A formatted string of column names, or an error message.
     """
     # 從 EHRManager 的統一介面獲取表
-    ehr_tables = await get_resource(ctx, f"cache://ehr/ehr_data/{subject_id}/table_list.json")
-    candidate_tables = await get_resource(ctx, "cache://ehr/candidate_data/table_list.json")
+    ehr_tables = (
+        await get_resource(
+            ctx, f"cache://ehr/ehr_data/{subject_id}/table_list.json"
+        )
+        or []
+    )
+    candidate_tables = (
+        await get_resource(ctx, "cache://ehr/candidate_data/table_list.json")
+        or []
+    )
 
     if table_name in ehr_tables:
         df = await get_resource_df(ctx, f"cache://ehr/ehr_data/{subject_id}/{table_name}.json")
@@ -59,8 +67,16 @@ async def get_table_names(
     Returns:
         str: A formatted string listing all available tables.
     """
-    ehr_tables = await get_resource(ctx, f"cache://ehr/ehr_data/{subject_id}/table_list.json")
-    candidate_tables = await get_resource(ctx, "cache://ehr/candidate_data/table_list.json")
+    ehr_tables = (
+        await get_resource(
+            ctx, f"cache://ehr/ehr_data/{subject_id}/table_list.json"
+        )
+        or []
+    )
+    candidate_tables = (
+        await get_resource(ctx, "cache://ehr/candidate_data/table_list.json")
+        or []
+    )
     
     output_lines = ["Available Tables:"]
     
@@ -157,7 +173,12 @@ async def get_unique_values(
         str: A list of unique values or an error message.
     """
     # 1. 检查表是否存在
-    ehr_tables = await get_resource(ctx, f"cache://ehr/ehr_data/{subject_id}/table_list.json")
+    ehr_tables = (
+        await get_resource(
+            ctx, f"cache://ehr/ehr_data/{subject_id}/table_list.json"
+        )
+        or []
+    )
     if table_name not in ehr_tables:
         return f"Error: Table '{table_name}' not found in EHR table list."
 

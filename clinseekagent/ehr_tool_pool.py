@@ -10,6 +10,36 @@ from typing import Dict, Any
 import httpx
 
 
+# Code-prediction tasks whose target encounter is keyed on hadm_id. Kept in
+# sync with TARGET_CODE_TASKS in src/agentlite/commons/temporal_policy.py --
+# only these tasks ever read target_hadm_id, so the fallback below cannot
+# affect anything else.
+_HADM_TARGET_CODE_TASKS = {"diagnoses_icd", "diagnoses_ccs"}
+
+
+def _resolve_target_hadm_id(item: Dict[str, Any], task: Any) -> Any:
+    """Trusted target encounter for a diagnosis-code task.
+
+    ClinSeek-Bench rows carry `target_hadm_id` explicitly. AgentEHR-Bench rows
+    do not -- they carry only `hadm_id`, and for these tasks that *is* the
+    target: verified on 25 cases, 100% of the gold ICD codes come from the
+    `hadm_id` admission, and `prediction_time` falls inside that admission
+    (one sample sits two minutes before its discharge). Without the fallback
+    the strict policy fails closed and every row dies at load_ehr.
+
+    The fallback is deliberately restricted to the two tasks that read the
+    field. Applying it everywhere would mask the current admission for the
+    1,612 mortality/readmission rows that legitimately have `hadm_id` and no
+    target, silently removing evidence they are entitled to see.
+    """
+    explicit = item.get("target_hadm_id")
+    if explicit not in (None, ""):
+        return explicit
+    if str(task).strip() in _HADM_TARGET_CODE_TASKS:
+        return item.get("hadm_id")
+    return None
+
+
 class EHRToolPool:
     """Manages HTTP connections to EHR MCP server and tool execution."""
 
@@ -35,8 +65,32 @@ class EHRToolPool:
                 "mcp_session_id": None,
                 "mcp_initialized": False,
                 "mcp_init_lock": asyncio.Lock(),
+                "trusted_sample_policy": None,
             }
         return self.sessions[qid]
+
+    def configure_session(self, qid: Any, item: Dict[str, Any]) -> None:
+        """Attach immutable benchmark metadata to a query session.
+
+        Models may choose when to call ``load_ehr``, but they must not choose a
+        different patient, cutoff, task/index admission, diagnosis-code target
+        encounter, or CXR scope. These values come from the benchmark row and
+        are injected into every load/reload request.
+        """
+        session = self._get_or_create_session(qid)
+        task = item.get("task") or item.get("source_task")
+        session["trusted_sample_policy"] = {
+            "subject_id": item.get("subject_id"),
+            "timestamp": item.get("prediction_time")
+            or item.get("timestamp"),
+            "linked_study_ids": list(item.get("study_ids") or []),
+            "scope": item.get("scope"),
+            "task": task,
+            "hadm_id": item.get("hadm_id"),
+            "target_hadm_id": _resolve_target_hadm_id(item, task),
+            "target_stay_id": item.get("target_stay_id"),
+            "modalities": list(item.get("modalities") or []),
+        }
 
     async def _init_mcp_session(self, qid: Any) -> str:
         """Initialize a dedicated MCP session for a single query."""
@@ -75,7 +129,14 @@ class EHRToolPool:
                 response.raise_for_status()
 
                 # Extract session ID from response headers
-                mcp_session_id = response.headers.get("mcp-session-id") or response.headers.get("x-session-id", "default-session")
+                mcp_session_id = (
+                    response.headers.get("mcp-session-id")
+                    or response.headers.get("x-session-id")
+                )
+                if not mcp_session_id:
+                    raise Exception(
+                        "MCP initialization failed: server returned no session ID"
+                    )
 
                 init_result = None
 
@@ -240,11 +301,54 @@ class EHRToolPool:
             Tool result as string
         """
         if qid not in self.sessions:
-            await self.init_session(qid)
+            self._get_or_create_session(qid)
 
         # Remove 'ehr.' prefix if present
         if tool_name.startswith("ehr."):
             tool_name = tool_name[4:]
+
+        trusted = self.sessions[qid].get("trusted_sample_policy")
+        if tool_name == "load_ehr":
+            if not trusted:
+                return (
+                    "Error: EHR session has no trusted benchmark metadata; "
+                    "refusing model-controlled patient or cutoff."
+                )
+            if trusted.get("subject_id") in (None, ""):
+                return "Error: this benchmark row has no EHR database."
+            if trusted.get("timestamp") in (None, ""):
+                return "Error: this benchmark row has no prediction timestamp."
+            tool_args = {
+                "subject_id": str(trusted["subject_id"]),
+                "timestamp": str(trusted["timestamp"]),
+                "linked_study_ids": [
+                    str(value)
+                    for value in trusted.get("linked_study_ids", [])
+                ],
+                "scope": trusted.get("scope"),
+                "task": trusted.get("task"),
+                "hadm_id": (
+                    str(trusted["hadm_id"])
+                    if trusted.get("hadm_id") not in (None, "")
+                    else None
+                ),
+                "target_hadm_id": (
+                    str(trusted["target_hadm_id"])
+                    if trusted.get("target_hadm_id") not in (None, "")
+                    else None
+                ),
+                "target_stay_id": (
+                    str(trusted["target_stay_id"])
+                    if trusted.get("target_stay_id") not in (None, "")
+                    else None
+                ),
+                "modalities": trusted.get("modalities", []),
+            }
+        elif trusted and "subject_id" in tool_args:
+            # Patient-scoped tools must address the patient bound to this qid.
+            # Do not let a model-controlled argument select another resource.
+            tool_args = dict(tool_args)
+            tool_args["subject_id"] = str(trusted["subject_id"])
 
         # Track loaded EHRs
         if tool_name == "load_ehr" and "subject_id" in tool_args:

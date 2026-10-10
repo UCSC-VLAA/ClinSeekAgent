@@ -15,7 +15,8 @@ mcp>=1.16.0
 pydantic>=2.10
 
 # --- Data access -------------------------------------------------------------
-pandas>=2.1.0
+# Renderers reproduce byte-identical output only from pandas 3.x (validated: 3.0.5).
+pandas>=3.0.5
 numpy>=1.24,<2.3
 
 # --- Semantic search (candidate_tools uses BioLORD-2023) ---------------------
