@@ -33,9 +33,9 @@ DEFAULT_BEDROCK_MODEL_ID = "us.anthropic.claude-opus-4-6-v1"
 DEFAULT_BEDROCK_REGION = "us-east-1"
 DEFAULT_VLLM_BASE_URL = "http://127.0.0.1:4000"
 DEFAULT_VLLM_API_KEY = "EMPTY"
-# Ceiling on parallel queries. Raised via env for arms that own a dedicated
-# EHR MCP server -- the 20 default guards against several arms sharing one
-# server, which overwhelmed the connection pool once and cost 416 rows.
+# Ceiling on parallel queries; raise it via the environment when a run owns a
+# dedicated EHR MCP server. The default of 20 protects a server shared by
+# several runs from exhausting its connection pool.
 MAX_PARALLEL_QUERIES = int(os.environ.get("CLINSEEK_MAX_PARALLEL_QUERIES", "20"))
 DEFAULT_MAX_TOOL_RESULT_CHARS = 100000
 # Paper setting: 8,192 output tokens per model call.
@@ -1577,10 +1577,6 @@ async def main():
     # must not be retried into a nicer number. A row is RE-RUN when the request
     # never landed -- `status == "error"`, i.e. 429s and dead MCP sessions --
     # because that is an outage, not a result.
-    #
-    # This used to skip every previously attempted qid regardless of status,
-    # which made infrastructure failures unrecoverable: a rerun reported
-    # "0 requests" and silently left 236 error rows in place.
     completed_qids = set()
     existing_lines = []
     retryable = 0

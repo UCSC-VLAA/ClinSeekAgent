@@ -1,28 +1,34 @@
-"""One-shot reasoning-model evaluation driver (no tool calling).
+"""Curated Input / Full-Record Input driver for ClinSeek-Bench-Text (no tools).
 
-Sends the benchmark row's fully-rendered `question` directly to the model
-once, asks it to return strict JSON `{"response": [...]}`, then wraps the
-response into a synthetic `ehr.finish` tool call so
-`scoring/score_text.py` can score the resulting `results.jsonl`
-unchanged.
+Sends one rendered patient-record prompt per row to the model, asks for the
+final answer inside an `<answer>...</answer>` block, and wraps the parsed
+answer into a synthetic `ehr.finish` tool call so `scoring/score_text.py`
+scores the resulting `results.jsonl` exactly like an agentic run.
 
-Backends:
-    bedrock   - AWS Bedrock (Anthropic + OpenAI-shape). Supported today.
-    vllm      - local OpenAI-compatible endpoint. Stubbed; raises
-                NotImplementedError. Wiring point is `_invoke_once`.
+Paper setting (`--corpus-root`): rows and records come from a corpus built by
+`scripts/clean_data/build_evidence_corpus.py`, i.e. the policy-filtered record
+under the same strict temporal policy the agent sees.
 
-Usage:
-    python run_text_curated.py \
-        --backend bedrock \
-        --model "Claude Opus 4.6" \
-        --data data/ClinSeek-Bench/inputs/ehr_bench.json \
-        --output-dir ./results/one_shot_opus46_1800 \
-        --concurrency 6
+    --view recent   Curated Input: the source benchmark's evidence package,
+                    re-rendered from the policy-filtered record.
+    --view full     Full-Record Input: the patient's whole pre-cutoff record,
+                    rendered the same way and truncated oldest-first to fit
+                    the prompt window (`--max-context-window`, default 100k).
 
-For Bedrock, `--model` accepts any friendly name from
-`bedrock_region_availability.json`; rows are round-robin partitioned
-across every OK region for that model. When vllm is implemented,
-`--api-base-url` and `--model-id` will point at the local server.
+`--data` instead sends each row's own `question` field verbatim. The public
+manifest does not carry `question`; restore it with
+`scripts/data_build/restore_ehr_bench_inputs.py`. That prompt is the upstream
+EHR-Bench serialization, which predates the temporal policy, so it is NOT the
+paper's Curated Input setting.
+
+Backends: bedrock (Claude via `--model` friendly name from
+`bedrock_region_availability.json`), vertex (Claude via Vertex model id), and
+vllm (any OpenAI-compatible endpoint: `--api-base-url`, `--api-key`).
+
+    python clinseekagent/run_text_curated.py \
+        --backend vertex --model claude-opus-4-6 \
+        --corpus-root /path/to/text_corpus --view recent \
+        --output-dir outputs/text_curated_recent
 """
 
 from __future__ import annotations
@@ -37,7 +43,12 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from threading import Thread
-from typing import Any, Dict, List, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from context_limits import (  # noqa: E402
+    DEFAULT_MAX_CONTEXT_WINDOW, history_budget, resolve_context_window)
 
 
 # ----------------------------------------------------------------------------
@@ -67,8 +78,16 @@ _ANSWER_TRAILER = (
 )
 
 
-def build_user_content(row: Dict[str, Any]) -> str:
-    return row["question"] + _ANSWER_TRAILER
+def build_user_content(row: Dict[str, Any],
+                       question: Optional[str] = None) -> str:
+    """Prompt for `row`, optionally overriding its rendered `question`.
+
+    The Full Record mode renders a wider timeline into `question` at run time
+    (see `clinseekagent/record_context.py`); everything else about the prompt,
+    including this trailer, stays identical so the two record widths are the
+    only difference between the arms.
+    """
+    return (row["question"] if question is None else question) + _ANSWER_TRAILER
 
 
 # ----------------------------------------------------------------------------
@@ -329,159 +348,12 @@ def salvage_plain_text(text: str) -> List[str]:
 
 
 # ----------------------------------------------------------------------------
-# Bedrock invoker
+# Invokers live in curated_invokers.py (shared with the multimodal runner).
 # ----------------------------------------------------------------------------
 
 _REGION_AVAILABILITY_PATH = Path(__file__).with_name(
     "bedrock_region_availability.json"
 )
-
-_RETRYABLE_KEYWORDS = (
-    "timeout",
-    "throttl",
-    "too many requests",
-    "service unavailable",
-    "internal server error",
-    "internalserver",
-    "unexpected error",
-    "busy",
-)
-
-
-class BedrockInvoker:
-    """Process-global Bedrock client cache + retry loop.
-
-    Importing boto3 is deferred to instantiation so that running with
-    `--backend vllm` does not require boto3 to be installed.
-    """
-
-    def __init__(
-        self,
-        max_tokens: int,
-        temperature: float,
-        max_retries: int,
-        read_timeout: int = 120,
-    ):
-        import boto3
-        from botocore.config import Config as BotoConfig
-        from botocore.exceptions import BotoCoreError, ClientError
-
-        self._boto3 = boto3
-        self._BotoCoreError = BotoCoreError
-        self._ClientError = ClientError
-        self._boto_config = BotoConfig(
-            read_timeout=read_timeout,
-            connect_timeout=10,
-            retries={"max_attempts": 0},
-        )
-        self._clients: Dict[str, Any] = {}
-        self.max_tokens = max_tokens
-        self.temperature = temperature
-        self.max_retries = max_retries
-
-    # --- client -----------------------------------------------------------
-    def _client(self, region: str):
-        c = self._clients.get(region)
-        if c is None:
-            c = self._boto3.client(
-                "bedrock-runtime", region_name=region, config=self._boto_config
-            )
-            self._clients[region] = c
-        return c
-
-    # --- retry predicate --------------------------------------------------
-    def _is_retryable(self, exc: Exception) -> bool:
-        if isinstance(exc, self._ClientError):
-            code = (exc.response or {}).get("Error", {}).get("Code", "") or ""
-            if code in {
-                "InternalServerException",
-                "ModelNotReadyException",
-                "RequestTimeoutException",
-                "ServiceUnavailableException",
-                "ThrottlingException",
-                "TooManyRequestsException",
-            }:
-                return True
-        if isinstance(exc, self._BotoCoreError):
-            return True
-        return any(kw in str(exc).lower() for kw in _RETRYABLE_KEYWORDS)
-
-    # --- dispatchers ------------------------------------------------------
-    @staticmethod
-    def _is_anthropic(model_id: str) -> bool:
-        return "anthropic" in model_id.lower()
-
-    def _invoke_anthropic(self, client, model_id: str, prompt_text: str) -> str:
-        body = {
-            "anthropic_version": "bedrock-2023-05-31",
-            "max_tokens": self.max_tokens,
-            "temperature": self.temperature,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": [{"type": "text", "text": prompt_text}],
-                }
-            ],
-        }
-        resp = client.invoke_model(modelId=model_id, body=json.dumps(body))
-        out = json.loads(resp["body"].read())
-        return "\n".join(
-            blk.get("text", "")
-            for blk in (out.get("content") or [])
-            if blk.get("type") == "text"
-        ).strip()
-
-    def _invoke_openai(self, client, model_id: str, prompt_text: str) -> str:
-        body = {
-            "max_tokens": self.max_tokens,
-            "temperature": self.temperature,
-            "messages": [
-                {"role": "user", "content": prompt_text},
-            ],
-        }
-        resp = client.invoke_model(modelId=model_id, body=json.dumps(body))
-        out = json.loads(resp["body"].read())
-        try:
-            return (out["choices"][0]["message"]["content"] or "").strip()
-        except Exception:
-            return json.dumps(out)
-
-    # --- main entry -------------------------------------------------------
-    def invoke(
-        self, region: str, model_id: str, prompt_text: str
-    ) -> Tuple[str, str]:
-        client = self._client(region)
-        use_anthropic = self._is_anthropic(model_id)
-        last_err: Exception | None = None
-        for attempt in range(self.max_retries + 1):
-            try:
-                if use_anthropic:
-                    return self._invoke_anthropic(client, model_id, prompt_text), "ok"
-                return self._invoke_openai(client, model_id, prompt_text), "ok"
-            except Exception as exc:  # noqa: BLE001
-                last_err = exc
-                if attempt >= self.max_retries or not self._is_retryable(exc):
-                    break
-                time.sleep(min(2**attempt, 10))
-        return f"[ERROR] {type(last_err).__name__}: {last_err}", "error"
-
-
-# ----------------------------------------------------------------------------
-# vLLM invoker  (stub: wire in when we have a local server to test against)
-# ----------------------------------------------------------------------------
-
-
-class VLLMInvoker:
-    """Placeholder for a future vLLM (OpenAI-compatible) one-shot invoker."""
-
-    def __init__(self, *args, **kwargs):
-        raise NotImplementedError(
-            "vLLM backend is not implemented yet. Wire this up to talk to "
-            "an OpenAI-compatible /v1/chat/completions endpoint when ready."
-        )
-
-    def invoke(self, region: str, model_id: str, prompt_text: str) -> Tuple[str, str]:
-        raise NotImplementedError
 
 
 # ----------------------------------------------------------------------------
@@ -505,9 +377,21 @@ def process_row(
     model_id: str,
     invoker,
     run_index: int,
+    render: Optional[Callable[[Dict[str, Any]], Tuple[str, Dict[str, Any]]]] = None,
 ) -> Dict[str, Any]:
     qid = _qid_of(row)
-    prompt_text = build_user_content(row)
+    record_meta: Optional[Dict[str, Any]] = None
+    if render is None:
+        if not row.get("question"):
+            raise ValueError(
+                f"row {qid!r} has no `question`. The public ClinSeek-Bench-Text "
+                "manifest omits it: run scripts/data_build/"
+                "restore_ehr_bench_inputs.py first, or use --corpus-root "
+                "(the paper's Curated Input setting).")
+        prompt_text = build_user_content(row)
+    else:
+        question, record_meta = render(row)
+        prompt_text = build_user_content(row, question)
     text, status = invoker.invoke(region, model_id, prompt_text)
 
     preds = salvage_plain_text(text) if status == "ok" else []
@@ -551,12 +435,43 @@ def process_row(
             "backend_model_id": model_id,
         }
     )
+    if record_meta is not None:
+        out["record_context"] = record_meta
     return out
 
 
 # ----------------------------------------------------------------------------
 # Shard runner
 # ----------------------------------------------------------------------------
+
+
+def load_previous(out_root: Path, region_names: List[str]) -> Dict[str, str]:
+    """`qid -> results line` for everything already written under `out_root`.
+
+    Reads the merged file and every shard file, later occurrences winning, so
+    a rerun is idempotent no matter which of them a previous attempt got as
+    far as writing. Only rows that actually completed are kept -- an errored
+    row should be retried, that is the point of rerunning.
+    """
+    seen: Dict[str, str] = {}
+    candidates = [out_root / "results.jsonl"]
+    candidates += [out_root / r / "results.jsonl" for r in region_names]
+    for path in candidates:
+        if not path.exists():
+            continue
+        with path.open() as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    row = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                qid = row.get("qid")
+                if qid and row.get("completed"):
+                    seen[str(qid)] = line
+    return seen
 
 
 def run_shard(
@@ -567,14 +482,19 @@ def run_shard(
     output_path: Path,
     concurrency: int,
     run_index: int,
+    render=None,
 ) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     done = 0
-    with output_path.open("w") as f, ThreadPoolExecutor(
+    # Append, never truncate: rows already finished by an earlier attempt are
+    # filtered out before the shard is built, and a run that dies partway must
+    # not throw away what it paid for.
+    with output_path.open("a") as f, ThreadPoolExecutor(
         max_workers=concurrency
     ) as pool:
         futures = {
-            pool.submit(process_row, row, region, model_id, invoker, run_index): row
+            pool.submit(process_row, row, region, model_id, invoker, run_index,
+                        render): row
             for row in shard_rows
         }
         for fut in as_completed(futures):
@@ -621,6 +541,14 @@ def _load_region_map(model_name: str) -> Dict[str, str]:
 
 
 def _plan_bedrock(args) -> List[Tuple[str, str]]:
+    catalog = json.loads(_REGION_AVAILABILITY_PATH.read_text())
+    if args.model not in catalog:
+        # A raw Bedrock model id (e.g. us.anthropic.claude-opus-4-6-v1) rather
+        # than a catalog friendly name: run it in one region.
+        region = ((args.regions or [None])[0]
+                  or os.environ.get("BEDROCK_REGION")
+                  or os.environ.get("AWS_DEFAULT_REGION") or "us-east-1")
+        return [(region, args.model)]
     region_map = _load_region_map(args.model)
     if args.regions:
         # Explicit region list (possibly multi) from the user.
@@ -645,19 +573,88 @@ def _plan_bedrock(args) -> List[Tuple[str, str]]:
     return [first]
 
 
+def merge_prior_usage(out_root, usage: dict) -> dict:
+    """Fold an existing usage.json into `usage`, so a resumed run reports the
+    whole arm's spend rather than the last process's slice.
+
+    Without this the file is overwritten each time, and a run that resumed
+    several times would report only the last slice of its token usage.
+    """
+    import json as _json
+    from pathlib import Path as _Path
+    prior_path = _Path(out_root) / "usage.json"
+    merged = dict(usage)
+    if prior_path.exists():
+        try:
+            prior = _json.loads(prior_path.read_text())
+        except (ValueError, OSError):
+            return merged
+        for key, value in prior.items():
+            if isinstance(value, (int, float)) and isinstance(merged.get(key), (int, float)):
+                merged[key] = merged[key] + value
+        # Record that this total spans more than one process, so a reader can
+        # tell an accumulated figure from a single-run one.
+        merged["runs_accumulated"] = int(prior.get("runs_accumulated", 1)) + 1
+    return merged
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--data", required=True, help="Benchmark JSON file")
+    ap.add_argument("--data", default=None, help="Benchmark JSON file")
+    ap.add_argument(
+        "--corpus-root", default=None,
+        help="Corpus root built by scripts/clean_data/build_evidence_corpus.py "
+             "(paper setting). Alternative to --data: rows come from "
+             "all_data.jsonl and the record is rendered at the width given by "
+             "--view.")
+    ap.add_argument(
+        "--view", choices=["recent", "full"], default="recent",
+        help="Which record width to send. `recent` (Curated Input) is the "
+             "corpus' curated selection and ships pre-rendered; `full` "
+             "(Full-Record Input) is the whole pre-cutoff history, "
+             "re-rendered here and truncated oldest-first to fit.")
+    ap.add_argument(
+        "--context-window", type=int, default=None,
+        help="Override the model's input context window (tokens). Without "
+             "it the window comes from clinseekagent/context_limits.py, "
+             "which raises on an unknown model rather than guessing.")
+    ap.add_argument(
+        "--max-context-window", type=int, default=DEFAULT_MAX_CONTEXT_WINDOW,
+        help="Hard ceiling on the prompt window, in tokens (default "
+             "%(default)s). Clamps whatever the registry or --context-window "
+             "resolves to. The model's real ceiling and the one we are "
+             "willing to pay for are different numbers; this is the second.")
+    ap.add_argument(
+        "--context-safety-frac", type=float, default=0.05,
+        help="Fraction of the window held back to absorb token-estimate "
+             "error (the char/token ratio is accurate to ~5%%).")
+    ap.add_argument(
+        "--thinking-budget", type=int, default=4096,
+        help="Claude extended-thinking budget (models that accept a fixed "
+             "budget); also reserved when computing the prompt budget.")
+    ap.add_argument(
+        "--enable-thinking", dest="enable_thinking", action="store_true",
+        help="Enable reasoning (default; paper setting).")
+    ap.add_argument(
+        "--disable-thinking", dest="enable_thinking", action="store_false",
+        help="Disable reasoning.")
+    ap.set_defaults(enable_thinking=True)
+    ap.add_argument(
+        "--reasoning-effort", default="high",
+        help="Effort for adaptive-only Claude models (output_config.effort) "
+             "and OpenAI reasoning models (reasoning_effort).")
     ap.add_argument(
         "--backend",
-        choices=["bedrock", "vllm"],
+        choices=["bedrock", "vertex", "vllm"],
         default="bedrock",
-        help="Inference backend (vllm not yet implemented)",
+        help="Inference backend; vllm = any OpenAI-compatible endpoint",
     )
     ap.add_argument(
         "--model",
         default="Claude Opus 4.6",
-        help="Friendly name (bedrock) / model id (vllm)",
+        help="Friendly name from bedrock_region_availability.json (bedrock), "
+             "Vertex model id such as claude-opus-4-6 (vertex), or served "
+             "model name (vllm)",
     )
     ap.add_argument("--output-dir", required=True)
     ap.add_argument(
@@ -670,18 +667,18 @@ def main() -> int:
     ap.add_argument(
         "--max-tokens",
         type=int,
-        default=16384,
-        help="Upper bound on output tokens. Reasoning-heavy OSS models "
-        "(gpt-oss, MiniMax) need headroom for the full CoT + answer.",
+        default=8192,
+        help="Output tokens per call (paper: 8192). Reasoning-heavy models "
+        "may need more headroom for the full reasoning + answer.",
     )
     ap.add_argument("--temperature", type=float, default=0.0)
     ap.add_argument("--max-retries", type=int, default=3)
     ap.add_argument(
         "--read-timeout",
         type=int,
-        default=120,
-        help="Bedrock HTTP read timeout (seconds). Bump for models that "
-        "stall on long reasoning outputs (e.g. MiniMax).",
+        default=600,
+        help="HTTP read timeout (seconds). Long reasoning outputs over a "
+        "100k-token prompt can take several minutes.",
     )
     ap.add_argument("--run-index", type=int, default=1)
     ap.add_argument(
@@ -691,6 +688,11 @@ def main() -> int:
         help="Only process first N rows (smoke testing)",
     )
     # Bedrock-specific
+    ap.add_argument(
+        "--qids", nargs="*", default=None,
+        help="Run only these qids. For targeted reruns, and for smoke-testing "
+             "a specific case (e.g. one with a large history) without having "
+             "to reach it by --limit.")
     ap.add_argument(
         "--regions",
         nargs="*",
@@ -706,35 +708,125 @@ def main() -> int:
         "region just blocks the merge. Set this only for very large "
         "benchmarks where per-region throughput is the bottleneck.",
     )
-    # vLLM-specific (placeholders)
-    ap.add_argument("--api-base-url", default=None)
-    ap.add_argument("--api-key", default=None)
+    # Vertex-specific
+    ap.add_argument("--vertex-project", default=None,
+                    help="GCP project (defaults to ANTHROPIC_VERTEX_PROJECT_ID)")
+    ap.add_argument("--vertex-region", default=None,
+                    help="Vertex region (defaults to VERTEX_REGION, else us-east5)")
+    # OpenAI-compatible (--backend vllm)
+    ap.add_argument("--api-base-url", default="http://127.0.0.1:4000/v1",
+                    help="OpenAI-compatible base URL (--backend vllm)")
+    ap.add_argument("--api-key", default=None,
+                    help="API key (--backend vllm; defaults to $VLLM_API_KEY)")
+    ap.add_argument("--min-request-interval", type=float, default=0.0,
+                    help="Minimum seconds between request starts "
+                         "(--backend vllm, rate-limited endpoints)")
     args = ap.parse_args()
 
-    rows: List[Dict[str, Any]] = json.loads(Path(args.data).read_text())
-    if args.limit > 0:
-        rows = rows[: args.limit]
+    if bool(args.data) == bool(args.corpus_root):
+        raise SystemExit("pass exactly one of --data or --corpus-root")
+
+    render = None
+    render_cfg: Dict[str, Any] = {}
+    if args.corpus_root:
+        import record_context as rc
+
+        rows = rc.load_corpus_rows(args.corpus_root, limit=args.limit)
+        window = resolve_context_window(
+            args.model, args.context_window, cap=args.max_context_window)
+        budget = history_budget(
+            window, max_tokens=args.max_tokens,
+            thinking_budget=args.thinking_budget,
+            safety_frac=args.context_safety_frac)
+        render_cfg = {
+            "corpus_root": str(args.corpus_root), "view": args.view,
+            "context_window": window, "prompt_budget_tokens": budget,
+            "max_context_window": args.max_context_window,
+            "context_window_source": ("--context-window"
+                                      if args.context_window else "registry"),
+            "render_version": rc.RENDER_VERSION,
+        }
+
+        def render(row: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
+            text, meta = rc.render_question(
+                row, args.corpus_root, args.view, budget)
+            meta["context_window"] = window
+            return text, meta
+
+        print(f"corpus  {args.corpus_root}  view={args.view}  rows={len(rows)}")
+        print(f"window  {window:,} tok -> prompt budget {budget:,} tok "
+              f"({render_cfg['context_window_source']})", flush=True)
+    else:
+        raw = Path(args.data).read_text(encoding="utf-8").strip()
+        rows = (json.loads(raw) if raw.startswith("[") else
+                [json.loads(line) for line in raw.splitlines() if line.strip()])
+        if args.limit > 0:
+            rows = rows[: args.limit]
+        missing_q = [r.get("qid") for r in rows if not r.get("question")]
+        if missing_q:
+            raise SystemExit(
+                f"{len(missing_q)} row(s) have no `question` (e.g. "
+                f"{missing_q[:3]}). The public manifest omits it: restore it "
+                "with scripts/data_build/restore_ehr_bench_inputs.py, or use "
+                "--corpus-root for the paper's Curated Input setting.")
+
+    if args.qids:
+        wanted = set(args.qids)
+        rows = [r for r in rows if str(r.get("qid") or r.get("id")) in wanted]
+        missing = wanted - {str(r.get("qid") or r.get("id")) for r in rows}
+        if missing:
+            raise SystemExit(f"--qids not found in the data: {sorted(missing)}")
 
     # Build invoker + fan-out plan
+    from curated_invokers import BedrockInvoker, OpenAICompatInvoker, VertexInvoker
+
+    reasoning = dict(enable_thinking=args.enable_thinking,
+                     thinking_budget=args.thinking_budget,
+                     reasoning_effort=args.reasoning_effort)
     if args.backend == "bedrock":
         invoker = BedrockInvoker(
             max_tokens=args.max_tokens,
             temperature=args.temperature,
             max_retries=args.max_retries,
             read_timeout=args.read_timeout,
+            **reasoning,
         )
         plan: List[Tuple[str, str]] = _plan_bedrock(args)
         targets = plan
-    else:
-        invoker = VLLMInvoker(
-            api_base_url=args.api_base_url,
-            api_key=args.api_key,
-            model_id=args.model,
+    elif args.backend == "vertex":
+        project = (args.vertex_project or os.environ.get("ANTHROPIC_VERTEX_PROJECT_ID")
+                   or os.environ.get("GOOGLE_CLOUD_PROJECT"))
+        if not project:
+            raise SystemExit(
+                "vertex backend needs a project: pass --vertex-project or set "
+                "ANTHROPIC_VERTEX_PROJECT_ID"
+            )
+        region = (args.vertex_region or os.environ.get("VERTEX_REGION")
+                  or os.environ.get("CLOUD_ML_REGION") or "us-east5")
+        invoker = VertexInvoker(
+            project_id=project,
+            region=region,
             max_tokens=args.max_tokens,
             temperature=args.temperature,
             max_retries=args.max_retries,
+            read_timeout=args.read_timeout,
+            **reasoning,
         )
-        # vLLM: one "region" = the local server
+        # --model is a Vertex model id here, not a friendly name.
+        targets = [(region, args.model)]
+    else:
+        invoker = OpenAICompatInvoker(
+            base_url=args.api_base_url,
+            api_key=args.api_key or os.environ.get("VLLM_API_KEY"),
+            max_tokens=args.max_tokens,
+            temperature=args.temperature,
+            max_retries=args.max_retries,
+            read_timeout=args.read_timeout,
+            enable_thinking=args.enable_thinking,
+            reasoning_effort=args.reasoning_effort,
+            min_request_interval=args.min_request_interval,
+        )
+        # One "region" = the endpoint; kept so the shard plumbing is shared.
         targets = [("local", args.model)]
 
     print(
@@ -748,6 +840,26 @@ def main() -> int:
     (out_root / "region_map.json").write_text(
         json.dumps(dict(targets), indent=2)
     )
+    run_config = {
+        "backend": args.backend, "model": args.model,
+        "max_tokens": args.max_tokens, "temperature": args.temperature,
+        "thinking_budget": args.thinking_budget,
+        "enable_thinking": args.enable_thinking,
+        "reasoning_effort": args.reasoning_effort,
+        "run_index": args.run_index, "concurrency": args.concurrency,
+        "data": args.data, "rows": len(rows), **render_cfg,
+    }
+    (out_root / "run_config.json").write_text(json.dumps(run_config, indent=2))
+
+    # Resume: skip rows an earlier attempt already completed. A Full Record
+    # row costs up to 170k input tokens, so re-spending a finished arm because
+    # the process died at row 1700 is a real bill, not a nuisance.
+    previous = load_previous(out_root, [r for r, _ in targets])
+    if previous:
+        before = len(rows)
+        rows = [r for r in rows if _qid_of(r) not in previous]
+        print(f"resume: {len(previous)} row(s) already complete, "
+              f"{len(rows)}/{before} to run", flush=True)
 
     # Round-robin partition rows across targets
     shards: Dict[str, List[Dict[str, Any]]] = {r: [] for r, _ in targets}
@@ -773,6 +885,7 @@ def main() -> int:
                 "output_path": out_path,
                 "concurrency": args.concurrency,
                 "run_index": args.run_index,
+                "render": render,
             },
             daemon=True,
         )
@@ -781,18 +894,40 @@ def main() -> int:
     for t in threads:
         t.join()
 
-    # Merge
+    # Merge. Deduplicated by qid with the newest write winning, so a resumed
+    # run produces one row per question rather than stacking attempts.
     merged = out_root / "results.jsonl"
-    n = 0
+    by_qid: Dict[str, str] = dict(previous)
+    for (region, _) in targets:
+        shard_path = out_root / region / "results.jsonl"
+        if not shard_path.exists():
+            continue
+        with shard_path.open() as sf:
+            for line in sf:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    qid = json.loads(line).get("qid")
+                except json.JSONDecodeError:
+                    continue
+                if qid:
+                    by_qid[str(qid)] = line
     with merged.open("w") as mf:
-        for (region, _) in targets:
-            shard_path = out_root / region / "results.jsonl"
-            if shard_path.exists():
-                with shard_path.open() as sf:
-                    for line in sf:
-                        mf.write(line)
-                        n += 1
+        for line in by_qid.values():
+            mf.write(line + "\n")
+    n = len(by_qid)
     print(f"\nMerged {n} rows -> {merged}", flush=True)
+
+    # Token usage, in the same shape as the agent driver's usage.json.
+    usage = getattr(invoker, "token_usage", None)
+    if usage:
+        u = merge_prior_usage(out_root, dict(usage))
+        print(f"token usage: {u['requests']} requests, "
+              f"in={u['input_tokens']:,}, out={u['output_tokens']:,}", flush=True)
+        (out_root / "usage.json").write_text(json.dumps(
+            {"model": targets[0][1], "backend": args.backend, **u}, indent=2))
+        print(f"Token usage written to {out_root / 'usage.json'}", flush=True)
     return 0
 
 

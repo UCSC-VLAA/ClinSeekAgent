@@ -1380,10 +1380,8 @@ async def main():
                 # (status "error": 429s, dead MCP sessions). A row where the
                 # model was reached and did not produce a finish call is a
                 # datapoint -- keep it, do not retry it into a nicer number.
-                #
-                # This previously keyed on `completed`, which both re-ran and
-                # DELETED every incomplete row on resume: one rerun of the
-                # Luna mm arm dropped 532 recorded incomplete rows.
+                # (Keying on `completed` instead would re-run and drop every
+                # recorded incomplete row on resume.)
                 if result.get("status") == "error":
                     retryable += 1
                     continue
