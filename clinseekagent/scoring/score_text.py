@@ -3,8 +3,8 @@
 Unified evaluation script: scores + tool-call statistics.
 
 Usage:
-    python evaluate_results.py --results <results.jsonl> --benchmark <benchmark.json>
-    python evaluate_results.py --results <results.jsonl> --benchmark <benchmark.json> --extract-text-answer-without-finish
+    python clinseekagent/scoring/score_text.py --results <results.jsonl> --benchmark <benchmark.json> --output-dir <scores_dir>
+    python clinseekagent/scoring/score_text.py --results <results.jsonl> --benchmark <benchmark.json> --extract-text-answer-without-finish
 """
 
 import argparse
@@ -12,6 +12,7 @@ import ast
 import json
 import math
 import re
+import sys
 from collections import Counter, defaultdict, deque
 from pathlib import Path
 
@@ -30,6 +31,10 @@ DEFAULT_BENCHMARK = (
 # ---------------------------------------------------------------------------
 # QID helpers
 # ---------------------------------------------------------------------------
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from categories import category_of, category_order, group_scores  # noqa: E402
+
+
 def is_ehr_bench_path(path):
     p = str(path).lower()
     return (
@@ -419,12 +424,22 @@ def load_benchmark(path, ehr_bench_mode=False):
         text = f.read().strip()
     if not text:
         data = []
-    elif text[0] in "[{":
-        data = json.loads(text)
-        if isinstance(data, dict):
-            data = list(data.values())
     else:
-        data = [json.loads(line) for line in text.splitlines() if line.strip()]
+        # JSONL lines also start with '{', so sniffing on the first character
+        # alone mis-reads a one-line JSONL file as a single object and yields
+        # its *values* as records. Try whole-file JSON first, fall back to
+        # line-delimited.
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError:
+            data = [json.loads(line) for line in text.splitlines() if line.strip()]
+        else:
+            if isinstance(data, dict):
+                # A qid-keyed mapping of records, not a single record.
+                values = list(data.values())
+                data = values if all(isinstance(v, dict) for v in values) else [data]
+        if isinstance(data, dict):
+            data = [data]
     return {build_qid(item, ehr_bench_mode=ehr_bench_mode): item for item in data}
 
 
@@ -502,6 +517,7 @@ def evaluate(results_path, benchmark_path, *, allow_text=False):
             "qid": qid,
             "task": t,
             "task_type": cat,
+            "category": category_of("text", {**item, "task": t}),
             "subject_id": item.get("subject_id"),
             "hadm_id": item.get("hadm_id"),
             "label": gt,
@@ -785,10 +801,19 @@ def main():
         "turns_avg": avg_tn,
         "browser_tool_pct": browser_pct,
     }
+    # Paper task categories (13 for ClinSeek-Bench-Text); questions without a
+    # result count as F1 = 0, matching the overall score.
+    per_category_payload = group_scores("text", per_question, "avg_f1")
+    if per_category_payload:
+        emit("-" * 89)
+        emit("By task category (paper taxonomy):")
+        for c, v in per_category_payload.items():
+            emit(f"{c:<28s} {v['count']:>5d} {v['f1']*100:>7.1f}")
     summary_payload = {
         "overall": overall_payload,
         "per_task": per_task_payload,
         "per_task_type": per_cat_payload,
+        "per_category": per_category_payload,
     }
 
     # Legacy single-file output
