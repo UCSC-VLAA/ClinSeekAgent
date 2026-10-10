@@ -8,12 +8,20 @@
 #            clinseekagent/scoring/score_multimodal.py
 #            clinseekagent/prepare_multimodal_data.py
 # Python: 3.12
-# No GPU needed here — this venv only makes HTTP calls (to Bedrock + MCPs).
+# No GPU needed here — this venv only makes HTTP calls (model APIs + MCPs).
 # ============================================================================
 
 # --- AWS Bedrock -------------------------------------------------------------
 boto3>=1.35.0
 botocore>=1.35.0
+
+# --- Google Vertex AI (Claude via the official Anthropic SDK) ----------------
+# Auth uses GCP Application Default Credentials; no Anthropic API key.
+# UPPER BOUND IS LOAD-BEARING: anthropic 1.x is a breaking major release
+# (httpx -> httpx2, awaited async .with_raw_response, removed params). The
+# evaluation stack is validated on 0.119.0; an uncapped floor now resolves to
+# 1.x and silently changes AsyncAnthropicVertex behaviour.
+anthropic[vertex]>=0.69.0,<1
 
 # --- HTTP / async clients (ehr_tool_pool, image_tool_pool, browser_tool) ----
 httpx>=0.28.0
@@ -33,3 +41,27 @@ gpt_oss
 
 # --- HF dataset download (huggingface-cli) -----------------------------------
 huggingface-hub>=0.35.0
+
+# --- Record rendering / scoring ----------------------------------------------
+# pandas is a hard top-level import in clinseekagent/record_context.py and the
+# corpus builder. PINNED EXACTLY: the record renderers only reproduce
+# byte-identical prompts under 3.0.5 -- a 2.x resolution silently changes
+# rendered output.
+pandas==3.0.5
+numpy>=2.5.2
+
+# --- Tokenizer for prompt accounting (clinseekagent/bedrock_backend.py) ------
+# Imported in a try/except: without it the backend still runs but loses
+# tokenizer-based token accounting.
+transformers>=5.15.0
+
+# --- Semantic scorer (clinseekagent/scoring/score_multimodal.py) -------------
+# Lazily imported inside SemanticMatcher.__init__; required for the semantic
+# scoring path, not for plain string matching.
+sentence-transformers>=6.0.0
+
+# --- Progress bars (scripts/patient_event2db.py) -----------------------------
+tqdm>=4.69.0
+
+# --- Tests (python -m pytest tests) -----------------------------------------
+pytest>=8.0

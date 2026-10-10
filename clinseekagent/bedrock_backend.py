@@ -30,12 +30,44 @@ except Exception as e:
 API_RETRY_DELAY_SECONDS = 5
 API_MAX_RETRIES = 2
 
+# Claude models on which the fixed `budget_tokens` thinking form was removed:
+# they take adaptive thinking, with depth set by `output_config.effort`.
+# Claude 4.6 and older still accept a fixed budget, which is what the paper
+# setting uses (extended thinking with a 4,096-token budget).
+ADAPTIVE_ONLY_THINKING_MARKERS = (
+    "claude-opus-4-7",
+    "claude-opus-4-8",
+    "claude-opus-5",
+    "claude-sonnet-5",
+    "claude-haiku-5",
+    "claude-fable-5",
+    "claude-mythos-5",
+)
+
+# Claude models that reject temperature / top_p / top_k with a 400.
+SAMPLING_REMOVED_MARKERS = ADAPTIVE_ONLY_THINKING_MARKERS
+
+
+def requires_adaptive_thinking(model_id: str) -> bool:
+    normalized = (model_id or "").lower()
+    return any(marker in normalized for marker in ADAPTIVE_ONLY_THINKING_MARKERS)
+
+
+def rejects_sampling_params(model_id: str) -> bool:
+    normalized = (model_id or "").lower()
+    return any(marker in normalized for marker in SAMPLING_REMOVED_MARKERS)
+
 
 class BedrockAsyncGenerator:
     """
     Async generator using AWS Bedrock with Claude models
     Uses native Anthropic Messages API with tool calling support
     """
+
+    # Tag on this class's log lines. Subclasses that reuse these methods over a
+    # different transport (see vertex_backend) override it so the output names
+    # the provider actually in use.
+    _LOG_PREFIX = "[Bedrock]"
 
     def __init__(
         self,
@@ -46,22 +78,37 @@ class BedrockAsyncGenerator:
         max_tokens_default: int = 8192,
         max_workers: int = 10,
         enable_thinking: Optional[bool] = None,
-        thinking_budget_tokens: int = 1024,
+        thinking_budget_tokens: int = 4096,
+        reasoning_effort: Optional[str] = None,
     ):
         """
         Args:
-            model_id: Bedrock model ID (e.g., "global.anthropic.claude-sonnet-4-6")
+            model_id: Bedrock model ID (e.g., "us.anthropic.claude-opus-4-6-v1")
             region_name: AWS region
             aws_access_key_id: AWS access key (optional, will use boto3 defaults)
             aws_secret_access_key: AWS secret key (optional, will use boto3 defaults)
             max_tokens_default: Default max tokens for generation
             max_workers: Number of threads for async execution
+            enable_thinking: Turn Claude extended thinking on.
+            thinking_budget_tokens: Fixed thinking budget for models that
+                accept one (Claude 4.6 and older).
+            reasoning_effort: `output_config.effort` for models that only take
+                adaptive thinking (Claude Opus 4.7+, Opus 5, Sonnet 5, ...).
         """
         self.model_id = model_id
         self.region_name = region_name
         self.max_tokens_default = max_tokens_default
         self.enable_thinking = enable_thinking
         self.thinking_budget_tokens = thinking_budget_tokens
+        self.reasoning_effort = reasoning_effort
+        self._warned_dropped_temperature = False
+
+        # Off by default; see VLLMOpenAIAsyncGenerator.capture_raw_response.
+        # Here the untouched payload is the Anthropic response dict, whose
+        # content blocks carry thinking text and signatures.
+        self.capture_raw_response = False
+
+        self.token_usage = self._new_token_usage()
 
         # Initialize boto3 client with bounded timeouts so a silent TLS hang
         # surfaces as an exception instead of blocking the async loop forever.
@@ -93,15 +140,27 @@ class BedrockAsyncGenerator:
         # Tokenizer for compatibility (not used in native API path)
         self.tokenizer = None
 
-        print(f"[Bedrock] Initialized with model: {model_id}, region: {region_name}")
+        print(f"{self._LOG_PREFIX} Initialized with model: {model_id}, region: {region_name}")
 
     @staticmethod
     def _clone_jsonable(value: Any) -> Any:
         return json.loads(json.dumps(value))
 
     def _supports_adaptive_thinking(self) -> bool:
-        normalized = self.model_id.lower()
-        return "claude-opus-4-" in normalized
+        """True when the model only accepts adaptive thinking."""
+        return requires_adaptive_thinking(self.model_id)
+
+    def _rejects_sampling_params(self) -> bool:
+        return rejects_sampling_params(self.model_id)
+
+    def _warn_dropped_temperature(self, value: float, reason: str) -> None:
+        if self._warned_dropped_temperature:
+            return
+        self._warned_dropped_temperature = True
+        print(
+            f"{self._LOG_PREFIX} Warning: temperature={value} is not sent to "
+            f"{self.model_id} ({reason})."
+        )
 
     def _build_thinking_config(self, max_tokens: int) -> Optional[dict]:
         if not self.enable_thinking:
@@ -197,7 +256,7 @@ class BedrockAsyncGenerator:
                 if attempt >= total_attempts:
                     raise TimeoutError(msg)
                 print(
-                    f"[Bedrock] {msg} | "
+                    f"{self._LOG_PREFIX} {msg} | "
                     f"retry {attempt}/{API_MAX_RETRIES} in "
                     f"{API_RETRY_DELAY_SECONDS}s"
                 )
@@ -208,7 +267,7 @@ class BedrockAsyncGenerator:
 
                 retry_index = attempt
                 print(
-                    f"[Bedrock] Retriable API error: {exc} | "
+                    f"{self._LOG_PREFIX} Retriable API error: {exc} | "
                     f"retry {retry_index}/{API_MAX_RETRIES} in "
                     f"{API_RETRY_DELAY_SECONDS}s"
                 )
@@ -220,7 +279,7 @@ class BedrockAsyncGenerator:
             return
 
         if not _TRANSFORMERS_AVAILABLE or AutoTokenizer is None:
-            print("[Bedrock] Warning: transformers not available, tokenizer not loaded")
+            print(f"{self._LOG_PREFIX} Warning: transformers not available, tokenizer not loaded")
             return
 
         # Use GPT-2 tokenizer as approximation
@@ -230,9 +289,9 @@ class BedrockAsyncGenerator:
                 "gpt2",
                 trust_remote_code=True
             )
-            print(f"[Bedrock] Loaded compatibility tokenizer")
+            print(f"{self._LOG_PREFIX} Loaded compatibility tokenizer")
         except Exception as e:
-            print(f"[Bedrock] Warning: Could not load tokenizer: {e}")
+            print(f"{self._LOG_PREFIX} Warning: Could not load tokenizer: {e}")
 
     async def generate(
         self,
@@ -470,14 +529,57 @@ class BedrockAsyncGenerator:
             message["bedrock_content_blocks"] = self._clone_jsonable(content_blocks)
         if tool_calls:
             message["tool_calls"] = tool_calls
+        if self.capture_raw_response:
+            message["raw_response"] = self._clone_jsonable(bedrock_response)
+
+        usage = bedrock_response.get("usage", {}) or {}
+        self._accumulate_usage(usage)
 
         return {
             "choices": [{
                 "message": message,
                 "finish_reason": finish_reason
             }],
-            "usage": bedrock_response.get("usage", {})
+            "usage": usage
         }
+
+    @staticmethod
+    def _new_token_usage() -> dict:
+        """Running token total across every call a generator makes.
+
+        An agent run costs one billable request per round, so a single
+        response's usage says nothing — only the sum says what a trajectory
+        cost. Subclasses that skip this __init__ must set it themselves.
+        """
+        return {
+            "requests": 0,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 0,
+        }
+
+    def _accumulate_usage(self, usage: dict) -> None:
+        """Fold one response's usage into the running total."""
+        self.token_usage["requests"] += 1
+        for key in ("input_tokens", "output_tokens",
+                    "cache_creation_input_tokens", "cache_read_input_tokens"):
+            value = usage.get(key)
+            if isinstance(value, int):
+                self.token_usage[key] += value
+
+    def usage_summary(self) -> str:
+        u = self.token_usage
+        parts = [
+            f"{u['requests']} requests",
+            f"in={u['input_tokens']:,}",
+            f"out={u['output_tokens']:,}",
+        ]
+        if u["cache_read_input_tokens"]:
+            parts.append(f"cache_read={u['cache_read_input_tokens']:,}")
+        if u["cache_creation_input_tokens"]:
+            parts.append(f"cache_write={u['cache_creation_input_tokens']:,}")
+        return f"{self._LOG_PREFIX} token usage: " + ", ".join(parts)
 
     def _is_anthropic_model(self) -> bool:
         """Check if the current model is an Anthropic model."""
@@ -534,11 +636,19 @@ class BedrockAsyncGenerator:
             "messages": anthropic_messages
         }
         if thinking_config:
+            # Claude does not accept a sampling temperature together with
+            # extended thinking, so a requested temperature is dropped rather
+            # than failing the run.
             if temperature != 1.0:
-                raise ValueError(
-                    "Bedrock thinking is not compatible with non-default temperature values."
-                )
+                self._warn_dropped_temperature(
+                    temperature, "not settable with extended thinking")
             request["thinking"] = thinking_config
+            if thinking_config.get("type") == "adaptive" and self.reasoning_effort:
+                request["output_config"] = {"effort": self.reasoning_effort}
+        elif self._rejects_sampling_params():
+            if temperature != 1.0:
+                self._warn_dropped_temperature(
+                    temperature, "the model does not accept sampling parameters")
         else:
             request["temperature"] = temperature
 
@@ -551,10 +661,17 @@ class BedrockAsyncGenerator:
 
             if tool_choice == "auto":
                 request["tool_choice"] = {"type": "auto"}
-            elif tool_choice == "any":
-                request["tool_choice"] = {"type": "any"}
             elif tool_choice == "none":
                 pass
+            elif thinking_config:
+                # Claude rejects forced tool use (`any` / a named tool) while
+                # extended thinking is on. Callers that force a tool (the
+                # single-pass retrieval and forced-final-answer rounds) also
+                # restrict the tool list and instruct the model, so `auto` keeps
+                # the same contract without disabling thinking.
+                request["tool_choice"] = {"type": "auto"}
+            elif tool_choice == "any":
+                request["tool_choice"] = {"type": "any"}
             else:
                 # Specific tool
                 request["tool_choice"] = {
@@ -563,7 +680,7 @@ class BedrockAsyncGenerator:
                 }
 
         print(
-            f"[Bedrock] Request: model={self.model_id}, messages={len(anthropic_messages)}, "
+            f"{self._LOG_PREFIX} Request: model={self.model_id}, messages={len(anthropic_messages)}, "
             f"tools={len(tools) if tools else 0}, "
             f"thinking={thinking_config['type'] if thinking_config else 'disabled'}"
         )
@@ -571,7 +688,7 @@ class BedrockAsyncGenerator:
         try:
             model_response = await self._invoke_model_with_retry(request)
 
-            print(f"[Bedrock] Response received: stop_reason={model_response.get('stop_reason')}")
+            print(f"{self._LOG_PREFIX} Response received: stop_reason={model_response.get('stop_reason')}")
 
             # Convert to OpenAI format
             converted = self._convert_response_to_openai(model_response)
@@ -580,7 +697,7 @@ class BedrockAsyncGenerator:
             return converted
 
         except Exception as e:
-            print(f"[Bedrock] Error: {e}")
+            print(f"{self._LOG_PREFIX} Error: {e}")
             raise
 
     def _prepare_openai_messages(self, messages: List[dict]) -> List[dict]:

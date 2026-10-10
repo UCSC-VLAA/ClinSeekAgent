@@ -1,5 +1,8 @@
 """
-OpenAI-compatible async generator for vLLM-backed local models.
+OpenAI-compatible async generator.
+
+Used for vLLM-served local models (ClinSeek-35B-A3B, Qwen3.5) and for any other
+OpenAI-compatible chat-completions endpoint passed through ``--api_base_url``.
 """
 from __future__ import annotations
 
@@ -7,6 +10,7 @@ import asyncio
 import copy
 import json
 import os
+import random
 import re
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Optional
@@ -44,6 +48,12 @@ class VLLMOpenAIAsyncGenerator:
         max_workers: int = 10,
         enable_thinking: Optional[bool] = None,
         strip_images: bool = False,
+        request_max_attempts: int = 1,
+        retry_base_delay: float = 1.0,
+        retry_max_delay: float = 60.0,
+        client_max_retries: int = 2,
+        min_request_interval: float = 0.0,
+        reasoning_effort: Optional[str] = None,
     ):
         self.base_url = self._normalize_base_url(base_url)
         self.api_key = api_key
@@ -51,12 +61,136 @@ class VLLMOpenAIAsyncGenerator:
         self.max_tokens_default = max_tokens_default
         self.enable_thinking = enable_thinking
         self.strip_images = strip_images
+        self.request_max_attempts = request_max_attempts
+        self.retry_base_delay = retry_base_delay
+        self.retry_max_delay = retry_max_delay
+        self.client_max_retries = client_max_retries
+        self.min_request_interval = min_request_interval
+        # Only sent to OpenAI reasoning models (see _reasoning_kwargs); vLLM
+        # chat templates take the thinking switch through chat_template_kwargs.
+        self.reasoning_effort = reasoning_effort
+        self._api_gate_lock = asyncio.Lock()
+        self._next_api_attempt_at = 0.0
         self.executor = ThreadPoolExecutor(max_workers=max_workers)
 
+        # Off by default: when set, every converted response carries the
+        # provider's untouched payload under `raw_response`, so the caller can
+        # persist thinking blocks / reasoning items / signatures that the
+        # OpenAI-shaped message drops. Analysis-only — it makes trajectories
+        # several times larger. Drivers flip it from a CLI flag.
+        self.capture_raw_response = False
+
+        # Running token total across every call, for cost accounting. One
+        # billable request per round, so only the run-level sum is meaningful.
+        self.token_usage = {
+            "requests": 0,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 0,
+        }
+
         print(
-            f"[vLLM] Initialized with base_url={self.base_url}, "
+            f"[{self._LOG_PREFIX}] Initialized with base_url={self.base_url}, "
             f"model={self.model_name or 'auto'}"
         )
+
+    # Tag on log lines.
+    _LOG_PREFIX = "vLLM"
+
+    # Model-id substrings for which sampling params (temperature/top_p/top_k)
+    # were removed -- these Claude tiers reject `temperature` with a 400 when
+    # reached through an OpenAI-compatible proxy. Matched as substrings so
+    # provider prefixes still hit.
+    _SAMPLING_REMOVED = (
+        "opus-4-7", "opus-4-8", "opus-5", "fable-5", "mythos-5", "sonnet-5",
+        "haiku-5",
+    )
+
+    @staticmethod
+    def _is_openai_reasoning_model(model_name: str) -> bool:
+        """OpenAI reasoning models (GPT-5.x, o-series) behind the OpenAI API.
+
+        They take `reasoning_effort` and `max_completion_tokens` and reject
+        `max_tokens` and a non-default `temperature`.
+        """
+        name = (model_name or "").lower().rsplit("/", 1)[-1]
+        return name.startswith(("gpt-5", "o1", "o3", "o4")) or "openai/" in (
+            model_name or ""
+        ).lower()
+
+    def _sampling_kwargs(self, model_name: str, temperature: float) -> dict:
+        """{'temperature': ...} unless the model rejects sampling params."""
+        if any(tag in (model_name or "") for tag in self._SAMPLING_REMOVED):
+            return {}
+        if self._is_openai_reasoning_model(model_name):
+            return {}
+        return {"temperature": temperature}
+
+    def _reasoning_kwargs(self, model_name: str) -> dict:
+        """`reasoning_effort` for OpenAI reasoning models when thinking is on."""
+        if (
+            self.enable_thinking
+            and self.reasoning_effort
+            and self._is_openai_reasoning_model(model_name)
+        ):
+            return {"reasoning_effort": self.reasoning_effort}
+        return {}
+
+    def _max_token_kwargs(
+        self,
+        model_name: str,
+        max_tokens: Optional[int],
+    ) -> dict:
+        """Output-token parameter in the spelling the endpoint accepts."""
+        if self._is_openai_reasoning_model(model_name):
+            return {"max_completion_tokens": max_tokens or self.max_tokens_default}
+        return {"max_tokens": max_tokens or self.max_tokens_default}
+
+    def _accumulate_usage(self, usage_dict: dict) -> None:
+        """Fold one OpenAI-shaped usage dict into the running total."""
+        self.token_usage["requests"] += 1
+        pt = usage_dict.get("prompt_tokens")
+        ct = usage_dict.get("completion_tokens")
+        if isinstance(pt, int):
+            self.token_usage["input_tokens"] += pt
+        if isinstance(ct, int):
+            self.token_usage["output_tokens"] += ct
+        # OpenAI-compatible servers may report cache tokens nested; best-effort.
+        details = usage_dict.get("prompt_tokens_details") or {}
+        cached = details.get("cached_tokens") if isinstance(details, dict) else None
+        if isinstance(cached, int):
+            self.token_usage["cache_read_input_tokens"] += cached
+
+    def _accumulate_cost_headers(self, headers) -> None:
+        """Sum per-call cost headers, if the endpoint reports them.
+
+        LiteLLM-style proxies return the charged cost of each call in
+        `x-litellm-response-cost*` headers. vLLM does not set them, in which
+        case the totals stay 0 and cost falls back to token-based estimation.
+        """
+        try:
+            get = headers.get
+        except AttributeError:
+            return
+        for header, key in (
+            ("x-litellm-response-cost", "charged_cost_usd"),
+            ("x-litellm-response-cost-original", "list_cost_usd"),
+        ):
+            val = get(header)
+            if val is not None:
+                try:
+                    self.token_usage[key] = self.token_usage.get(key, 0.0) + float(val)
+                except (TypeError, ValueError):
+                    pass
+
+    def usage_summary(self) -> str:
+        u = self.token_usage
+        s = (f"[{self._LOG_PREFIX}] token usage: {u['requests']} requests, "
+             f"in={u['input_tokens']:,}, out={u['output_tokens']:,}")
+        if u.get("charged_cost_usd"):
+            s += f", charged=${u['charged_cost_usd']:.4f}"
+        return s
 
     @staticmethod
     def _normalize_base_url(base_url: str) -> str:
@@ -71,7 +205,16 @@ class VLLMOpenAIAsyncGenerator:
 
     @staticmethod
     def _is_clinseek_sft_model(model_name: Optional[str]) -> bool:
+        """Return whether the model uses ClinSeek's legacy bracket protocol.
+
+        The public ClinSeek-35B-A3B release has an OpenAI-compatible native
+        tool-calling chat template.  Older ClinSeek checkpoints used the
+        plain-text ``[Tool Call: ...]`` convention, so keep that compatibility
+        path without accidentally disabling API tools for the released model.
+        """
         model_name_lower = (model_name or "").lower()
+        if "clinseek-35b-a3b" in model_name_lower:
+            return False
         return "clinseek" in model_name_lower
 
     @staticmethod
@@ -93,6 +236,68 @@ class VLLMOpenAIAsyncGenerator:
         if "." not in name:
             return f"ehr_{name}"
         return name
+
+    @staticmethod
+    def _api_safe_tool_name(name: str) -> str:
+        """Tool name acceptable to strict OpenAI-compatible schemas.
+
+        Strict endpoints require function names to match ^[a-zA-Z0-9_-]+$, so
+        the dotted namespaces (ehr.load_ehr, image.dicom_processor) are
+        rejected -- including in replayed assistant tool_calls. Send
+        underscored names; the model returns underscored, and
+        run_text.normalize_tool_call_name restores the dot before dispatch
+        (same contract Bedrock uses). Legacy bracket-protocol ClinSeek models
+        never see tools (api_tools=None), so this does not affect them.
+        """
+        return (name or "").replace(".", "_")
+
+    @classmethod
+    def _sanitize_tools_for_api(cls, tools):
+        """Copy the tool list with API-safe (undotted) function names."""
+        if not tools:
+            return tools
+        out = []
+        for tool in tools:
+            fn = (tool or {}).get("function") or {}
+            name = fn.get("name", "")
+            if "." in name:
+                tool = copy.deepcopy(tool)
+                tool["function"]["name"] = cls._api_safe_tool_name(name)
+            out.append(tool)
+        return out
+
+    @classmethod
+    def _sanitize_tool_choice_for_api(cls, tool_choice):
+        """Translate the driver's common tool-choice vocabulary to OpenAI.
+
+        Bedrock accepts ``"any"`` and a bare tool name. OpenAI-compatible
+        endpoints instead use ``"required"`` and a structured object for a
+        specific function, whose name must also use the API-safe underscore
+        spelling.
+        """
+        if tool_choice == "any":
+            return "required"
+        if tool_choice is None or (
+            isinstance(tool_choice, str)
+            and tool_choice in {"auto", "required", "none"}
+        ):
+            return tool_choice
+        if isinstance(tool_choice, str):
+            return {
+                "type": "function",
+                "function": {
+                    "name": cls._api_safe_tool_name(tool_choice),
+                },
+            }
+        if isinstance(tool_choice, dict):
+            sanitized = copy.deepcopy(tool_choice)
+            function = sanitized.get("function")
+            if isinstance(function, dict) and isinstance(
+                function.get("name"), str
+            ):
+                function["name"] = cls._api_safe_tool_name(function["name"])
+            return sanitized
+        return tool_choice
 
     @staticmethod
     def _stringify_message_field(value: Any) -> str:
@@ -195,7 +400,12 @@ class VLLMOpenAIAsyncGenerator:
 
         for index, tool_call in enumerate(tool_calls, start=1):
             function = tool_call.get("function", {})
-            function_name = cls._normalize_tool_name(function.get("name", ""))
+            # Undotted for the API schema; run_text restores the dot on the way
+            # back in. Without this, replaying a prior ehr.load_ehr tool_call
+            # 400s on strict OpenAI-compatible endpoints.
+            function_name = cls._api_safe_tool_name(
+                cls._normalize_tool_name(function.get("name", ""))
+            )
             if not function_name:
                 continue
 
@@ -243,12 +453,11 @@ class VLLMOpenAIAsyncGenerator:
 
                 if normalized_tool_calls:
                     turn["tool_calls"] = normalized_tool_calls
-                if assistant_reasoning:
-                    # vLLM's current chat schema uses `reasoning`; internally we
-                    # still keep `reasoning_content` for backward compatibility.
-                    turn["reasoning"] = self._stringify_message_field(
-                        assistant_reasoning
-                    )
+                # NB: the model's own reasoning is deliberately NOT replayed. It
+                # is not needed to continue the turn, and strict OpenAI-compatible
+                # schemas reject an extra `reasoning` field on input messages
+                # ("Extra inputs are not permitted"). vLLM tolerates its absence.
+                _ = assistant_reasoning
             else:
                 if role == "tool":
                     # Tool results are always text.
@@ -336,6 +545,10 @@ class VLLMOpenAIAsyncGenerator:
     def _build_extra_body(self) -> Optional[Dict[str, Any]]:
         if self.enable_thinking is None:
             return None
+        if self._is_openai_reasoning_model(self.model_name or ""):
+            # The OpenAI API rejects unknown body fields; its thinking switch
+            # is `reasoning_effort` (see _reasoning_kwargs).
+            return None
         return {
             "chat_template_kwargs": {
                 "enable_thinking": self.enable_thinking,
@@ -346,6 +559,62 @@ class VLLMOpenAIAsyncGenerator:
         return OpenAI(
             api_key=self.api_key,
             base_url=self.base_url,
+            max_retries=self.client_max_retries,
+        )
+
+    @staticmethod
+    def _is_retryable_api_error(exc: Exception) -> bool:
+        status_code = getattr(exc, "status_code", None)
+        if status_code in {408, 409, 429, 500, 502, 503, 504, 529}:
+            return True
+        name = type(exc).__name__.lower()
+        return any(
+            marker in name
+            for marker in (
+                "timeout",
+                "connection",
+                "ratelimit",
+                "internalserver",
+            )
+        )
+
+    def _api_retry_delay(self, exc: Exception, failed_attempt: int) -> float:
+        delay = min(
+            self.retry_max_delay,
+            self.retry_base_delay * (2 ** max(failed_attempt - 1, 0)),
+        )
+        response = getattr(exc, "response", None)
+        headers = getattr(response, "headers", None)
+        if headers is not None:
+            retry_after = headers.get("retry-after")
+            if retry_after is not None:
+                try:
+                    delay = max(delay, float(retry_after))
+                except (TypeError, ValueError):
+                    pass
+        jitter_cap = min(5.0, max(0.0, delay * 0.2))
+        return delay + random.uniform(0.0, jitter_cap)
+
+    async def _wait_for_api_gate(self) -> None:
+        """Space request starts and honor a shared provider cooldown."""
+        async with self._api_gate_lock:
+            loop = asyncio.get_running_loop()
+            while True:
+                delay = self._next_api_attempt_at - loop.time()
+                if delay <= 0:
+                    break
+                # Re-check frequently because another in-flight request can
+                # extend the shared gate after this waiter starts sleeping.
+                await asyncio.sleep(min(delay, 1.0))
+            self._next_api_attempt_at = (
+                loop.time() + max(0.0, self.min_request_interval)
+            )
+
+    def _extend_api_gate(self, delay: float) -> None:
+        loop = asyncio.get_running_loop()
+        self._next_api_attempt_at = max(
+            self._next_api_attempt_at,
+            loop.time() + max(0.0, delay),
         )
 
     async def _resolve_model_name(self) -> str:
@@ -929,9 +1198,24 @@ class VLLMOpenAIAsyncGenerator:
         return cleaned_content, tool_calls
 
     @staticmethod
+    def _dump_raw_response(response: Any) -> Any:
+        """The provider payload as plain JSON-able data, best effort."""
+        for dump in (
+            lambda: response.model_dump(mode="json"),
+            lambda: response.model_dump(),
+            lambda: response.to_dict(),
+        ):
+            try:
+                return dump()
+            except Exception:
+                continue
+        return {"repr": repr(response)}
+
+    @staticmethod
     def _convert_response_to_openai(
         response: Any,
         model_name: Optional[str] = None,
+        capture_raw: bool = False,
     ) -> Dict[str, Any]:
         choice = response.choices[0]
         message = choice.message
@@ -1090,6 +1374,15 @@ class VLLMOpenAIAsyncGenerator:
                 "completion_tokens": getattr(usage, "completion_tokens", None),
                 "total_tokens": getattr(usage, "total_tokens", None),
             }
+            details = getattr(usage, "prompt_tokens_details", None)
+            cached = getattr(details, "cached_tokens", None) if details else None
+            if cached is not None:
+                usage_dict["prompt_tokens_details"] = {"cached_tokens": cached}
+
+        if capture_raw:
+            output_message["raw_response"] = (
+                VLLMOpenAIAsyncGenerator._dump_raw_response(response)
+            )
 
         return {
             "choices": [{
@@ -1119,7 +1412,12 @@ class VLLMOpenAIAsyncGenerator:
             prepared_messages = self._prepare_messages(messages)
         extra_body = self._build_extra_body()
 
-        api_tools = None if is_clinseek_sft else tools
+        api_tools = None if is_clinseek_sft else self._sanitize_tools_for_api(tools)
+        api_tool_choice = (
+            self._sanitize_tool_choice_for_api(tool_choice)
+            if api_tools
+            else None
+        )
 
         print(
             f"[vLLM] Request: model={model_name}, messages={len(prepared_messages)}, "
@@ -1127,23 +1425,53 @@ class VLLMOpenAIAsyncGenerator:
         )
 
         loop = asyncio.get_event_loop()
-        response = await loop.run_in_executor(
-            self.executor,
-            lambda: self._make_client().chat.completions.create(
-                model=model_name,
-                messages=prepared_messages,
-                tools=api_tools,
-                tool_choice=tool_choice if api_tools else None,
-                max_tokens=max_tokens or self.max_tokens_default,
-                temperature=temperature,
-                extra_body=extra_body,
-                stream=False,
-            )
-        )
+        # with_raw_response so per-call cost headers can be read when an
+        # OpenAI-compatible proxy reports them (see _accumulate_cost_headers).
+        raw = None
+        for attempt in range(1, self.request_max_attempts + 1):
+            await self._wait_for_api_gate()
+            try:
+                raw = await loop.run_in_executor(
+                    self.executor,
+                    lambda: self._make_client().chat.completions.with_raw_response.create(
+                        model=model_name,
+                        messages=prepared_messages,
+                        tools=api_tools,
+                        tool_choice=api_tool_choice,
+                        extra_body=extra_body,
+                        stream=False,
+                        **self._max_token_kwargs(model_name, max_tokens),
+                        **self._reasoning_kwargs(model_name),
+                        **self._sampling_kwargs(model_name, temperature),
+                    )
+                )
+                break
+            except Exception as exc:
+                if (
+                    attempt >= self.request_max_attempts
+                    or not self._is_retryable_api_error(exc)
+                ):
+                    raise
+                delay = self._api_retry_delay(exc, attempt)
+                self._extend_api_gate(delay)
+                status = getattr(exc, "status_code", type(exc).__name__)
+                print(
+                    f"[{self._LOG_PREFIX}] transient API error {status}; "
+                    f"retry {attempt + 1}/{self.request_max_attempts} "
+                    f"in {delay:.1f}s"
+                )
+                await asyncio.sleep(delay)
+
+        if raw is None:
+            raise RuntimeError("API request retry loop ended without a response")
+        self._accumulate_cost_headers(raw.headers)
+        response = raw.parse()
         converted = self._convert_response_to_openai(
             response,
             model_name=model_name,
+            capture_raw=self.capture_raw_response,
         )
+        self._accumulate_usage(converted.get("usage") or {})
         if not use_reasoning_content:
             converted["choices"][0]["message"].pop("reasoning_content", None)
 
