@@ -4,11 +4,15 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>ClinSeekAgent — Automating Multimodal Evidence Seeking for Agentic Clinical Reasoning</title>
-<meta name="description" content="ClinSeekAgent shifts clinical agents from passive consumption of curated context to active multimodal evidence seeking across EHRs, web search, and medical images. Project page, code, models, and ClinSeek-Bench." />
+<meta name="description" content="ClinSeekAgent lets LLM agents seek evidence from raw EHR records and chest X-ray tools instead of curated inputs. It outperforms Curated Input for Claude Opus 5 and GPT-5.6 Sol on ClinSeek-Bench, and the distilled ClinSeek-35B-A3B reaches 35.6 average F1 on AgentEHR-Bench. Project page, code, model, and benchmark." />
+<meta property="og:type" content="website" />
 <meta property="og:title" content="ClinSeekAgent: Automating Multimodal Evidence Seeking for Agentic Clinical Reasoning" />
-<meta property="og:description" content="Patient evidence, found — not given. +15.1 F1 on multimodal Claude Opus 4.6; ClinSeek-35B-A3B reaches 94.4% of its teacher." />
+<meta property="og:description" content="From passive evidence consumption to active evidence acquisition: ClinSeekAgent outperforms curated input for Claude Opus 5 and GPT-5.6 Sol on text-only and multimodal clinical tasks; ClinSeek-35B-A3B reaches 35.6 average F1 on AgentEHR-Bench (+16.1 over its base)." />
 <meta property="og:image" content="./images/teaser.png" />
 <meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="ClinSeekAgent: Automating Multimodal Evidence Seeking for Agentic Clinical Reasoning" />
+<meta name="twitter:description" content="ClinSeekAgent outperforms curated input for Claude Opus 5 and GPT-5.6 Sol; ClinSeek-35B-A3B reaches 35.6 average F1 on AgentEHR-Bench (+16.1 over its base)." />
+<meta name="twitter:image" content="./images/teaser.png" />
 
 <link rel="icon" type="image/png" href="./images/favicon.png" />
 
@@ -70,6 +74,8 @@
   /* Subtle row stripe for paper-style result tables */
   table.paper tbody tr:nth-child(odd)  { background-color: #ffffff; }
   table.paper tbody tr:nth-child(even) { background-color: #f8fafc; }
+  table.paper tbody tr.row-hl { background-color: rgba(236,254,255,0.7); }
+  table.paper tbody tr.row-group { background-color: transparent; }
 </style>
 </head>
 
@@ -81,15 +87,17 @@
     <a href="#" class="flex items-center" aria-label="ClinSeekAgent">
       <img src="./images/logo.png" alt="ClinSeekAgent" class="h-7 w-auto" />
     </a>
-    <div class="hidden md:flex gap-6 text-slate-600">
-      <a href="#abstract"   class="hover:text-slate-900">Abstract</a>
+    <div class="hidden lg:flex gap-5 text-slate-600">
+      <a href="#abstract"     class="hover:text-slate-900">Abstract</a>
       <a href="#findings"     class="hover:text-slate-900">Findings</a>
       <a href="#method"       class="hover:text-slate-900">Method</a>
+      <a href="#benchmark"    class="hover:text-slate-900">Benchmark</a>
       <a href="#results"      class="hover:text-slate-900">Results</a>
-      <a href="./trajectories.html" class="hover:text-slate-900">Trajectories</a>
+      <a href="#cases"        class="hover:text-slate-900">Cases</a>
       <a href="#distillation" class="hover:text-slate-900">Distillation</a>
+      <a href="./trajectories.html" class="hover:text-slate-900">Trajectories</a>
       <a href="#resources"    class="hover:text-slate-900">Resources</a>
-      <a href="#cite"       class="hover:text-slate-900">Cite</a>
+      <a href="#cite"         class="hover:text-slate-900">Cite</a>
     </div>
     <a href="https://github.com/UCSC-VLAA/ClinSeekAgent" class="ml-4 inline-flex items-center gap-1.5 rounded-md bg-slate-900 px-3 py-1.5 text-white hover:bg-slate-700">
       <svg viewBox="0 0 24 24" class="w-4 h-4 fill-current"><path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.57.1.78-.25.78-.55v-1.93c-3.2.7-3.87-1.54-3.87-1.54-.52-1.32-1.27-1.67-1.27-1.67-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.02 1.75 2.68 1.25 3.34.95.1-.74.4-1.25.73-1.54-2.55-.29-5.24-1.27-5.24-5.65 0-1.25.45-2.27 1.18-3.07-.12-.29-.51-1.46.11-3.05 0 0 .96-.31 3.16 1.17a10.95 10.95 0 0 1 5.76 0c2.2-1.48 3.16-1.17 3.16-1.17.62 1.59.23 2.76.11 3.05.74.8 1.18 1.82 1.18 3.07 0 4.39-2.69 5.36-5.25 5.64.41.36.78 1.07.78 2.16v3.2c0 .31.21.66.79.55C20.21 21.39 23.5 17.08 23.5 12 23.5 5.65 18.35.5 12 .5z"/></svg>
@@ -111,23 +119,30 @@
     </p>
 
     <p class="mt-6 italic text-slate-400 max-w-2xl mx-auto">
-      <span class="text-slate-200 font-medium">Patient evidence, found — not given.</span>
-      Real clinical workflows require an agent to <span class="text-slate-200 font-medium">actively</span> seek evidence across raw EHRs, medical imaging, and external knowledge — not just reason over a pre-selected context.
+      <span class="text-slate-200 font-medium">From passive evidence consumption to active evidence acquisition.</span>
+      Real-world clinical workflows require agents to actively seek, iteratively plan, and synthesize multimodal evidence from heterogeneous sources.
     </p>
 
-    <p class="mt-6 text-sm sm:text-base text-slate-200 leading-relaxed">
-      <a class="hover:text-accent-300" href="mailto:jwu418@ucsc.edu">Juncheng Wu</a><sup class="text-slate-400">*</sup>,
-      Letian Zhang<sup class="text-slate-400">*</sup>,
-      Yuhan Wang<sup class="text-slate-400">*</sup>,
-      Haoqin Tu,
-      Hardy Chen,
-      Zijun Wang,
-      Cihang Xie,
-      Yuyin Zhou
+    <p class="mt-6 text-sm sm:text-base text-slate-200 leading-relaxed max-w-4xl mx-auto">
+      <a class="hover:text-accent-300" href="mailto:jwu418@ucsc.edu">Juncheng Wu</a><sup class="text-slate-400">1*</sup>,
+      Letian Zhang<sup class="text-slate-400">1*</sup>,
+      Yuhan Wang<sup class="text-slate-400">1*</sup>,
+      Haoqin Tu<sup class="text-slate-400">1</sup>,
+      Hardy Chen<sup class="text-slate-400">1</sup>,
+      Zijun Wang<sup class="text-slate-400">1</sup>,
+      Cihang Xie<sup class="text-slate-400">1</sup>,
+      <br class="hidden sm:inline" />
+      Yufan He<sup class="text-slate-400">2</sup>,
+      Can Zhao<sup class="text-slate-400">2</sup>,
+      Daguang Xu<sup class="text-slate-400">2</sup>,
+      Yucheng Tang<sup class="text-slate-400">2</sup>,
+      Yuyin Zhou<sup class="text-slate-400">1</sup>
     </p>
-    <p class="mt-2 text-xs text-slate-400">
-      UC Santa Cruz &nbsp;·&nbsp;
-      <sup>*</sup>equal technical contribution &nbsp;·&nbsp;
+    <p class="mt-2 text-xs sm:text-sm text-slate-400">
+      <sup>1</sup>University of California, Santa Cruz &nbsp;&nbsp; <sup>2</sup>NVIDIA
+    </p>
+    <p class="mt-1 text-xs text-slate-400">
+      <sup>*</sup>Equal technical contribution &nbsp;·&nbsp;
       Corresp.&nbsp;<a class="hover:text-slate-200" href="mailto:jwu418@ucsc.edu">jwu418@ucsc.edu</a>
     </p>
 
@@ -138,14 +153,20 @@
       <a href="https://github.com/UCSC-VLAA/ClinSeekAgent" class="inline-flex items-center gap-1.5 rounded-md bg-slate-800 hover:bg-slate-700 border border-slate-700 px-3 py-1.5 text-slate-200">
         💻 Code
       </a>
-      <a href="https://huggingface.co/datasets/UCSC-VLAA/ClinSeek-Bench" class="inline-flex items-center gap-1.5 rounded-md bg-accent-600 hover:bg-accent-500 px-3 py-1.5 text-white">
-        🤗 ClinSeek-Bench
+      <a href="https://huggingface.co/UCSC-VLAA/ClinSeek-35B-A3B" class="inline-flex items-center gap-1.5 rounded-md bg-accent-600 hover:bg-accent-500 px-3 py-1.5 text-white">
+        🤖 Model <span class="text-accent-100">(ClinSeek-35B-A3B)</span>
       </a>
-      <a href="https://huggingface.co/UCSC-VLAA/ClinSeek-35B-A3B" class="inline-flex items-center gap-1.5 rounded-md bg-slate-800 hover:bg-slate-700 border border-slate-700 px-3 py-1.5 text-slate-200">
-        🤖 ClinSeek-35B-A3B
+      <a href="https://huggingface.co/datasets/UCSC-VLAA/ClinSeek-Bench" class="inline-flex items-center gap-1.5 rounded-md bg-slate-800 hover:bg-slate-700 border border-slate-700 px-3 py-1.5 text-slate-200">
+        🤗 Benchmark <span class="text-slate-400">(ClinSeek-Bench)</span>
+      </a>
+      <a href="https://huggingface.co/datasets/UCSC-VLAA/ClinSeek-Evaluation-Results" class="inline-flex items-center gap-1.5 rounded-md bg-slate-800 hover:bg-slate-700 border border-slate-700 px-3 py-1.5 text-slate-200">
+        📊 Results
+      </a>
+      <a href="https://huggingface.co/collections/UCSC-VLAA/clinseekagent-6a0ceaa5f429bb7a35ea2886" class="inline-flex items-center gap-1.5 rounded-md bg-slate-800 hover:bg-slate-700 border border-slate-700 px-3 py-1.5 text-slate-200">
+        🗂️ Collection
       </a>
       <a href="./trajectories.html" class="inline-flex items-center gap-1.5 rounded-md bg-slate-800 hover:bg-slate-700 border border-slate-700 px-3 py-1.5 text-slate-200">
-        🧭 Trajectory Examples
+        🧭 Trajectories
       </a>
       <a href="#cite" class="inline-flex items-center gap-1.5 rounded-md bg-slate-800 hover:bg-slate-700 border border-slate-700 px-3 py-1.5 text-slate-200">
         📋 BibTeX
@@ -155,20 +176,20 @@
     <!-- Headline numbers strip -->
     <div class="mt-12 grid grid-cols-2 sm:grid-cols-4 gap-3 max-w-4xl mx-auto">
       <div class="rounded-lg border border-slate-700/60 bg-slate-800/40 px-4 py-3">
-        <div class="pct text-2xl font-bold text-white">+15.1</div>
-        <div class="text-xs text-slate-400 mt-1">Multimodal F1 lift for Claude Opus 4.6</div>
+        <div class="pct text-2xl font-bold text-white">61.7 <span class="text-slate-400 text-base">→</span> 63.9</div>
+        <div class="text-xs text-slate-400 mt-1">Text-only F1 of Claude Opus 5: Curated Input → ClinSeekAgent</div>
       </div>
       <div class="rounded-lg border border-slate-700/60 bg-slate-800/40 px-4 py-3">
-        <div class="pct text-2xl font-bold text-white">+11.9</div>
-        <div class="text-xs text-slate-400 mt-1">ClinSeek-35B-A3B over its base on AgentEHR-Bench</div>
+        <div class="pct text-2xl font-bold text-white">60.0 <span class="text-slate-400 text-base">→</span> 62.5</div>
+        <div class="text-xs text-slate-400 mt-1">Multimodal F1 of GPT-5.6 Sol: Curated Input → ClinSeekAgent</div>
       </div>
       <div class="rounded-lg border border-slate-700/60 bg-slate-800/40 px-4 py-3">
-        <div class="pct text-2xl font-bold text-white">20</div>
-        <div class="text-xs text-slate-400 mt-1">Tools across EHR · Web · Image</div>
+        <div class="pct text-2xl font-bold text-white">22</div>
+        <div class="text-xs text-slate-400 mt-1">Tools: 16 EHR + 6 medical-image</div>
       </div>
       <div class="rounded-lg border border-slate-700/60 bg-slate-800/40 px-4 py-3">
-        <div class="pct text-2xl font-bold text-white">94.4<span class="text-slate-400 text-base">%</span></div>
-        <div class="text-xs text-slate-400 mt-1">Of Claude Opus 4.6 teacher reached by ClinSeek-35B-A3B</div>
+        <div class="pct text-2xl font-bold text-white">35.6 <span class="text-accent-300 text-base">(+16.1)</span></div>
+        <div class="text-xs text-slate-400 mt-1">ClinSeek-35B-A3B average F1 on AgentEHR-Bench (gain over its base)</div>
       </div>
     </div>
   </div>
@@ -177,10 +198,11 @@
 <!-- ─────────────────────── Teaser (full-width) ─────────────────────── -->
 <section class="max-w-6xl mx-auto px-4 sm:px-6 -mt-10 relative z-10">
   <figure class="rounded-2xl bg-white shadow-xl ring-1 ring-slate-200 p-3 sm:p-5">
-    <img data-lightbox src="./images/teaser.png" alt="ClinSeekAgent overview: an agentic model invokes EHR retrieval, web search, and medical-image tools to assemble multimodal evidence for clinical decision support." class="rounded-lg w-full cursor-zoom-in" />
+    <img data-lightbox src="./images/teaser.png" alt="ClinSeekAgent overview: the agent seeks evidence from raw EHR data and medical imaging. Asked to identify diseases in the right upper lung zone or upper mediastinum, it retrieves the radiology report from the local EHR database and analyzes the chest X-ray to answer pneumonia, whereas the curated-context setting lacks the needed information." class="rounded-lg w-full cursor-zoom-in" />
     <figcaption class="text-sm text-slate-500 mt-3 text-center px-2 max-w-3xl mx-auto">
-      <span class="font-medium text-slate-700">From passive consumption to active acquisition.</span>
-      Given a clinical query and access to raw data sources, ClinSeekAgent gathers evidence across EHRs, web search, and medical imaging, then integrates it into a grounded clinical decision.
+      <span class="font-medium text-slate-700">ClinSeekAgent overview.</span>
+      An automated agentic pipeline that interacts with heterogeneous data sources for multimodal evidence seeking.
+      Example: asked for the diseases in the right upper lung zone or upper mediastinum, ClinSeekAgent retrieves the study's radiology report (right upper-lobe opacity) and analyzes the chest X-ray to answer <em>pneumonia</em>; the same model with curated context fails for lack of critical evidence.
     </figcaption>
   </figure>
 </section>
@@ -189,35 +211,21 @@
 <section id="abstract" class="max-w-4xl mx-auto px-4 sm:px-6 mt-10 relative z-10">
   <div class="rounded-2xl bg-white shadow-xl ring-1 ring-slate-200 p-6 sm:p-8">
     <h2 class="text-2xl font-bold text-slate-900">Abstract</h2>
-      <p class="mt-4 text-slate-700 leading-relaxed">
-        LLM-based clinical agents have largely been evaluated on
-        <em>pre-curated</em> patient context — a setting that hides what is arguably the hardest part of clinical reasoning: <strong>deciding where to look, what to retrieve, and how to integrate evidence across modalities</strong>. We introduce <strong>ClinSeekAgent</strong>, an automated agentic framework for dynamic multimodal evidence seeking in clinical decision support, and ship it with three concrete artifacts:
-      </p>
-      <ul class="mt-4 space-y-3 text-slate-700">
-        <li class="flex gap-3">
-          <span class="shrink-0 inline-flex items-center justify-center w-7 h-7 rounded-md bg-accent-50 text-accent-700 text-xs font-bold ring-1 ring-accent-100">a</span>
-          <span>
-            <strong class="text-slate-900">ClinSeekAgent (the pipeline).</strong>
-            20 tools across raw <span class="font-mono">ehr.*</span> tables, <span class="font-mono">browser.*</span> search, and <span class="font-mono">image.*</span> CXR analysis. The agent decides which to invoke and when to stop.
-          </span>
-        </li>
-        <li class="flex gap-3">
-          <span class="shrink-0 inline-flex items-center justify-center w-7 h-7 rounded-md bg-accent-50 text-accent-700 text-xs font-bold ring-1 ring-accent-100">b</span>
-          <span>
-            <strong class="text-slate-900">ClinSeek-Bench.</strong>
-            Each example is paired into <em>Curated Input</em> (the source benchmark's pre-selected evidence) and <em>Automated Evidence-Seeking</em> (only the patient ID + cutoff + tools). Same task, same label, only the access pattern changes.
-          </span>
-        </li>
-        <li class="flex gap-3">
-          <span class="shrink-0 inline-flex items-center justify-center w-7 h-7 rounded-md bg-accent-50 text-accent-700 text-xs font-bold ring-1 ring-accent-100">c</span>
-          <span>
-            <strong class="text-slate-900">ClinSeek-35B-A3B.</strong>
-            SFT of Qwen3.5-35B-A3B on Claude Opus 4.6 trajectories collected from ClinSeekAgent. Open-source state-of-the-art on AgentEHR-Bench, reaching <strong class="text-accent-700">94.4%</strong> of the teacher.
-          </span>
-        </li>
-      </ul>
-    <p class="mt-5 text-slate-700 leading-relaxed">
-      On <strong>ClinSeek-Bench</strong>, ClinSeekAgent lifts Claude Opus 4.6 multimodal F1 from <strong>47.5 → 62.6 (+15.1)</strong>, improves 5/6 evaluated multimodal agents overall, and improves 7/9 agents on text-only risk prediction. The student inherits not just answers but tool-use behaviour: post-SFT, <span class="font-mono">ehr.run_sql_query</span> usage jumps from <strong>2.0% → 12.5%</strong>.
+    <p class="mt-4 text-slate-700 leading-relaxed">
+      Large language models (LLMs) and agentic systems have shown promise for clinical decision support, but existing works largely assume that evidence has already been curated and handed to the model.
+      Real-world clinical workflows instead require agents to actively seek, iteratively plan, and synthesize multimodal evidence from heterogeneous sources.
+      In this paper, we introduce <strong>ClinSeekAgent</strong>, an automated agentic framework for dynamic multimodal evidence seeking that shifts the paradigm from passive evidence consumption to active evidence acquisition.
+      Given a clinical task and access to raw patient data, ClinSeekAgent queries longitudinal EHR records and invokes imaging analysis tools when relevant; refines its hypotheses as new information emerges; and integrates the collected evidence into grounded clinical decisions.
+      We validate ClinSeekAgent in two roles: as an inference-time agent for frontier LLMs and as a training pipeline for open-source models.
+    </p>
+    <p class="mt-4 text-slate-700 leading-relaxed">
+      For inference-time validation, we construct <strong>ClinSeek-Bench</strong>, which covers 13 text-only EHR task categories and 6 multimodal EHR–chest X-ray task categories, and pairs each question with both a <em>Curated Input</em> of pre-selected evidence and the raw patient data for automated evidence seeking.
+      Without any benchmark-specific curation, ClinSeekAgent significantly outperforms curated input for both Claude Opus 5 and GPT-5.6 Sol, improving overall F1 from <strong>61.7 to 63.9</strong> and from <strong>57.8 to 59.3</strong> on text-only EHR tasks, and from <strong>66.5 to 68.8</strong> and from <strong>60.0 to 62.5</strong> on multimodal tasks.
+      The largest gains occur in text-based decision-making and multimodal phenotype prediction, and ablations show that they come from multi-round evidence seeking rather than from access to more of the patient record.
+    </p>
+    <p class="mt-4 text-slate-700 leading-relaxed">
+      For training-time validation, we fine-tune Qwen3.5-35B-A3B on ClinSeekAgent trajectories generated by GPT-5.6 Sol.
+      The resulting <strong>ClinSeek-35B-A3B</strong> reaches <strong>35.6</strong> average F1 on AgentEHR-Bench (<strong class="text-accent-700">+16.1</strong> over its base model), outperforming all evaluated open-source models, including ones more than ten times larger, as well as Claude Opus 5.
     </p>
   </div>
 </section>
@@ -225,268 +233,555 @@
 <!-- ─────────────────────── Findings ─────────────────────── -->
 <section id="findings" class="bg-white border-y border-slate-200 mt-16">
   <div class="max-w-6xl mx-auto px-4 sm:px-6 py-16">
-    <h2 class="text-2xl font-bold text-slate-900">Three findings</h2>
-    <p class="mt-1 text-slate-500">What changes once the agent has to find its own evidence.</p>
+    <h2 class="text-2xl font-bold text-slate-900">Key findings</h2>
+    <p class="mt-1 text-slate-500">What changes when the agent seeks its own evidence instead of receiving a curated package.</p>
 
-    <div class="mt-8 grid md:grid-cols-3 gap-5">
+    <div class="mt-8 grid md:grid-cols-2 lg:grid-cols-4 gap-5">
       <div class="rounded-xl bg-slate-50 ring-1 ring-slate-200 p-5">
         <div class="text-sm font-mono text-accent-600">(a)</div>
-        <h3 class="mt-1 font-semibold text-slate-900">Active search &gt; pre-curated context</h3>
+        <h3 class="mt-1 font-semibold text-slate-900">Evidence seeking beats curated input</h3>
         <p class="mt-2 text-sm text-slate-600 leading-relaxed">
-          When the agentic model has tools, it finds signals the benchmark's hand-picked context missed. Claude Opus 4.6: <strong>+15.1 F1</strong> on multimodal, <strong>+3.2</strong> on text-only overall. MiniMax M2.5: <strong>+4.2</strong>. Risk prediction improves for <strong>7 / 9</strong> evaluated agents.
+          Without benchmark-specific curation, ClinSeekAgent significantly raises overall F1 for both frontier models on both benchmarks: Claude Opus 5 <strong>61.7 → 63.9</strong> (text) and <strong>66.5 → 68.8</strong> (multimodal); GPT-5.6 Sol <strong>57.8 → 59.3</strong> and <strong>60.0 → 62.5</strong>.
+          The largest gains are on text decision making and multimodal phenotype prediction.
         </p>
       </div>
       <div class="rounded-xl bg-slate-50 ring-1 ring-slate-200 p-5">
         <div class="text-sm font-mono text-accent-600">(b)</div>
-        <h3 class="mt-1 font-semibold text-slate-900">Effectiveness scales with agentic capability</h3>
+        <h3 class="mt-1 font-semibold text-slate-900">Multi-round seeking is the source</h3>
         <p class="mt-2 text-sm text-slate-600 leading-relaxed">
-          The gains concentrate in agents that already plan and use tools well — Opus 4.6 and Sonnet 4.6 improve on both text and multimodal; several smaller OSS agents (Kimi K2.5, GLM-4.7) regress when handed the raw tool space. The pipeline works <em>through</em> the agent's own skill rather than as a substitute for it &mdash; which raises the natural question: can we transfer that skill into a smaller open model?
+          Putting the full record in the prompt adds only <strong>+0.8 / +1.9</strong> (text) and <strong>+0.1 / +0.3</strong> (multimodal) over Curated Input (Opus 5 / Sol), and single-pass retrieval gives no significant gain.
+          Making retrieval iterative adds <strong>+5.4 / +1.7</strong> (text) and <strong>+6.1 / +1.4</strong> (multimodal) over single-pass retrieval.
         </p>
       </div>
       <div class="rounded-xl bg-slate-50 ring-1 ring-slate-200 p-5">
         <div class="text-sm font-mono text-accent-600">(c)</div>
-        <h3 class="mt-1 font-semibold text-slate-900">Yes — distillable into an open student</h3>
+        <h3 class="mt-1 font-semibold text-slate-900">The gain grows with record length</h3>
         <p class="mt-2 text-sm text-slate-600 leading-relaxed">
-          We collect ClinSeekAgent trajectories from a strong teacher (Opus 4.6) and SFT them into Qwen3.5-35B-A3B. The resulting <strong>ClinSeek-35B-A3B</strong> reaches <strong>34.0</strong> avg F1 on AgentEHR-Bench &mdash; <strong>+11.9</strong> over its base, ahead of Kimi K2.5 (29.9), MiniMax M2.5 (27.7), GLM-4.7 (27.6), and at <strong>94.4%</strong> of its teacher.
+          Below 30k tokens of patient record, ClinSeekAgent is on par with both prompt-based settings.
+          On records above 250k tokens, its margin over Curated Input reaches <strong>+4.6</strong> (Opus 5) and <strong>+5.3</strong> (Sol).
+        </p>
+      </div>
+      <div class="rounded-xl bg-slate-50 ring-1 ring-slate-200 p-5">
+        <div class="text-sm font-mono text-accent-600">(d)</div>
+        <h3 class="mt-1 font-semibold text-slate-900">Distillable into an open model</h3>
+        <p class="mt-2 text-sm text-slate-600 leading-relaxed">
+          Fine-tuned on GPT-5.6 Sol trajectories, <strong>ClinSeek-35B-A3B</strong> reaches <strong>35.6</strong> average F1 on AgentEHR-Bench (<strong>+16.1</strong> over its base), outperforming all evaluated open-source models and Claude Opus 5 (31.6), at <strong>92%</strong> of its teacher (38.8).
         </p>
       </div>
     </div>
   </div>
 </section>
 
-<!-- ─────────────────────── Method · tool space ─────────────────────── -->
-<section id="method" class="bg-white border-y border-slate-200">
-  <div class="max-w-6xl mx-auto px-4 sm:px-6 py-16">
-    <h2 class="text-2xl font-bold text-slate-900">Method: a 20-tool multi-source space</h2>
-    <p class="mt-2 text-slate-600 leading-relaxed max-w-3xl">
-      Each ClinSeekAgent run is an open-ended trajectory
-      <span class="font-mono text-slate-800">τ = (x, (a₁,o₁), …, (a_K,o_K), ŷ)</span>:
-      a patient-level task, alternating tool actions and observations, terminating with a final answer.
-      The agent decides ordering, depth, and termination; we do not prescribe a retrieval procedure.
-      EHR queries are restricted to records strictly before the prediction-time cutoff, so the agent never peeks at the future.
+<!-- ─────────────────────── Method ─────────────────────── -->
+<section id="method" class="max-w-6xl mx-auto px-4 sm:px-6 py-16">
+  <h2 class="text-2xl font-bold text-slate-900">Method: agentic evidence seeking over raw patient data</h2>
+  <p class="mt-2 text-slate-600 leading-relaxed max-w-3xl">
+    Each task gives the agent a patient identifier, a prediction time, and an instruction, but not the curated patient context.
+    The agent then runs an open-ended trajectory
+    <span class="font-mono text-slate-800">τ = (x, (a<sub>k</sub>, o<sub>k</sub>)<sub>k=1..K</sub>, ŷ)</span>
+    of tool calls and observations, for up to 200 rounds, before calling <span class="font-mono">finish</span> with its answer.
+    ClinSeekAgent standardizes the environment and tool interface; it imposes no ordering over evidence sources, so the evidence-seeking policy comes from the model.
+  </p>
+
+  <div class="mt-8 grid md:grid-cols-2 gap-5">
+    <div class="rounded-xl ring-1 ring-slate-200 bg-white p-5">
+      <div class="flex items-center gap-2">
+        <span class="text-xs font-mono uppercase tracking-wider text-accent-700">ehr.*</span>
+        <span class="text-xs text-slate-500">16 tools</span>
+      </div>
+      <h3 class="mt-1 font-semibold text-slate-900">Longitudinal EHR retrieval</h3>
+      <p class="mt-2 text-sm text-slate-600 leading-relaxed">
+        Patient-specific access to the raw record through schema exploration; time-, keyword-, and value-based retrieval; SQL; and candidate-term lookup, plus <span class="font-mono">think</span> and <span class="font-mono">finish</span>.
+      </p>
+      <dl class="mt-3 space-y-2 text-xs">
+        <div>
+          <dt class="text-slate-500">Schema exploration</dt>
+          <dd class="mt-1 flex flex-wrap gap-1 font-mono text-slate-700">
+            <span class="rounded bg-slate-100 px-1.5 py-0.5">load_ehr</span>
+            <span class="rounded bg-slate-100 px-1.5 py-0.5">get_table_names</span>
+            <span class="rounded bg-slate-100 px-1.5 py-0.5">get_column_names</span>
+            <span class="rounded bg-slate-100 px-1.5 py-0.5">get_table_description</span>
+            <span class="rounded bg-slate-100 px-1.5 py-0.5">get_unique_values</span>
+          </dd>
+        </div>
+        <div>
+          <dt class="text-slate-500">Record retrieval</dt>
+          <dd class="mt-1 flex flex-wrap gap-1 font-mono text-slate-700">
+            <span class="rounded bg-slate-100 px-1.5 py-0.5">get_records_by_time</span>
+            <span class="rounded bg-slate-100 px-1.5 py-0.5">get_event_counts_by_time</span>
+            <span class="rounded bg-slate-100 px-1.5 py-0.5">get_latest_records</span>
+            <span class="rounded bg-slate-100 px-1.5 py-0.5">get_records_by_keyword</span>
+            <span class="rounded bg-slate-100 px-1.5 py-0.5">get_records_by_value</span>
+          </dd>
+        </div>
+        <div>
+          <dt class="text-slate-500">SQL · candidate lookup · control</dt>
+          <dd class="mt-1 flex flex-wrap gap-1 font-mono text-slate-700">
+            <span class="rounded bg-slate-100 px-1.5 py-0.5">run_sql_query</span>
+            <span class="rounded bg-slate-100 px-1.5 py-0.5">get_candidates_by_keyword</span>
+            <span class="rounded bg-slate-100 px-1.5 py-0.5">get_candidates_by_fuzzy_matching</span>
+            <span class="rounded bg-slate-100 px-1.5 py-0.5">get_candidates_by_semantic_similarity</span>
+            <span class="rounded bg-slate-100 px-1.5 py-0.5">think</span>
+            <span class="rounded bg-slate-100 px-1.5 py-0.5">finish</span>
+          </dd>
+        </div>
+      </dl>
+    </div>
+    <div class="rounded-xl ring-1 ring-slate-200 bg-white p-5">
+      <div class="flex items-center gap-2">
+        <span class="text-xs font-mono uppercase tracking-wider text-accent-700">image.*</span>
+        <span class="text-xs text-slate-500">6 tools</span>
+      </div>
+      <h3 class="mt-1 font-semibold text-slate-900">Medical-image analysis</h3>
+      <p class="mt-2 text-sm text-slate-600 leading-relaxed">
+        Visual evidence from chest radiographs through DICOM preprocessing, image visualization, chest X-ray classification, report generation, phrase grounding, and anatomical segmentation.
+      </p>
+      <dl class="mt-3 space-y-2 text-xs">
+        <div>
+          <dt class="text-slate-500">Image tools</dt>
+          <dd class="mt-1 flex flex-wrap gap-1 font-mono text-slate-700">
+            <span class="rounded bg-slate-100 px-1.5 py-0.5">dicom_processor</span>
+            <span class="rounded bg-slate-100 px-1.5 py-0.5">image_visualizer</span>
+            <span class="rounded bg-slate-100 px-1.5 py-0.5">chest_xray_classifier</span>
+            <span class="rounded bg-slate-100 px-1.5 py-0.5">chest_xray_report_generator</span>
+            <span class="rounded bg-slate-100 px-1.5 py-0.5">xray_phrase_grounding</span>
+            <span class="rounded bg-slate-100 px-1.5 py-0.5">chest_xray_segmentation</span>
+          </dd>
+        </div>
+      </dl>
+      <p class="mt-4 text-xs text-slate-500">
+        ClinSeek-Bench-Text uses the 16 EHR tools; ClinSeek-Bench-MM uses all 22.
+      </p>
+    </div>
+  </div>
+
+  <div class="mt-5 rounded-xl ring-1 ring-slate-200 bg-slate-100/60 p-5">
+    <div class="flex items-center gap-2">
+      <span class="text-xs font-semibold uppercase tracking-wider text-slate-600">Temporal policy</span>
+    </div>
+    <p class="mt-2 text-sm text-slate-600 leading-relaxed">
+      Each question gets a question-specific view of the record that keeps only what was available before the prediction time, and every EHR tool (including SQL) and every Curated Input prompt reads from this same view.
+      Diagnosis and procedure codes become available only 24 hours after their encounter ends, and the codes of the encounter being predicted are always hidden.
+      A linked chest X-ray is visible only if acquired before the cutoff, and its report only if finalized by then.
     </p>
-    <p class="mt-3 text-slate-500 text-sm">Three complementary evidence sources, one OpenAI-tool-call interface:</p>
+  </div>
 
-    <div class="mt-8 grid md:grid-cols-3 gap-5">
+  <h3 class="mt-10 text-lg font-semibold text-slate-900">Two roles</h3>
+  <div class="mt-3 grid md:grid-cols-2 gap-5">
+    <a href="#results" class="block rounded-xl ring-2 ring-accent-300 bg-accent-50/60 p-5 hover:bg-accent-50">
+      <div class="text-xs font-semibold uppercase tracking-wider text-accent-700">Inference-time agent</div>
+      <p class="mt-2 text-sm text-slate-700 leading-relaxed">
+        A frontier LLM runs ClinSeekAgent directly on raw patient data; we compare it with the same model on Curated Input on ClinSeek-Bench.
+      </p>
+    </a>
+    <a href="#distillation" class="block rounded-xl ring-2 ring-accent-300 bg-accent-50/60 p-5 hover:bg-accent-50">
+      <div class="text-xs font-semibold uppercase tracking-wider text-accent-700">Training pipeline</div>
+      <p class="mt-2 text-sm text-slate-700 leading-relaxed">
+        ClinSeekAgent trajectories from a strong teacher supervise an open-source model; we evaluate the student on AgentEHR-Bench.
+      </p>
+    </a>
+  </div>
+</section>
+
+<!-- ─────────────────────── Benchmark ─────────────────────── -->
+<section id="benchmark" class="bg-white border-y border-slate-200">
+  <div class="max-w-6xl mx-auto px-4 sm:px-6 py-16">
+    <h2 class="text-2xl font-bold text-slate-900">ClinSeek-Bench: paired curated and agentic settings</h2>
+    <p class="mt-2 text-slate-600 leading-relaxed max-w-3xl">
+      Every question appears in two settings with the same task definition and answer label: <em>Curated Input</em>, the evidence package of the source benchmark, and <em>Automated Evidence-Seeking</em>, where that context is removed and the model must retrieve evidence from the raw data with ClinSeekAgent tools.
+    </p>
+
+    <div class="mt-6 grid sm:grid-cols-2 gap-4">
       <div class="rounded-xl ring-1 ring-slate-200 bg-slate-50 p-5">
-        <div class="flex items-center gap-2">
-          <span class="text-xs font-mono uppercase tracking-wider text-accent-700">ehr.*</span>
-          <span class="text-xs text-slate-500">11 tools</span>
-        </div>
-        <h3 class="mt-1 font-semibold text-slate-900">Raw EHR retrieval</h3>
-        <p class="mt-2 text-sm text-slate-600 leading-relaxed">
-          Schema inspection, temporal record retrieval, free-form SQL, candidate-term grounding (BioLORD semantic search over reference vocabularies), and a <span class="font-mono">finish</span> action. The MCP server enforces the prediction-time cutoff per patient.
-        </p>
+        <div class="text-xs uppercase tracking-wider text-slate-500">ClinSeek-Bench-Text</div>
+        <div class="mt-1 pct text-3xl font-bold text-slate-900">1,800 <span class="text-base font-medium text-slate-500">questions</span></div>
+        <p class="mt-1 text-sm text-slate-600">40 per subtask from the 45 EHR-Bench subtasks over MIMIC-IV, grouped into 13 categories: 4 risk prediction, 9 decision making.</p>
       </div>
       <div class="rounded-xl ring-1 ring-slate-200 bg-slate-50 p-5">
-        <div class="flex items-center gap-2">
-          <span class="text-xs font-mono uppercase tracking-wider text-accent-700">browser.*</span>
-          <span class="text-xs text-slate-500">3 tools</span>
-        </div>
-        <h3 class="mt-1 font-semibold text-slate-900">External medical knowledge</h3>
-        <p class="mt-2 text-sm text-slate-600 leading-relaxed">
-          <span class="font-mono">search</span> · <span class="font-mono">open</span> · <span class="font-mono">find</span>. Backed by either a local browser or the Serper API. Used for clinical definitions, drug references, and benchmark-specific taxonomies (e.g. the 25-phenotype Harutyunyan 2019 labels).
-        </p>
+        <div class="text-xs uppercase tracking-wider text-slate-500">ClinSeek-Bench-MM</div>
+        <div class="mt-1 pct text-3xl font-bold text-slate-900">989 <span class="text-base font-medium text-slate-500">questions</span></div>
+        <p class="mt-1 text-sm text-slate-600">Reconstructed from EHRXQA and MedMod, which pair MIMIC-IV EHRs with MIMIC-CXR chest radiographs, in 6 categories.</p>
       </div>
-      <div class="rounded-xl ring-1 ring-slate-200 bg-slate-50 p-5">
-        <div class="flex items-center gap-2">
-          <span class="text-xs font-mono uppercase tracking-wider text-accent-700">image.*</span>
-          <span class="text-xs text-slate-500">6 tools</span>
+    </div>
+
+    <div class="mt-6 grid lg:grid-cols-2 gap-5">
+      <div class="overflow-x-auto rounded-xl ring-1 ring-slate-200 bg-slate-50/50">
+        <table class="paper min-w-full text-sm pct">
+          <thead class="bg-slate-100 text-slate-700">
+            <tr><th class="px-4 py-3 text-left font-semibold">Text category</th><th class="px-4 py-3 text-right font-semibold">N</th><th class="px-4 py-3 text-left font-semibold">Predict</th></tr>
+          </thead>
+          <tbody class="divide-y divide-slate-200">
+            <tr class="row-group"><td colspan="3" class="px-4 pt-3 pb-1 text-xs uppercase tracking-wider text-slate-400">Risk prediction</td></tr>
+            <tr><td class="px-4 py-2 text-slate-800">Mortality</td><td class="px-4 py-2 text-right">280</td><td class="px-4 py-2 text-slate-600">In-hospital death, or death within 1, 2, 3, 7, or 14 days in the ICU</td></tr>
+            <tr><td class="px-4 py-2 text-slate-800">Readmission</td><td class="px-4 py-2 text-right">160</td><td class="px-4 py-2 text-slate-600">ED return within 72 hours, ICU readmission, or hospital readmission within 30 or 60 days</td></tr>
+            <tr><td class="px-4 py-2 text-slate-800">Length of stay</td><td class="px-4 py-2 text-right">160</td><td class="px-4 py-2 text-slate-600">ICU stay over 7 or 14 days, or hospital stay over 3 or 7 days</td></tr>
+            <tr><td class="px-4 py-2 text-slate-800">Escalation of care</td><td class="px-4 py-2 text-right">120</td><td class="px-4 py-2 text-slate-600">Hospitalization from the ED, ICU transfer within 12 hours, or a critical outcome</td></tr>
+            <tr class="row-group"><td colspan="3" class="px-4 pt-3 pb-1 text-xs uppercase tracking-wider text-slate-400">Decision making</td></tr>
+            <tr><td class="px-4 py-2 text-slate-800">Diagnosis</td><td class="px-4 py-2 text-right">160</td><td class="px-4 py-2 text-slate-600">Next diagnoses, as ICD titles or CCS categories</td></tr>
+            <tr><td class="px-4 py-2 text-slate-800">Medication</td><td class="px-4 py-2 text-right">320</td><td class="px-4 py-2 text-slate-600">Next administered medications, prescriptions, ED medication items, and ICU inputs</td></tr>
+            <tr><td class="px-4 py-2 text-slate-800">Procedure</td><td class="px-4 py-2 text-right">120</td><td class="px-4 py-2 text-slate-600">Next procedures and ICU procedure items</td></tr>
+            <tr><td class="px-4 py-2 text-slate-800">Laboratory &amp; microbiology</td><td class="px-4 py-2 text-right">80</td><td class="px-4 py-2 text-slate-600">Next laboratory and microbiology tests</td></tr>
+            <tr><td class="px-4 py-2 text-slate-800">Vitals &amp; measurements</td><td class="px-4 py-2 text-right">160</td><td class="px-4 py-2 text-slate-600">Next ICU charted and output items, and outpatient measurements</td></tr>
+            <tr><td class="px-4 py-2 text-slate-800">Imaging report</td><td class="px-4 py-2 text-right">40</td><td class="px-4 py-2 text-slate-600">Next radiology examination</td></tr>
+            <tr><td class="px-4 py-2 text-slate-800">Orders</td><td class="px-4 py-2 text-right">40</td><td class="px-4 py-2 text-slate-600">Type of the next provider order</td></tr>
+            <tr><td class="px-4 py-2 text-slate-800">Encounter &amp; flow</td><td class="px-4 py-2 text-right">120</td><td class="px-4 py-2 text-slate-600">Next admission type, clinical service, and transfer care unit</td></tr>
+            <tr><td class="px-4 py-2 text-slate-800">Next event</td><td class="px-4 py-2 text-right">40</td><td class="px-4 py-2 text-slate-600">EHR table of the next event</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div>
+        <div class="overflow-x-auto rounded-xl ring-1 ring-slate-200 bg-slate-50/50">
+          <table class="paper min-w-full text-sm pct">
+            <thead class="bg-slate-100 text-slate-700">
+              <tr><th class="px-4 py-3 text-left font-semibold">Multimodal category</th><th class="px-4 py-3 text-right font-semibold">N</th><th class="px-4 py-3 text-left font-semibold">Task (source)</th></tr>
+            </thead>
+            <tbody class="divide-y divide-slate-200">
+              <tr><td class="px-4 py-2 text-slate-800">CXR finding presence</td><td class="px-4 py-2 text-right">215</td><td class="px-4 py-2 text-slate-600">Is a finding present in a chest X-ray study? (EHRXQA)</td></tr>
+              <tr><td class="px-4 py-2 text-slate-800">CXR finding enumeration</td><td class="px-4 py-2 text-right">182</td><td class="px-4 py-2 text-slate-600">List the findings of a study (EHRXQA, MedMod)</td></tr>
+              <tr><td class="px-4 py-2 text-slate-800">CXR change comparison</td><td class="px-4 py-2 text-right">222</td><td class="px-4 py-2 text-slate-600">How findings change between two studies (EHRXQA)</td></tr>
+              <tr><td class="px-4 py-2 text-slate-800">Clinical deterioration</td><td class="px-4 py-2 text-right">125</td><td class="px-4 py-2 text-slate-600">ICU death within the next 24 hours (MedMod)</td></tr>
+              <tr><td class="px-4 py-2 text-slate-800">Mortality</td><td class="px-4 py-2 text-right">125</td><td class="px-4 py-2 text-slate-600">Death during the current ICU stay (MedMod)</td></tr>
+              <tr><td class="px-4 py-2 text-slate-800">Phenotype</td><td class="px-4 py-2 text-right">120</td><td class="px-4 py-2 text-slate-600">Acute and chronic conditions of an ICU stay (MedMod)</td></tr>
+            </tbody>
+          </table>
         </div>
-        <h3 class="mt-1 font-semibold text-slate-900">Medical-image analysis</h3>
-        <p class="mt-2 text-sm text-slate-600 leading-relaxed">
-          DICOM preprocessing, CXR classification (TorchXRayVision), report generation, phrase grounding and anatomical segmentation (MAIRA-2), plus an image visualiser. Provides structured findings beyond the agent's native vision.
-        </p>
+        <div class="mt-4 rounded-xl ring-1 ring-slate-200 bg-slate-50 p-5 text-sm text-slate-600 leading-relaxed">
+          <div class="text-xs font-semibold uppercase tracking-wider text-slate-500">Metric</div>
+          <p class="mt-2">
+            Sample-wise F1 (%) over the predicted and gold label sets, averaged over questions; for single-label questions it reduces to accuracy.
+            All comparisons are paired on questions, with paired-bootstrap 95% confidence intervals.
+          </p>
+        </div>
       </div>
     </div>
   </div>
 </section>
 
-<!-- ─────────────────────── Results (tabs) ─────────────────────── -->
+<!-- ─────────────────────── Results ─────────────────────── -->
 <section id="results" class="max-w-6xl mx-auto px-4 sm:px-6 py-16">
-  <h2 class="text-2xl font-bold text-slate-900">Inference-time results: paired Curated vs. ClinSeekAgent</h2>
-  <p class="mt-1 text-slate-500">Same task definition, same labels — only the evidence access pattern changes. We evaluate twelve agents on ClinSeek-Bench.</p>
+  <h2 class="text-2xl font-bold text-slate-900">Inference-time results: Curated Input vs. ClinSeekAgent</h2>
+  <p class="mt-1 text-slate-500">Same questions, same labels; only the way evidence reaches the model changes. Both modes use the same reasoning budget and one run per question.</p>
 
   <div class="mt-5 grid md:grid-cols-2 gap-4 text-sm leading-relaxed">
     <div class="rounded-xl ring-1 ring-slate-200 bg-slate-50 p-5">
       <div class="flex items-center gap-2">
         <span class="inline-flex items-center justify-center text-xs font-semibold rounded-md bg-slate-200 text-slate-700 px-2 py-0.5">Curated Input</span>
-        <span class="text-slate-500 text-xs">baseline — common practice</span>
+        <span class="text-slate-500 text-xs">source-benchmark evidence package</span>
       </div>
       <p class="mt-2 text-slate-600">
-        The source benchmark's hand-selected EHR context (up to 100 events from the last 24 h) is rendered into the prompt; the model answers directly with no tools.
+        The pre-selected evidence is rendered into the prompt (for EHR-Bench, up to 100 events from the past 24 hours) and the model answers directly, without tools.
       </p>
     </div>
     <div class="rounded-xl ring-2 ring-accent-300 bg-accent-50/60 p-5">
       <div class="flex items-center gap-2">
         <span class="inline-flex items-center justify-center text-xs font-semibold rounded-md bg-accent-600 text-white px-2 py-0.5">ClinSeekAgent (ours)</span>
-        <span class="text-slate-500 text-xs">automated evidence-seeking</span>
+        <span class="text-slate-500 text-xs">automated evidence seeking</span>
       </div>
       <p class="mt-2 text-slate-700">
-        The curated context is stripped. The model receives only the patient ID, prediction-time cutoff, and access to the 20-tool space, and must retrieve evidence over multiple turns.
+        Given only the patient identifier and the prediction cutoff, the model retrieves evidence from the raw record with the tools above for up to 200 rounds before calling <span class="font-mono">finish</span>.
       </p>
     </div>
   </div>
 
-  <p class="mt-4 text-sm text-slate-500">Click a tab to switch the result table.</p>
+  <!-- Headline 2x2 -->
+  <h3 class="mt-12 text-lg font-semibold text-slate-900">ClinSeekAgent improves both frontier models on both benchmarks</h3>
+  <div class="mt-4 grid grid-cols-2 lg:grid-cols-4 gap-3">
+    <div class="rounded-xl ring-1 ring-slate-200 bg-white px-4 py-3">
+      <div class="text-xs text-slate-500">Claude Opus 5 · Text</div>
+      <div class="pct mt-1 text-xl font-bold text-slate-900">61.7 → 63.9 <span class="text-sm font-bold text-emerald-600">+2.2</span></div>
+    </div>
+    <div class="rounded-xl ring-1 ring-slate-200 bg-white px-4 py-3">
+      <div class="text-xs text-slate-500">Claude Opus 5 · Multimodal</div>
+      <div class="pct mt-1 text-xl font-bold text-slate-900">66.5 → 68.8 <span class="text-sm font-bold text-emerald-600">+2.3</span></div>
+    </div>
+    <div class="rounded-xl ring-1 ring-slate-200 bg-white px-4 py-3">
+      <div class="text-xs text-slate-500">GPT-5.6 Sol · Text</div>
+      <div class="pct mt-1 text-xl font-bold text-slate-900">57.8 → 59.3 <span class="text-sm font-bold text-emerald-600">+1.6</span></div>
+    </div>
+    <div class="rounded-xl ring-1 ring-slate-200 bg-white px-4 py-3">
+      <div class="text-xs text-slate-500">GPT-5.6 Sol · Multimodal</div>
+      <div class="pct mt-1 text-xl font-bold text-slate-900">60.0 → 62.5 <span class="text-sm font-bold text-emerald-600">+2.5</span></div>
+    </div>
+  </div>
+  <p class="mt-2 text-xs text-slate-500">Overall F1 (%), Curated Input → ClinSeekAgent; Δ is the mean per-question difference, and every paired-bootstrap 95% CI excludes zero.</p>
 
-  <!-- Tabs -->
-  <div role="tablist" class="mt-6 flex flex-wrap gap-2 text-sm" id="result-tabs">
-    <button role="tab" aria-selected="true"  data-tab="text"
+  <figure class="mt-8 rounded-2xl bg-white ring-1 ring-slate-200 p-3 sm:p-5">
+    <img data-lightbox src="./images/category_gains.png" alt="Dumbbell plot of F1 by task category for Claude Opus 5 (top) and GPT-5.6 Sol (bottom) on ClinSeek-Bench-Text (left) and ClinSeek-Bench-MM (right); hollow markers are Curated Input, filled markers ClinSeekAgent, and green labels mark categories where ClinSeekAgent improves." class="rounded-lg w-full cursor-zoom-in" />
+    <figcaption class="text-sm text-slate-500 mt-3 text-center px-2 max-w-3xl mx-auto">
+      <span class="font-medium text-slate-700">ClinSeekAgent vs. Curated Input by task category</span> (sample-wise F1, %) for Claude Opus 5 (top) and GPT-5.6 Sol (bottom) on ClinSeek-Bench-Text (left) and ClinSeek-Bench-MM (right).
+      Hollow markers: Curated Input; filled: ClinSeekAgent; the label above each pair is their difference, <span class="text-emerald-700 font-medium">green</span> where ClinSeekAgent improves.
+    </figcaption>
+  </figure>
+
+  <ul class="mt-6 space-y-2 text-sm text-slate-700 leading-relaxed max-w-4xl">
+    <li class="flex gap-2"><span class="text-accent-600">▸</span><span><strong>Broad gains.</strong> ClinSeekAgent improves 23 of the 38 model–category pairs: 13 of 19 for GPT-5.6 Sol and 10 of 19 for Claude Opus 5.</span></li>
+    <li class="flex gap-2"><span class="text-accent-600">▸</span><span><strong>Reasoning-intensive tasks benefit most.</strong> Next diagnoses, medications, and orders improve for both models (+8.3 / +5.1 / +13.3 for Opus 5, +3.0 / +2.4 / +5.8 for Sol), and multimodal phenotype prediction improves by +10.5 (Opus 5) and +15.8 (Sol).</span></li>
+    <li class="flex gap-2"><span class="text-accent-600">▸</span><span><strong>Risk prediction stays near saturation.</strong> Over the 720 text risk-prediction questions, ClinSeekAgent vs. Curated Input is 81.7 vs. 82.2 for Opus 5 and 79.6 vs. 78.2 for Sol.</span></li>
+    <li class="flex gap-2"><span class="text-accent-600">▸</span><span><strong>Losses sit in the smallest categories.</strong> The largest decreases (−8 to −9 points for Opus 5) fall in the three smallest categories, with 40–80 questions each.</span></li>
+  </ul>
+
+  <!-- Interactive per-category table -->
+  <h3 class="mt-12 text-lg font-semibold text-slate-900">Per-category results</h3>
+  <p class="mt-1 text-sm text-slate-500">Click a tab to switch models. Full-Record Input and Single-Pass Retrieval are the ablation settings described below.</p>
+
+  <div role="tablist" class="mt-4 flex flex-wrap gap-2 text-sm" id="cat-tabs">
+    <button role="tab" aria-selected="true" data-model="Claude Opus 5"
       class="tab-btn rounded-md border border-slate-300 px-3 py-2 text-slate-700 bg-white hover:bg-slate-50">
-      Text-only EHR
-      <span class="tab-delta block text-xs text-accent-600 font-semibold">Opus 4.6: +3.2 overall</span>
+      Claude Opus 5
+      <span class="tab-delta block text-xs text-accent-600 font-semibold">Text +2.2 · MM +2.3</span>
     </button>
-    <button role="tab" aria-selected="false" data-tab="mm"
+    <button role="tab" aria-selected="false" data-model="GPT-5.6 Sol"
       class="tab-btn rounded-md border border-slate-300 px-3 py-2 text-slate-700 bg-white hover:bg-slate-50">
-      Multimodal
-      <span class="tab-delta block text-xs text-slate-500 font-semibold">Opus 4.6: +15.1 overall</span>
+      GPT-5.6 Sol
+      <span class="tab-delta block text-xs text-accent-600 font-semibold">Text +1.6 · MM +2.5</span>
     </button>
   </div>
 
-  <!-- Caption per panel -->
-  <p id="result-caption" class="mt-4 text-sm text-slate-500"></p>
-
-  <!-- Table panel -->
-  <div class="mt-4 overflow-x-auto rounded-xl ring-1 ring-slate-200 bg-slate-50/50">
+  <p id="cat-caption" class="mt-4 text-sm text-slate-500"></p>
+  <div class="mt-3 overflow-x-auto rounded-xl ring-1 ring-slate-200 bg-slate-50/50">
     <table class="paper min-w-full text-sm pct">
-      <thead id="result-head" class="bg-slate-100 text-slate-700"></thead>
-      <tbody id="result-body" class="divide-y divide-slate-200"></tbody>
+      <thead id="cat-head" class="bg-slate-100 text-slate-700"></thead>
+      <tbody id="cat-body" class="divide-y divide-slate-200"></tbody>
     </table>
   </div>
-  <p id="result-footnote" class="text-xs text-slate-500 mt-2"></p>
 
-  <!-- Fine-grained heatmap for the text tab -->
-  <figure id="result-heatmap" class="mt-8 rounded-2xl bg-white ring-1 ring-slate-200 p-3 sm:p-5">
-    <img data-lightbox src="./images/multimodal_result.png" alt="Per-subtask gain heatmap on text-only EHR-Bench: green = ClinSeekAgent wins over Curated Input, red = loses. Risk-prediction tasks (Mortality, LengthOfStay, ED Hospitalization) dominate the green column." class="rounded-lg w-full cursor-zoom-in" />
-    <figcaption class="text-sm text-slate-500 mt-3 text-center px-2">
-      Per-subtask gains of ClinSeekAgent over Curated Input across nine agents on text-only EHR tasks.
-      <span class="text-emerald-700 font-medium">Green</span> = win,
-      <span class="text-rose-700 font-medium">red</span> = loss.
-      Gains concentrate in risk prediction.
+  <!-- Gain source -->
+  <h3 class="mt-14 text-lg font-semibold text-slate-900">Where does the gain come from?</h3>
+  <p class="mt-2 text-sm text-slate-600 leading-relaxed max-w-4xl">
+    ClinSeekAgent differs from Curated Input in two ways: it can access the whole record instead of a curated window, and it gathers evidence over multiple rounds of tool calls and reasoning.
+    Two ablation settings extend record access without the multi-round loop; all four settings share the same temporal policy.
+  </p>
+  <div class="mt-4 grid md:grid-cols-2 gap-4 text-sm leading-relaxed">
+    <div class="rounded-xl ring-1 ring-slate-200 bg-slate-50 p-5">
+      <span class="inline-flex items-center justify-center text-xs font-semibold rounded-md bg-slate-200 text-slate-700 px-2 py-0.5">Full-Record Input</span>
+      <p class="mt-2 text-slate-600">Curated Input with the patient's full pre-cutoff record in the prompt, truncated oldest-first when it does not fit the 100k-token context window.</p>
+    </div>
+    <div class="rounded-xl ring-1 ring-slate-200 bg-slate-50 p-5">
+      <span class="inline-flex items-center justify-center text-xs font-semibold rounded-md bg-slate-200 text-slate-700 px-2 py-0.5">Single-Pass Retrieval</span>
+      <p class="mt-2 text-slate-600">ClinSeekAgent with the same tools and record access, but all retrieval calls must be issued in one turn before answering.</p>
+    </div>
+  </div>
+
+  <p id="modes-caption" class="mt-6 text-sm text-slate-500"></p>
+  <div class="mt-3 overflow-x-auto rounded-xl ring-1 ring-slate-200 bg-slate-50/50">
+    <table class="paper min-w-full text-sm pct">
+      <thead id="modes-head" class="bg-slate-100 text-slate-700"></thead>
+      <tbody id="modes-body" class="divide-y divide-slate-200"></tbody>
+    </table>
+  </div>
+
+  <ul class="mt-6 space-y-2 text-sm text-slate-700 leading-relaxed max-w-4xl">
+    <li class="flex gap-2"><span class="text-accent-600">▸</span><span><strong>Extended record access alone does not help.</strong> Full-Record Input exceeds Curated Input by only +0.8 / +1.9 on text and +0.1 / +0.3 on multimodal (Opus 5 / Sol); Single-Pass Retrieval shows no significant gain over Curated Input.</span></li>
+    <li class="flex gap-2"><span class="text-accent-600">▸</span><span><strong>Multi-round reasoning is the source of the gain.</strong> Single-Pass Retrieval and ClinSeekAgent differ only in whether retrieval is iterative; the gap is +5.4 / +1.7 on text and +6.1 / +1.4 on multimodal.</span></li>
+  </ul>
+
+  <figure class="mt-8 rounded-2xl bg-white ring-1 ring-slate-200 p-3 sm:p-5">
+    <img data-lightbox src="./images/length_strata.png" alt="F1 gain of ClinSeekAgent over Curated Input and over Full-Record Input, by length of the patient's full pre-cutoff record, for Claude Opus 5 and GPT-5.6 Sol on ClinSeek-Bench-Text. The gain over Curated Input reaches +4.6 and +5.3 above 250k tokens." class="rounded-lg w-full max-w-4xl mx-auto cursor-zoom-in" />
+    <figcaption class="text-sm text-slate-500 mt-3 text-center px-2 max-w-3xl mx-auto">
+      <span class="font-medium text-slate-700">The gain of ClinSeekAgent grows with the length of the patient record</span> (ClinSeek-Bench-Text, F1 points).
+      Below 30k tokens it is on par with both prompt-based settings; above 250k tokens its margin reaches +4.6 / +5.3 over Curated Input and +2.1 / +1.3 over Full-Record Input (Opus 5 / Sol).
+      In the shaded bins the record does not fit in the 100k-token window of Full-Record Input and is truncated.
     </figcaption>
   </figure>
 
-  <!-- Qualitative: good case + failure -->
-  <h3 class="mt-12 text-lg font-semibold text-slate-900">Where it works: a multimodal phenotype case</h3>
-  <figure class="mt-3 rounded-2xl bg-slate-50 ring-1 ring-slate-200 p-3 sm:p-5">
-    <img data-lightbox src="./images/case_study.png" alt="Side-by-side trajectory comparison on a phenotype task. ClinSeekAgent calls an image expert for the CXR, then SQL on the EHR for vitals, then browser search for the CCS taxonomy. F1 = 83.3. Curated-Input fails for lack of imaging signal." class="rounded-lg w-full cursor-zoom-in" />
-    <figcaption class="text-sm text-slate-500 mt-3 text-center px-2">
-      On a phenotype question, the agent calls a CXR expert, runs SQL across ICU events, and browses the 25-phenotype taxonomy — three complementary signals — to reach <strong>F1 = 83.3</strong>. The Curated-Input baseline fails for lack of imaging evidence.
-    </figcaption>
-  </figure>
+  <!-- Multi-run -->
+  <h3 class="mt-14 text-lg font-semibold text-slate-900">The improvements are stable across runs</h3>
+  <p class="mt-2 text-sm text-slate-600 leading-relaxed max-w-4xl">
+    Over five runs of GPT-5.6 Sol, the standard deviation of overall F1 is at most 0.4 points within each mode, ClinSeekAgent beats Curated Input in every run, and Krippendorff's α of per-question F1 across runs is 0.87–0.91.
+  </p>
+  <p id="multirun-caption" class="mt-4 text-sm text-slate-500"></p>
+  <div class="mt-3 overflow-x-auto rounded-xl ring-1 ring-slate-200 bg-slate-50/50">
+    <table class="paper min-w-full text-sm pct">
+      <thead id="multirun-head" class="bg-slate-100 text-slate-700"></thead>
+      <tbody id="multirun-body" class="divide-y divide-slate-200"></tbody>
+    </table>
+  </div>
 
-  <h3 class="mt-10 text-lg font-semibold text-slate-900">Where it still loses: next-row decision making</h3>
-  <figure class="mt-3 rounded-2xl bg-slate-50 ring-1 ring-slate-200 p-3 sm:p-5">
-    <img data-lightbox src="./images/fail_case_study.png" alt="Failure case on a decision-making task: the agent retrieves wide context but overlooks the row-local pattern that determines the next event, while the Curated-Input baseline picks it up correctly." class="rounded-lg w-full cursor-zoom-in" />
-    <figcaption class="text-sm text-slate-500 mt-3 text-center px-2">
-      On <em>next-row</em> decision-making tasks, broad retrieval can hurt: the agent collects abundant but tangential evidence and overlooks the table-local pattern. The Curated-Input baseline sees the same recent rows directly and gets it right. Closing this gap is open work.
-    </figcaption>
-  </figure>
+  <!-- More models -->
+  <h3 class="mt-14 text-lg font-semibold text-slate-900">More models</h3>
+  <p class="mt-2 text-sm text-slate-600 leading-relaxed max-w-4xl">
+    Models with stronger agentic capability benefit more. For Claude Opus 4.6, GLM-5.2, and Kimi K2.6, all three stay within two points of Curated Input overall on text; on multimodal, Claude Opus 4.6 gains +5.1 (mostly on phenotype) and Kimi K2.6 +2.0, and only the gain of Opus 4.6 is significant.
+  </p>
+  <p id="moretext-caption" class="mt-4 text-sm text-slate-500"></p>
+  <div class="mt-3 overflow-x-auto rounded-xl ring-1 ring-slate-200 bg-slate-50/50">
+    <table class="paper min-w-full text-sm pct">
+      <thead id="moretext-head" class="bg-slate-100 text-slate-700"></thead>
+      <tbody id="moretext-body" class="divide-y divide-slate-200"></tbody>
+    </table>
+  </div>
+  <p id="moremm-caption" class="mt-6 text-sm text-slate-500"></p>
+  <div class="mt-3 overflow-x-auto rounded-xl ring-1 ring-slate-200 bg-slate-50/50">
+    <table class="paper min-w-full text-sm pct">
+      <thead id="moremm-head" class="bg-slate-100 text-slate-700"></thead>
+      <tbody id="moremm-body" class="divide-y divide-slate-200"></tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ─────────────────────── Case studies ─────────────────────── -->
+<section id="cases" class="bg-white border-y border-slate-200">
+  <div class="max-w-6xl mx-auto px-4 sm:px-6 py-16">
+    <h2 class="text-2xl font-bold text-slate-900">Case studies</h2>
+    <p class="mt-1 text-slate-500">Two questions where ClinSeekAgent answers correctly and an ablation setting does not.</p>
+
+    <h3 class="mt-8 text-lg font-semibold text-slate-900">ClinSeekAgent vs. Single-Pass Retrieval</h3>
+    <figure class="mt-3 rounded-2xl bg-slate-50 ring-1 ring-slate-200 p-3 sm:p-5">
+      <img data-lightbox src="./images/case_single_pass.png" alt="Next eMAR medication question. ClinSeekAgent's SQL queries find a prior anticoagulant (apixaban) and a pending CT order, then retrieve the CT report showing a large intraventricular hemorrhage, and answer the reversal agent Andexxa. Single-Pass Retrieval plans eight queries upfront, never retrieves the radiology report, and answers apixaban." class="rounded-lg w-full cursor-zoom-in" />
+      <figcaption class="text-sm text-slate-500 mt-3 text-center px-2 max-w-3xl mx-auto">
+        Early rounds return the patient's prior anticoagulant and a pending CT order, so the agent requests the CT report, finds a large intracranial bleed, and predicts the reversal agent.
+        Single-Pass Retrieval had to plan all of its queries before seeing any result; it never retrieved the report and predicted the anticoagulant that the bleed contraindicates.
+      </figcaption>
+    </figure>
+
+    <h3 class="mt-10 text-lg font-semibold text-slate-900">ClinSeekAgent vs. Full-Record Input <span class="text-sm font-normal text-slate-500">(GPT-5.6 Sol, next transfer care unit)</span></h3>
+    <figure class="mt-3 rounded-2xl bg-slate-50 ring-1 ring-slate-200 p-3 sm:p-5">
+      <img data-lightbox src="./images/case_full_record.png" alt="Next transfer care unit question. ClinSeekAgent sees that the admission transfer is still pending, widens its time window, finds that a comparable prior orthopedic stay was admitted to Med/Surg/GYN, and answers Med/Surg/GYN. Full-Record Input has the precedent at 26% of the prompt but answers Observation, a string near the end of the prompt that is not a care unit in the record." class="rounded-lg w-full cursor-zoom-in" />
+      <figcaption class="text-sm text-slate-500 mt-3 text-center px-2 max-w-3xl mx-auto">
+        Having the record in the prompt is not the same as finding the deciding row: the unit to which the patient was admitted after a comparable orthopedic visit two weeks earlier sits at 26% of the untruncated Full-Record prompt, yet the model answers with a string near the end of the prompt that is not a care unit in the record.
+        ClinSeekAgent notices that the admission transfer is still pending, widens its time window, and retrieves the precedent.
+      </figcaption>
+    </figure>
+  </div>
 </section>
 
 <!-- ─────────────────────── Distillation ─────────────────────── -->
-<section id="distillation" class="bg-white border-y border-slate-200">
-  <div class="max-w-6xl mx-auto px-4 sm:px-6 py-16">
-    <h2 class="text-2xl font-bold text-slate-900">Distillation: ClinSeek-35B-A3B</h2>
-    <p class="mt-2 text-slate-600 leading-relaxed max-w-3xl">
-      The inference-time results above lean on strong agentic capability in the model. To transfer that capability into an open student, we run Claude Opus 4.6 through ClinSeekAgent on the text-based training split, collect the resulting trajectories in their native tool-call format, and SFT Qwen3.5-35B-A3B on them (8&times; H200, TP=2 / EP=8, 52k sequence length, cosine 2e-5).
-    </p>
-
-    <h3 class="mt-8 text-lg font-semibold text-slate-900">Open-source state-of-the-art on AgentEHR-Bench</h3>
-    <p id="distill-caption" class="mt-2 text-sm text-slate-500"></p>
-    <div class="mt-3 overflow-x-auto rounded-xl ring-1 ring-slate-200 bg-slate-50/50">
-      <table class="paper min-w-full text-sm pct">
-        <thead id="distill-head" class="bg-slate-100 text-slate-700"></thead>
-        <tbody id="distill-body" class="divide-y divide-slate-200"></tbody>
-      </table>
-    </div>
-
-    <figure class="mt-8 rounded-2xl bg-white ring-1 ring-slate-200 p-3 sm:p-5">
-      <img data-lightbox src="./images/performance.png" alt="Parameter-efficiency scatter on AgentEHR-Bench: ClinSeek-35B-A3B (34.0 F1) is the strongest open-source model in our evaluation, surpassing larger Kimi K2.5, MiniMax M2.5 and GLM-4.7, and approaches Claude Opus 4.6 (36.0)." class="rounded-lg w-full max-w-3xl mx-auto cursor-zoom-in" />
-      <figcaption class="text-sm text-slate-500 mt-3 text-center px-2">
-        ClinSeek-35B-A3B vs. open-source baselines and proprietary frontier models on AgentEHR-Bench. The distilled student matches the trade-off curve of much larger MoE models.
-      </figcaption>
-    </figure>
-
-    <h3 class="mt-10 text-lg font-semibold text-slate-900">What the student actually learned</h3>
-    <figure class="mt-3 rounded-2xl bg-slate-50 ring-1 ring-slate-200 p-3 sm:p-5">
-      <img data-lightbox src="./images/tool_distribution_pies.png" alt="Tool-call distribution on AgentEHR-Bench, before vs. after SFT on ClinSeekAgent trajectories. After distillation, ehr.run_sql_query rises from 2.0% of all calls to 12.5%." class="rounded-lg w-full cursor-zoom-in" />
-      <figcaption class="text-sm text-slate-500 mt-3 text-center px-2">
-        Total tool calls barely changed (33k → 31k on the same 500 questions), but the <em>allocation</em> did:
-        <span class="font-mono">ehr.run_sql_query</span> rose from
-        <strong>2.0% → 12.5%</strong>. The student inherits not just final-answer patterns but procedural evidence-seeking behaviour — it learns to treat the EHR as a programmable database.
-      </figcaption>
-    </figure>
+<section id="distillation" class="max-w-6xl mx-auto px-4 sm:px-6 py-16">
+  <h2 class="text-2xl font-bold text-slate-900">Training-time validation: ClinSeek-35B-A3B</h2>
+  <p class="mt-2 text-slate-600 leading-relaxed max-w-3xl">
+    The gain of ClinSeekAgent is consistent only for models with strong agentic capability, so we use it as a training pipeline to transfer this capability to a smaller open model.
+    GPT-5.6 Sol runs ClinSeekAgent on the 3,000 questions of the AgentEHR-Bench training split, and Qwen3.5-35B-A3B is fully fine-tuned on the resulting trajectories, with the teacher's reasoning in the student's native thinking block and tool calls in its native format.
+  </p>
+  <div class="mt-4 flex flex-wrap gap-2 text-xs">
+    <span class="rounded-md bg-white ring-1 ring-slate-200 px-2.5 py-1 text-slate-600">2,628 training / 53 validation trajectories</span>
+    <span class="rounded-md bg-white ring-1 ring-slate-200 px-2.5 py-1 text-slate-600">2× H200 · tensor 2 / expert 2 parallel</span>
+    <span class="rounded-md bg-white ring-1 ring-slate-200 px-2.5 py-1 text-slate-600">52K-token sequences</span>
+    <span class="rounded-md bg-white ring-1 ring-slate-200 px-2.5 py-1 text-slate-600">3 epochs, epoch-2 checkpoint (lowest validation loss)</span>
+    <span class="rounded-md bg-white ring-1 ring-slate-200 px-2.5 py-1 text-slate-600">lr 2×10<sup>−5</sup>, cosine decay</span>
   </div>
+
+  <h3 class="mt-10 text-lg font-semibold text-slate-900">Open-source state of the art on AgentEHR-Bench</h3>
+  <p class="mt-2 text-sm text-slate-600 leading-relaxed max-w-4xl">
+    ClinSeek-35B-A3B improves on all five tasks, from +7.6 on Microbiology to +23.9 on Labs; it beats Qwen3.5-397B-A17B, with about eleven times more parameters, by +7.5, exceeds Claude Opus 4.6 by +2.4 and Claude Opus 5 by +4.0, and reaches 92% of its teacher (35.6 vs. 38.8), matching it on Transfers (27.4 vs. 27.3).
+    Evaluation uses 100 test questions per task, none of which appears in the training data; all models run ClinSeekAgent with the same tools and temporal policy.
+  </p>
+
+  <figure class="mt-6 rounded-2xl bg-white ring-1 ring-slate-200 p-3 sm:p-5">
+    <img data-lightbox src="./images/performance.png" alt="Average F1 on AgentEHR-Bench versus model size: ClinSeek-35B-A3B (35.6) is above every open-source model, including Qwen3.5-397B-A17B (28.1), and above Claude Opus 5 (31.6); GPT-5.6 Sol scores 38.8 and GPT-5.6 Luna 33.8." class="rounded-lg w-full max-w-3xl mx-auto cursor-zoom-in" />
+    <figcaption class="text-sm text-slate-500 mt-3 text-center px-2">
+      <span class="font-medium text-slate-700">Performance–model size comparison on AgentEHR-Bench.</span>
+      ClinSeek-35B-A3B outperforms all open-source models, as well as Claude Opus 5.
+    </figcaption>
+  </figure>
+
+  <p id="distill-caption" class="mt-8 text-sm text-slate-500"></p>
+  <div class="mt-3 overflow-x-auto rounded-xl ring-1 ring-slate-200 bg-slate-50/50">
+    <table class="paper min-w-full text-sm pct">
+      <thead id="distill-head" class="bg-slate-100 text-slate-700"></thead>
+      <tbody id="distill-body" class="divide-y divide-slate-200"></tbody>
+    </table>
+  </div>
+
+  <h3 class="mt-12 text-lg font-semibold text-slate-900">What does ClinSeek-35B-A3B learn?</h3>
+  <p class="mt-2 text-sm text-slate-600 leading-relaxed max-w-4xl">
+    Over the 500 AgentEHR-Bench trajectories, both precision (18.6 → 32.4) and recall (31.1 → 53.3) improve over the base model, accompanied by two changes in behavior.
+  </p>
+  <div class="mt-5 grid md:grid-cols-2 gap-5">
+    <div class="rounded-xl ring-1 ring-slate-200 bg-white p-5">
+      <h4 class="font-semibold text-slate-900">More complex SQL queries</h4>
+      <p class="mt-1 text-sm text-slate-600">SQL with joins, aggregation, or time filters; it typically first summarizes what the record contains and then drills into the current admission.</p>
+      <div class="mt-4 grid grid-cols-1 gap-3 text-sm">
+        <div class="rounded-lg bg-slate-50 ring-1 ring-slate-200 px-4 py-3">
+          <div class="text-xs text-slate-500">Questions with a complex SQL query</div>
+          <div class="pct mt-1 font-bold text-slate-900">0.8% <span class="text-slate-400 font-normal">→</span> <span class="text-accent-700">53%</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="rounded-xl ring-1 ring-slate-200 bg-white p-5">
+      <h4 class="font-semibold text-slate-900">Reasoning grounded on the patient record</h4>
+      <p class="mt-1 text-sm text-slate-600">The student surveys the record before narrowing down.</p>
+      <div class="mt-4 grid grid-cols-2 gap-3 text-sm">
+        <div class="rounded-lg bg-slate-50 ring-1 ring-slate-200 px-4 py-3">
+          <div class="text-xs text-slate-500">Available tables read</div>
+          <div class="pct mt-1 font-bold text-slate-900">36% <span class="text-slate-400 font-normal">→</span> <span class="text-accent-700">72%</span></div>
+        </div>
+        <div class="rounded-lg bg-slate-50 ring-1 ring-slate-200 px-4 py-3">
+          <div class="text-xs text-slate-500">Targeted follow-up queries</div>
+          <div class="pct mt-1 font-bold text-slate-900">13% <span class="text-slate-400 font-normal">→</span> <span class="text-accent-700">36%</span></div>
+        </div>
+        <div class="rounded-lg bg-slate-50 ring-1 ring-slate-200 px-4 py-3">
+          <div class="text-xs text-slate-500">Questions reading imaging or discharge notes</div>
+          <div class="pct mt-1 font-bold text-slate-900">12% <span class="text-slate-400 font-normal">→</span> <span class="text-accent-700">74%</span></div>
+        </div>
+        <div class="rounded-lg bg-slate-50 ring-1 ring-slate-200 px-4 py-3">
+          <div class="text-xs text-slate-500">Reasoning refers to the current admission</div>
+          <div class="pct mt-1 font-bold text-slate-900">39% <span class="text-slate-400 font-normal">→</span> <span class="text-accent-700">80%</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p class="mt-3 text-xs text-slate-500">Base model (Qwen3.5-35B-A3B) → ClinSeek-35B-A3B. The student learns the evidence-seeking process, not only its final answers.</p>
 </section>
 
 <!-- ─────────────────────── Resources ─────────────────────── -->
-<section id="resources" class="max-w-6xl mx-auto px-4 sm:px-6 py-16">
-  <h2 class="text-2xl font-bold text-slate-900">Resources</h2>
-  <p class="mt-1 text-slate-500">Everything needed to reproduce the paper, plus the artifacts we release.</p>
+<section id="resources" class="bg-white border-y border-slate-200">
+  <div class="max-w-6xl mx-auto px-4 sm:px-6 py-16">
+    <h2 class="text-2xl font-bold text-slate-900">Resources</h2>
+    <p class="mt-1 text-slate-500">Code, model, benchmark, and results.</p>
 
-  <div class="mt-6 grid md:grid-cols-2 gap-4">
-    <a class="rounded-xl ring-1 ring-slate-200 bg-white p-5 hover:bg-slate-50 transition" href="https://github.com/UCSC-VLAA/ClinSeekAgent">
-      <div class="text-xs uppercase tracking-wider text-slate-500">GitHub</div>
-      <div class="mt-1 font-semibold text-slate-900">UCSC-VLAA/ClinSeekAgent</div>
-      <div class="mt-2 text-sm text-slate-600">Agent driver, EHR MCP server, image MCP server, scoring utilities, and vendored VERL SFT recipes (Megatron + mbridge on 8× H200).</div>
-    </a>
-    <a class="rounded-xl ring-1 ring-slate-200 bg-white p-5 hover:bg-slate-50 transition" href="https://huggingface.co/UCSC-VLAA">
-      <div class="text-xs uppercase tracking-wider text-slate-500">🤗 Hugging Face</div>
-      <div class="mt-1 font-semibold text-slate-900">UCSC-VLAA collection</div>
-      <div class="mt-2 text-sm text-slate-600">Benchmark inputs, evaluation results, the distilled student model, and training trajectories. Some assets are gated under MIMIC-IV / MIMIC-CXR access terms.</div>
-    </a>
-  </div>
+    <div class="mt-6 grid md:grid-cols-2 gap-4">
+      <a class="rounded-xl ring-1 ring-slate-200 bg-white p-5 hover:bg-slate-50 transition" href="https://github.com/UCSC-VLAA/ClinSeekAgent">
+        <div class="text-xs uppercase tracking-wider text-slate-500">GitHub</div>
+        <div class="mt-1 font-semibold text-slate-900">UCSC-VLAA/ClinSeekAgent</div>
+        <div class="mt-2 text-sm text-slate-600">ClinSeekAgent code: agent runner, EHR and image tool servers, and evaluation.</div>
+      </a>
+      <a class="rounded-xl ring-1 ring-slate-200 bg-white p-5 hover:bg-slate-50 transition" href="https://huggingface.co/collections/UCSC-VLAA/clinseekagent-6a0ceaa5f429bb7a35ea2886">
+        <div class="text-xs uppercase tracking-wider text-slate-500">🤗 Hugging Face</div>
+        <div class="mt-1 font-semibold text-slate-900">ClinSeekAgent collection</div>
+        <div class="mt-2 text-sm text-slate-600">Model, benchmark, and evaluation results in one place.</div>
+      </a>
+    </div>
 
-  <div class="mt-4 grid md:grid-cols-2 lg:grid-cols-3 gap-3 text-sm">
-    <a class="rounded-lg ring-1 ring-slate-200 bg-white px-4 py-3 hover:bg-slate-50" href="https://huggingface.co/datasets/UCSC-VLAA/ClinSeek-Bench">
-      <div class="text-slate-500 text-xs">dataset</div>
-      <div class="font-medium text-slate-900">ClinSeek-Bench</div>
-      <div class="text-xs text-slate-500 mt-1">1,800 text-only + 989 multimodal paired examples</div>
-    </a>
-    <a class="rounded-lg ring-1 ring-slate-200 bg-white px-4 py-3 hover:bg-slate-50" href="https://huggingface.co/datasets/UCSC-VLAA/ClinSeek-Evaluation-Results">
-      <div class="text-slate-500 text-xs">dataset</div>
-      <div class="font-medium text-slate-900">ClinSeek-Evaluation-Results</div>
-      <div class="text-xs text-slate-500 mt-1">Scored predictions for every model × mode × task</div>
-    </a>
-    <a class="rounded-lg ring-1 ring-slate-200 bg-white px-4 py-3 hover:bg-slate-50" href="https://huggingface.co/UCSC-VLAA/ClinSeek-35B-A3B">
-      <div class="text-slate-500 text-xs">model</div>
-      <div class="font-medium text-slate-900">ClinSeek-35B-A3B</div>
-      <div class="text-xs text-slate-500 mt-1">SFT of Qwen3.5-35B-A3B on Opus-4.6 trajectories</div>
-    </a>
-    <a class="rounded-lg ring-1 ring-slate-200 bg-white px-4 py-3 hover:bg-slate-50" href="https://huggingface.co/collections/UCSC-VLAA/clinseekagent">
-      <div class="text-slate-500 text-xs">collection</div>
-      <div class="font-medium text-slate-900">ClinSeekAgent on Hugging Face</div>
-      <div class="text-xs text-slate-500 mt-1">Model, benchmark, and evaluation results in one hub</div>
-    </a>
-    <a class="rounded-lg ring-1 ring-slate-200 bg-white px-4 py-3 hover:bg-slate-50" href="https://github.com/UCSC-VLAA/ClinSeekAgent#install">
-      <div class="text-slate-500 text-xs">how-to</div>
-      <div class="font-medium text-slate-900">Per-role install</div>
-      <div class="text-xs text-slate-500 mt-1">Four venvs: agent · EHR MCP · image MCP · SFT</div>
-    </a>
-    <a class="rounded-lg ring-1 ring-slate-200 bg-white px-4 py-3 hover:bg-slate-50" href="https://github.com/UCSC-VLAA/ClinSeekAgent/blob/main/docs/sft_training.md">
-      <div class="text-slate-500 text-xs">how-to</div>
-      <div class="font-medium text-slate-900">SFT recipe</div>
-      <div class="text-xs text-slate-500 mt-1">8× H200 · TP=2 · EP=8 · 52K seq · cosine 2e-5</div>
-    </a>
+    <div class="mt-4 grid md:grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
+      <a class="rounded-lg ring-1 ring-slate-200 bg-white px-4 py-3 hover:bg-slate-50" href="https://huggingface.co/UCSC-VLAA/ClinSeek-35B-A3B">
+        <div class="text-slate-500 text-xs">model</div>
+        <div class="font-medium text-slate-900">ClinSeek-35B-A3B</div>
+        <div class="text-xs text-slate-500 mt-1">Qwen3.5-35B-A3B fine-tuned on GPT-5.6 Sol ClinSeekAgent trajectories</div>
+      </a>
+      <a class="rounded-lg ring-1 ring-slate-200 bg-white px-4 py-3 hover:bg-slate-50" href="https://huggingface.co/datasets/UCSC-VLAA/ClinSeek-Bench">
+        <div class="text-slate-500 text-xs">dataset</div>
+        <div class="font-medium text-slate-900">ClinSeek-Bench</div>
+        <div class="text-xs text-slate-500 mt-1">1,800 text-only + 989 multimodal paired questions</div>
+      </a>
+      <a class="rounded-lg ring-1 ring-slate-200 bg-white px-4 py-3 hover:bg-slate-50" href="https://huggingface.co/datasets/UCSC-VLAA/ClinSeek-Evaluation-Results">
+        <div class="text-slate-500 text-xs">dataset</div>
+        <div class="font-medium text-slate-900">ClinSeek-Evaluation-Results</div>
+        <div class="text-xs text-slate-500 mt-1">Evaluation results for the paper</div>
+      </a>
+      <a class="rounded-lg ring-1 ring-slate-200 bg-white px-4 py-3 hover:bg-slate-50" href="./trajectories.html">
+        <div class="text-slate-500 text-xs">examples</div>
+        <div class="font-medium text-slate-900">Trajectories</div>
+        <div class="text-xs text-slate-500 mt-1">Example ClinSeekAgent trajectories</div>
+      </a>
+    </div>
   </div>
 </section>
 
 <!-- ─────────────────────── BibTeX ─────────────────────── -->
-<section id="cite" class="bg-white border-y border-slate-200">
+<section id="cite">
   <div class="max-w-4xl mx-auto px-4 sm:px-6 py-16">
     <h2 class="text-2xl font-bold text-slate-900">Cite</h2>
     <div class="relative mt-4 rounded-xl bg-slate-900 text-slate-100 p-5">
       <button id="copy-bibtex" class="absolute top-3 right-3 text-xs rounded-md bg-slate-700 hover:bg-slate-600 px-2.5 py-1.5 text-slate-100">
         Copy
       </button>
-      <pre class="font-mono text-sm overflow-x-auto leading-relaxed whitespace-pre"><code id="bibtex-block">@article{wu2026clinseekagent,
-  title   = {ClinSeekAgent: Automating Multimodal Evidence Seeking for Agentic Clinical Reasoning},
-  author  = {Wu, Juncheng and Zhang, Letian and Wang, Yuhan and Tu, Haoqin and
-             Chen, Hardy and Wang, Zijun and Xie, Cihang and Zhou, Yuyin},
-  journal = {arXiv preprint arXiv:2605.20176},
-  year    = {2026},
+      <pre class="font-mono text-sm overflow-x-auto leading-relaxed whitespace-pre"><code id="bibtex-block">@misc{wu2026clinseekagent,
+  title         = {ClinSeekAgent: Automating Multimodal Evidence Seeking for Agentic Clinical Reasoning},
+  author        = {Wu, Juncheng and Zhang, Letian and Wang, Yuhan and Tu, Haoqin and Chen, Hardy and Wang, Zijun and Xie, Cihang and He, Yufan and Zhao, Can and Xu, Daguang and Tang, Yucheng and Zhou, Yuyin},
+  year          = {2026},
+  eprint        = {2605.20176},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.CL},
+  url           = {https://arxiv.org/abs/2605.20176}
 }</code></pre>
     </div>
     <p class="mt-3 text-sm text-slate-500">Preprint: <a class="text-accent-700 hover:text-accent-500" href="https://arxiv.org/abs/2605.20176">arXiv:2605.20176</a>.</p>
@@ -504,7 +799,7 @@
       <div class="flex gap-3">
         <a class="hover:text-slate-100" href="https://github.com/UCSC-VLAA/ClinSeekAgent">GitHub</a>
         <span class="text-slate-700">·</span>
-        <a class="hover:text-slate-100" href="https://huggingface.co/UCSC-VLAA">HuggingFace</a>
+        <a class="hover:text-slate-100" href="https://huggingface.co/collections/UCSC-VLAA/clinseekagent-6a0ceaa5f429bb7a35ea2886">HuggingFace</a>
         <span class="text-slate-700">·</span>
         <a class="hover:text-slate-100" href="https://github.com/UCSC-VLAA/ClinSeekAgent/issues">Report an issue</a>
       </div>
@@ -516,7 +811,8 @@
       <a class="hover:text-slate-300" href="https://github.com/baeseongsu/ehrxqa">EHRXQA</a>,
       <a class="hover:text-slate-300" href="https://github.com/nyuad-cai/MedMod">MedMod</a>,
       <a class="hover:text-slate-300" href="https://arxiv.org/abs/2510.25628">EHR-R1 / EHR-Bench</a>,
-      <a class="hover:text-slate-300" href="https://github.com/volcengine/verl">VERL</a>,
+      <a class="hover:text-slate-300" href="https://arxiv.org/abs/2601.13918">AgentEHR-Bench</a>,
+      <a class="hover:text-slate-300" href="https://github.com/volcengine/verl">verl</a>,
       <a class="hover:text-slate-300" href="https://huggingface.co/Qwen">Qwen3.5</a>.
       Page template adapted from
       <a class="hover:text-slate-300" href="https://ucsc-vlaa.github.io/VLM-CapCurriculum/">VLM-CapCurriculum</a>.
@@ -532,156 +828,281 @@
 
 <!-- ─────────────────────── Scripts ─────────────────────── -->
 <script>
-// ─── Result tables (3 tabs) ──────────────────────────────────────────
-const tables = {
-  text: {
-    caption: 'Overall F1 (%) on ClinSeek-Bench text-only EHR tasks (45 subtasks, 1,800 examples). Δ = ClinSeekAgent − Curated Input.',
-    footnote: 'EHR-R1-72B, MedGemma-27B-it and EHR-R1-8B are domain-specialised reasoning-only models, evaluated under Curated Input only.',
-    headers: ['Model', 'Risk pred. (Curated)', 'Risk pred. (Agent)', 'Δ', 'Decision (Curated)', 'Decision (Agent)', 'Δ', 'Overall (Curated)', 'Overall (Agent)', 'Δ'],
-    rows: [
-      { label: 'Claude Opus 4.6',     vals: [81.0, 90.7, '+9.7',  45.9, 44.8, '−1.1', 60.0, 63.2, '+3.2'], highlight: true,  group: 'Closed-source' },
-      { label: 'Claude Sonnet 4.6',   vals: [77.5, 90.0, '+12.5', 42.6, 35.9, '−6.7', 56.6, 57.5, '+0.9'], highlight: false, group: 'Closed-source' },
-      { label: 'MiniMax M2.5',        vals: [68.4, 86.7, '+18.3', 26.3, 21.0, '−5.3', 43.1, 47.3, '+4.2'], highlight: true,  group: 'Open-source'   },
-      { label: 'Qwen3.5-35B-A3B',     vals: [73.6, 84.4, '+10.8', 29.0, 22.0, '−7.0', 46.8, 47.0, '+0.2'], highlight: false, group: 'Open-source'   },
-      { label: 'GLM-4.7',             vals: [70.4, 75.1, '+4.7',  38.6, 23.1, '−15.5', 51.3, 43.9, '−7.4'], highlight: false, group: 'Open-source' },
-      { label: 'Gemma-4-26B-A4B-it',  vals: [78.6, 83.5, '+4.9',  27.8, 17.3, '−10.5', 48.1, 43.8, '−4.3'], highlight: false, group: 'Open-source' },
-      { label: 'Kimi K2.5',           vals: [79.9, 65.0, '−14.9', 28.8, 19.8, '−9.0',  49.2, 37.9, '−11.3'],highlight: false, group: 'Open-source' },
-      { label: 'Qwen3-VL-235B',       vals: [71.0, 67.9, '−3.1',  33.4, 19.1, '−14.3', 48.4, 38.6, '−9.8'], highlight: false, group: 'Open-source' },
-      { label: 'gpt-oss-120b',        vals: [74.0, 75.4, '+1.4',  22.3, 16.6, '−5.7',  43.0, 40.1, '−2.9'], highlight: false, group: 'Open-source' },
-      { label: 'EHR-R1-72B',          vals: [67.1, '—',  '—',     45.2, '—',  '—',     53.9, '—',  '—'  ],  highlight: false, group: 'Open-source · reasoning-only' },
-      { label: 'MedGemma-27B-it',     vals: [65.0, '—',  '—',     25.2, '—',  '—',     41.1, '—',  '—'  ],  highlight: false, group: 'Open-source · reasoning-only' },
-      { label: 'EHR-R1-8B',           vals: [64.0, '—',  '—',     23.4, '—',  '—',     39.7, '—',  '—'  ],  highlight: false, group: 'Open-source · reasoning-only' },
+// ─── Data: per-category F1 (%) for Claude Opus 5 and GPT-5.6 Sol ─────
+// cur / full / sp / agent = Curated Input / Full-Record Input / Single-Pass Retrieval / ClinSeekAgent
+// d = ClinSeekAgent − Curated Input (mean per-question difference); [lo, hi] = paired-bootstrap 95% CI
+const categoryData = {
+  "Claude Opus 5": {
+    text: [
+      { cat: "Mortality", grp: "risk", n: 280, cur: 90.7, full: 90.7, sp: 84.6, agent: 90.4, d: -0.4, lo: -2.5, hi: 1.8 },
+      { cat: "Readmission", grp: "risk", n: 160, cur: 63.7, full: 62.5, sp: 65.6, agent: 63.7, d: 0.0, lo: -5.6, hi: 5.0 },
+      { cat: "Length of stay", grp: "risk", n: 160, cur: 84.4, full: 83.1, sp: 81.9, agent: 83.8, d: -0.6, lo: -3.8, hi: 2.5 },
+      { cat: "Escalation of care", grp: "risk", n: 120, cur: 84.2, full: 85.0, sp: 76.7, agent: 82.5, d: -1.7, lo: -6.7, hi: 3.3 },
+      { cat: "Diagnosis", grp: "decision", n: 160, cur: 36.4, full: 38.1, sp: 37.3, agent: 44.7, d: 8.3, lo: 2.4, hi: 14.0 },
+      { cat: "Medication", grp: "decision", n: 320, cur: 55.7, full: 58.5, sp: 55.5, agent: 60.8, d: 5.1, lo: 1.1, hi: 9.1 },
+      { cat: "Procedure", grp: "decision", n: 120, cur: 40.7, full: 39.1, sp: 38.7, agent: 43.0, d: 2.3, lo: -3.7, hi: 8.6 },
+      { cat: "Laboratory & microbiology", grp: "decision", n: 80, cur: 63.8, full: 65.7, sp: 55.5, agent: 55.6, d: -8.2, lo: -17.2, hi: 0.6 },
+      { cat: "Vitals & measurements", grp: "decision", n: 160, cur: 37.1, full: 45.4, sp: 37.9, agent: 48.6, d: 11.5, lo: 5.8, hi: 17.2 },
+      { cat: "Imaging report", grp: "decision", n: 40, cur: 60.0, full: 53.3, sp: 50.0, agent: 51.9, d: -8.1, lo: -16.8, hi: 0.2 },
+      { cat: "Orders", grp: "decision", n: 40, cur: 31.8, full: 34.3, sp: 28.1, agent: 45.2, d: 13.3, lo: 5.0, hi: 23.3 },
+      { cat: "Encounter & flow", grp: "decision", n: 120, cur: 63.3, full: 62.5, sp: 53.3, agent: 63.3, d: 0.0, lo: -5.0, hi: 5.0 },
+      { cat: "Next event", grp: "decision", n: 40, cur: 27.5, full: 17.5, sp: 12.5, agent: 18.8, d: -8.7, lo: -21.0, hi: 2.5 },
+      { cat: "Overall", grp: "overall", n: 1800, cur: 61.7, full: 62.6, sp: 58.5, agent: 63.9, d: 2.2, lo: 0.7, hi: 3.6 },
     ],
-    rightAligned: [1,2,3,4,5,6,7,8,9],
+    mm: [
+      { cat: "CXR finding presence", grp: "mm", n: 215, cur: 77.3, full: 77.7, sp: 73.4, agent: 78.2, d: 0.9, lo: -2.4, hi: 4.2 },
+      { cat: "CXR finding enumeration", grp: "mm", n: 182, cur: 45.1, full: 41.7, sp: 41.4, agent: 48.5, d: 3.4, lo: -1.2, hi: 8.0 },
+      { cat: "CXR change comparison", grp: "mm", n: 222, cur: 61.0, full: 59.6, sp: 50.4, agent: 59.5, d: -1.4, lo: -6.1, hi: 3.0 },
+      { cat: "Clinical deterioration", grp: "mm", n: 125, cur: 95.2, full: 94.4, sp: 95.2, agent: 96.8, d: 1.6, lo: -1.6, hi: 5.6 },
+      { cat: "Mortality", grp: "mm", n: 125, cur: 84.8, full: 84.8, sp: 86.4, agent: 87.2, d: 2.4, lo: -3.2, hi: 8.0 },
+      { cat: "Phenotype", grp: "mm", n: 120, cur: 40.9, full: 49.5, sp: 39.7, agent: 51.5, d: 10.5, lo: 7.5, hi: 13.6 },
+      { cat: "Overall", grp: "overall", n: 989, cur: 66.5, full: 66.6, sp: 62.6, agent: 68.8, d: 2.3, lo: 0.4, hi: 4.1 },
+    ],
   },
-  mm: {
-    caption: 'Per-task-group F1 (%) on ClinSeek-Bench multimodal (989 examples). For each model: row 1 = ClinSeekAgent, row 2 = Curated Input, row 3 = Δ.',
-    footnote: 'CXR finding presence / enumeration / change comparison from EHRXQA; Mortality (24h) / Inpatient mortality / Phenotype (CCS) from MedMod.',
-    headers: ['Model · setting', 'CXR: finding presence', 'CXR: enumeration', 'CXR: change comparison', 'Mortality (24 h)', 'Inpatient mortality', 'Phenotype (CCS)', 'Overall'],
-    rows: [
-      { label: 'Claude Opus 4.6 · Agent',   vals: [78.3, 43.6, 54.8, 92.0, 74.4, 45.5, 62.6], highlight: true,  group: '' },
-      { label: 'Claude Opus 4.6 · Curated', vals: [55.2, 31.6, 38.0, 93.6, 69.6, 11.5, 47.5], highlight: false, group: '' },
-      { label: 'Δ',                          vals: ['+23.2','+12.0','+16.8','−1.6','+4.8','+34.0','+15.1'], highlight: false, group: '', delta: true },
-
-      { label: 'Claude Sonnet 4.6 · Agent',   vals: [79.5, 41.3, 51.5, 64.0, 68.8, 26.1, 54.9], highlight: true,  group: '' },
-      { label: 'Claude Sonnet 4.6 · Curated', vals: [64.8, 29.7, 34.7, 90.4, 70.4, 13.8, 48.0], highlight: false, group: '' },
-      { label: 'Δ',                            vals: ['+14.7','+11.6','+16.8','−26.4','−1.6','+12.3','+6.9'], highlight: false, group: '', delta: true },
-
-      { label: 'Qwen3.5-35B-A3B · Agent',     vals: [73.8, 34.2, 44.4, 91.2, 74.4, 0.3,  51.7], highlight: true,  group: '' },
-      { label: 'Qwen3.5-35B-A3B · Curated',   vals: [59.1, 34.1, 30.7, 90.4, 81.6, 0.5,  46.9], highlight: false, group: '' },
-      { label: 'Δ',                            vals: ['+14.7','+0.2','+13.7','+0.8','−7.2','−0.2','+4.8'], highlight: false, group: '', delta: true },
-
-      { label: 'Kimi K2.5 · Agent',            vals: [61.4, 34.9, 43.8, 71.2, 62.4, 12.3, 46.9], highlight: true,  group: '' },
-      { label: 'Kimi K2.5 · Curated',          vals: [56.3, 24.7, 35.0, 91.2, 87.2, 12.4, 47.5], highlight: false, group: '' },
-      { label: 'Δ',                            vals: ['+5.1','+10.2','+8.8','−20.0','−24.8','−0.1','−0.6'], highlight: false, group: '', delta: true },
-
-      { label: 'Qwen3-VL-235B · Agent',        vals: [70.4, 35.7, 47.8, 79.2, 61.6, 6.0,  49.8], highlight: true,  group: '' },
-      { label: 'Qwen3-VL-235B · Curated',      vals: [60.3, 21.1, 32.8, 87.2, 72.8, 6.6,  43.9], highlight: false, group: '' },
-      { label: 'Δ',                            vals: ['+10.1','+14.6','+15.0','−8.0','−11.2','−0.6','+5.9'], highlight: false, group: '', delta: true },
-
-      { label: 'Gemma-4-26B-A4B-it · Agent',   vals: [78.9, 21.6, 38.4, 65.6, 71.2, 0.4,  44.9], highlight: true,  group: '' },
-      { label: 'Gemma-4-26B-A4B-it · Curated', vals: [56.9, 21.4, 25.4, 79.2, 60.0, 0.0,  38.2], highlight: false, group: '' },
-      { label: 'Δ',                            vals: ['+22.0','+0.2','+13.0','−13.6','+11.2','+0.4','+6.7'], highlight: false, group: '', delta: true },
+  "GPT-5.6 Sol": {
+    text: [
+      { cat: "Mortality", grp: "risk", n: 280, cur: 87.1, full: 87.9, sp: 85.7, agent: 86.1, d: -1.1, lo: -2.9, hi: 0.4 },
+      { cat: "Readmission", grp: "risk", n: 160, cur: 57.5, full: 61.3, sp: 62.5, agent: 63.1, d: 5.6, lo: -1.2, hi: 12.5 },
+      { cat: "Length of stay", grp: "risk", n: 160, cur: 81.2, full: 83.1, sp: 80.6, agent: 82.5, d: 1.2, lo: -2.5, hi: 5.0 },
+      { cat: "Escalation of care", grp: "risk", n: 120, cur: 80.8, full: 81.7, sp: 80.8, agent: 82.5, d: 1.7, lo: -2.5, hi: 5.8 },
+      { cat: "Diagnosis", grp: "decision", n: 160, cur: 33.7, full: 38.2, sp: 34.9, agent: 36.7, d: 3.0, lo: -1.0, hi: 7.0 },
+      { cat: "Medication", grp: "decision", n: 320, cur: 51.1, full: 55.1, sp: 48.5, agent: 53.5, d: 2.4, lo: -1.3, hi: 6.2 },
+      { cat: "Procedure", grp: "decision", n: 120, cur: 40.6, full: 37.7, sp: 37.7, agent: 38.2, d: -2.4, lo: -9.7, hi: 4.8 },
+      { cat: "Laboratory & microbiology", grp: "decision", n: 80, cur: 44.5, full: 47.2, sp: 52.5, agent: 55.6, d: 11.2, lo: 2.2, hi: 20.6 },
+      { cat: "Vitals & measurements", grp: "decision", n: 160, cur: 38.6, full: 37.7, sp: 32.5, agent: 35.5, d: -3.2, lo: -8.3, hi: 1.7 },
+      { cat: "Imaging report", grp: "decision", n: 40, cur: 44.2, full: 45.4, sp: 43.8, agent: 45.4, d: 1.2, lo: -11.7, hi: 14.6 },
+      { cat: "Orders", grp: "decision", n: 40, cur: 28.5, full: 38.5, sp: 41.8, agent: 34.3, d: 5.8, lo: -2.5, hi: 15.0 },
+      { cat: "Encounter & flow", grp: "decision", n: 120, cur: 60.8, full: 62.5, sp: 65.8, agent: 64.2, d: 3.3, lo: -1.7, hi: 9.2 },
+      { cat: "Next event", grp: "decision", n: 40, cur: 27.5, full: 22.5, sp: 20.0, agent: 22.5, d: -5.0, lo: -15.0, hi: 5.0 },
+      { cat: "Overall", grp: "overall", n: 1800, cur: 57.8, full: 59.6, sp: 57.6, agent: 59.3, d: 1.6, lo: 0.1, hi: 3.1 },
     ],
-    rightAligned: [1,2,3,4,5,6,7],
+    mm: [
+      { cat: "CXR finding presence", grp: "mm", n: 215, cur: 73.9, full: 73.1, sp: 75.4, agent: 76.3, d: 2.3, lo: -2.0, hi: 6.8 },
+      { cat: "CXR finding enumeration", grp: "mm", n: 182, cur: 35.2, full: 30.4, sp: 33.1, agent: 34.2, d: -0.9, lo: -5.0, hi: 3.2 },
+      { cat: "CXR change comparison", grp: "mm", n: 222, cur: 52.2, full: 51.6, sp: 51.1, agent: 52.5, d: 0.3, lo: -4.3, hi: 5.2 },
+      { cat: "Clinical deterioration", grp: "mm", n: 125, cur: 96.8, full: 96.8, sp: 96.0, agent: 96.8, d: 0.0, lo: -2.4, hi: 2.4 },
+      { cat: "Mortality", grp: "mm", n: 125, cur: 86.4, full: 88.0, sp: 88.8, agent: 88.0, d: 1.6, lo: -1.6, hi: 4.8 },
+      { cat: "Phenotype", grp: "mm", n: 120, cur: 21.4, full: 31.6, sp: 32.0, agent: 37.2, d: 15.8, lo: 11.0, hi: 20.7 },
+      { cat: "Overall", grp: "overall", n: 989, cur: 60.0, full: 60.3, sp: 61.2, agent: 62.5, d: 2.5, lo: 0.8, hi: 4.3 },
+    ],
   },
 };
 
-// Standalone distillation table (rendered once, not tabbed).
-const distillTable = {
-  caption: 'Average F1 (%) on AgentEHR-Bench five-task evaluation. ClinSeek-35B-A3B is supervised-fine-tuned from Qwen3.5-35B-A3B on Claude Opus 4.6 trajectories collected through ClinSeekAgent.',
-  headers: ['Model', 'Avg F1'],
-  rows: [
-    { label: 'Claude Opus 4.6 (teacher)',  vals: [36.0], highlight: false, group: 'Proprietary' },
-    { label: 'ClinSeek-35B-A3B (ours)',    vals: [34.0], highlight: true,  group: 'Open-source · distilled' },
-    { label: 'Claude Sonnet 4.6',           vals: [32.7], highlight: false, group: 'Proprietary' },
-    { label: 'Kimi K2.5',                   vals: [29.9], highlight: false, group: 'Open-source baselines' },
-    { label: 'MiniMax M2.5',                vals: [27.7], highlight: false, group: 'Open-source baselines' },
-    { label: 'GLM-4.7',                     vals: [27.6], highlight: false, group: 'Open-source baselines' },
-    { label: 'Qwen3.5-35B-A3B (base)',      vals: [22.1], highlight: false, group: 'Open-source baselines' },
-    { label: 'Qwen3-235B-A22B',             vals: [20.5], highlight: false, group: 'Open-source baselines' },
-    { label: 'gpt-oss-120B',                vals: [15.8], highlight: false, group: 'Open-source baselines' },
-    { label: 'Gemma-4-26B-A4B',             vals: [15.2], highlight: false, group: 'Open-source baselines' },
-  ],
-  rightAligned: [1],
-};
+// ─── Formatting helpers ──────────────────────────────────────────────
+const MINUS = '−';
+const f1 = x => x.toFixed(1).replace('-', MINUS);
+const signed = x => (x > 0 ? '+' + f1(x) : (x < 0 ? MINUS + f1(Math.abs(x)) : f1(0)));
+function deltaSpan(x, bold) {
+  const color = x > 0 ? 'text-emerald-600' : (x < 0 ? 'text-rose-600' : 'text-slate-500');
+  return `<span class="${color}${bold ? ' font-bold' : ''}">${signed(x)}</span>`;
+}
+// A cell is a number, a string, or an object:
+//   { v: value, d: delta (shown in parentheses), b: bold delta, bold: bold value }
+//   { d: delta, b: bold }  (delta-only cell)
+function cellHtml(c) {
+  if (c === null || c === undefined) return '—';
+  if (typeof c === 'number') return f1(c);
+  if (typeof c === 'string') {
+    if (c.startsWith('+')) return `<span class="text-emerald-600">${c}</span>`;
+    if (c.startsWith(MINUS)) return `<span class="text-rose-600">${c}</span>`;
+    return c;
+  }
+  let s = '';
+  if (c.v !== undefined) s = (typeof c.v === 'number') ? f1(c.v) : c.v;
+  if (c.bold) s = `<strong class="text-slate-900">${s}</strong>`;
+  if (c.d !== undefined) {
+    s = (c.v !== undefined) ? `${s} <span class="text-xs">(${deltaSpan(c.d, c.b)})</span>` : deltaSpan(c.d, c.b);
+  }
+  return s;
+}
 
-function renderRows(t, bodyEl) {
+// ─── Generic table renderer ──────────────────────────────────────────
+// t.head: array of header rows; each header cell is a string or {t, cs, rs, align}
+// t.rows: [{ label, cells, group, highlight, delta }]
+function renderHead(t, headEl) {
+  headEl.innerHTML = t.head.map((row, ri) => '<tr>' + row.map((h, i) => {
+    const o = (typeof h === 'string') ? { t: h } : h;
+    const align = o.align || ((ri === 0 && i === 0) ? 'text-left' : 'text-right');
+    const span = (o.cs ? ` colspan="${o.cs}"` : '') + (o.rs ? ` rowspan="${o.rs}"` : '');
+    const pad = t.head.length > 1 && ri === 0 && o.cs ? 'px-4 pt-3 pb-1 border-b border-slate-200' : 'px-4 py-3';
+    return `<th${span} class="${pad} ${align} font-semibold whitespace-nowrap">${o.t}</th>`;
+  }).join('') + '</tr>').join('');
+}
+function renderBody(t, bodyEl) {
   let lastGroup = null;
+  const ncols = 1 + t.rows[0].cells.length;
   bodyEl.innerHTML = t.rows.map(r => {
     let groupRow = '';
-    if (r.group !== undefined && r.group !== lastGroup && r.group !== '') {
-      groupRow = `<tr><td colspan="${t.headers.length}" class="px-4 pt-3 pb-1 text-xs uppercase tracking-wider text-slate-400">${r.group}</td></tr>`;
+    if (r.group && r.group !== lastGroup) {
+      groupRow = `<tr class="row-group"><td colspan="${ncols}" class="px-4 pt-3 pb-1 text-xs uppercase tracking-wider text-slate-400">${r.group}</td></tr>`;
       lastGroup = r.group;
     }
-    const rowCls = r.highlight ? 'bg-accent-50/60' : (r.delta ? 'bg-slate-50 text-slate-500' : '');
-    const labelCls = r.highlight ? 'px-4 py-2.5 font-semibold text-slate-900'
-                                 : (r.delta ? 'px-4 py-1 text-xs italic' : 'px-4 py-2.5 text-slate-700');
-    const cells = r.vals.map((v, i) => {
-      const idx = i + 1;
-      let cls = 'px-4 ' + (r.delta ? 'py-1 text-xs italic' : 'py-2.5');
-      if (t.rightAligned.includes(idx)) cls += ' text-right';
-      if (r.highlight) cls += ' text-slate-900';
-      let inner = v;
-      if (typeof v === 'string' && v.startsWith('+')) inner = `<span class="text-emerald-600">${v}</span>`;
-      if (typeof v === 'string' && v.startsWith('−')) inner = `<span class="text-rose-600">${v}</span>`;
-      return `<td class="${cls}">${inner}</td>`;
+    const rowCls = r.highlight ? 'row-hl' : '';
+    const labelCls = r.highlight ? 'px-4 py-2.5 font-semibold text-slate-900 whitespace-nowrap'
+                                 : (r.delta ? 'px-4 py-1.5 text-xs italic text-slate-500' : 'px-4 py-2.5 text-slate-700 whitespace-nowrap');
+    const cells = r.cells.map((c, i) => {
+      let cls = (r.delta ? 'px-4 py-1.5 text-xs' : 'px-4 py-2.5') + ' whitespace-nowrap';
+      cls += (t.align && t.align[i + 1]) ? ` ${t.align[i + 1]}` : ' text-right';
+      if (r.highlight) cls += ' text-slate-900 font-semibold';
+      if (t.colCls && t.colCls[i + 1]) cls += ` ${t.colCls[i + 1]}`;
+      return `<td class="${cls}">${cellHtml(c)}</td>`;
     }).join('');
     return groupRow + `<tr class="${rowCls}"><td class="${labelCls}">${r.label}</td>${cells}</tr>`;
   }).join('');
 }
-
-function renderHeaders(t, headEl) {
-  headEl.innerHTML = '<tr>' + t.headers.map((h, i) => {
-    const align = i === 0 ? 'text-left' : 'text-right';
-    return `<th class="px-4 py-3 ${align} font-semibold">${h}</th>`;
-  }).join('') + '</tr>';
+function renderTable(t, prefix) {
+  if (t.caption) document.getElementById(prefix + '-caption').innerHTML = t.caption;
+  renderHead(t, document.getElementById(prefix + '-head'));
+  renderBody(t, document.getElementById(prefix + '-body'));
 }
 
-function renderTable(tabKey) {
-  const t = tables[tabKey];
-  document.getElementById('result-caption').textContent  = t.caption;
-  document.getElementById('result-footnote').textContent = t.footnote;
-  renderHeaders(t, document.getElementById('result-head'));
-  renderRows(t,    document.getElementById('result-body'));
-  // The fine-grained heatmap is only relevant for the text tab.
-  document.getElementById('result-heatmap').classList.toggle('hidden', tabKey !== 'text');
+// ─── Per-category table (tabs: model) ────────────────────────────────
+function categoryTable(model) {
+  const groupName = { risk: 'ClinSeek-Bench-Text · Risk prediction', decision: 'ClinSeek-Bench-Text · Decision making', mm: 'ClinSeek-Bench-MM' };
+  const toRow = (x, bench) => {
+    const sig = x.lo > 0 || x.hi < 0;
+    const overall = x.grp === 'overall';
+    return {
+      label: overall ? (bench === 'text' ? 'Text overall' : 'Multimodal overall') : x.cat,
+      group: overall ? undefined : groupName[x.grp],
+      highlight: overall,
+      cells: [x.n.toLocaleString('en-US'), x.cur, x.full, x.sp, x.agent, { d: x.d, b: sig },
+              `<span class="text-xs text-slate-400">[${f1(x.lo)}, ${f1(x.hi)}]</span>`],
+    };
+  };
+  const d = categoryData[model];
+  return {
+    caption: `<span class="font-medium text-slate-700">${model}</span>: sample-wise F1 (%) by task category. Δ = ClinSeekAgent − Curated Input on the same questions; bold when the paired-bootstrap 95% CI excludes zero.`,
+    head: [['Category', 'N', 'Curated Input', 'Full-Record Input', 'Single-Pass Retrieval', 'ClinSeekAgent', 'Δ', '95% CI']],
+    colCls: { 2: 'text-slate-700', 3: 'text-slate-400', 4: 'text-slate-400', 5: 'bg-accent-50/60 text-slate-900 font-semibold' },
+    rows: [...d.text.map(x => toRow(x, 'text')), ...d.mm.map(x => toRow(x, 'mm'))],
+  };
 }
-
-document.querySelectorAll('#result-tabs .tab-btn').forEach(btn => {
+function showCategory(model) { renderTable(categoryTable(model), 'cat'); }
+document.querySelectorAll('#cat-tabs .tab-btn').forEach(btn => {
   btn.addEventListener('click', () => {
-    document.querySelectorAll('#result-tabs .tab-btn').forEach(b => b.setAttribute('aria-selected', 'false'));
+    document.querySelectorAll('#cat-tabs .tab-btn').forEach(b => b.setAttribute('aria-selected', 'false'));
     btn.setAttribute('aria-selected', 'true');
-    renderTable(btn.dataset.tab);
+    showCategory(btn.dataset.model);
   });
 });
-renderTable('text');
+showCategory('Claude Opus 5');
 
-// Distillation table — render once, static.
-document.getElementById('distill-caption').textContent = distillTable.caption;
-renderHeaders(distillTable, document.getElementById('distill-head'));
-renderRows(distillTable,    document.getElementById('distill-body'));
+// ─── Four settings (ablation) ────────────────────────────────────────
+const modesTable = {
+  caption: '<span class="font-medium text-slate-700">Ablating the two ingredients of ClinSeekAgent</span> (overall F1, %). Rounds: model calls per question. In parentheses: that setting − ClinSeekAgent, <span class="text-rose-600">red</span> for a decrease; bold when the paired-bootstrap 95% CI excludes zero.',
+  head: [
+    [{ t: 'Setting', rs: 2, align: 'text-left' }, { t: 'Record', rs: 2, align: 'text-center' }, { t: 'Tools', rs: 2, align: 'text-center' }, { t: 'Rounds', rs: 2, align: 'text-center' },
+     { t: 'ClinSeek-Bench-Text', cs: 2, align: 'text-center' }, { t: 'ClinSeek-Bench-MM', cs: 2, align: 'text-center' }],
+    ['Claude Opus 5', 'GPT-5.6 Sol', 'Claude Opus 5', 'GPT-5.6 Sol'],
+  ],
+  align: { 1: 'text-center', 2: 'text-center', 3: 'text-center' },
+  rows: [
+    { label: 'Curated Input',         cells: ['curated window', '—', '1',
+        { v: 61.7, d: -2.2, b: true }, { v: 57.8, d: -1.6, b: true }, { v: 66.5, d: -2.3, b: true }, { v: 60.0, d: -2.5, b: true }] },
+    { label: 'Full-Record Input',     cells: ['full', '—', '1',
+        { v: 62.6, d: -1.3 }, { v: 59.6, d: 0.3 }, { v: 66.6, d: -2.2, b: true }, { v: 60.3, d: -2.3, b: true }] },
+    { label: 'Single-Pass Retrieval', cells: ['full', '✓', '2',
+        { v: 58.5, d: -5.4, b: true }, { v: 57.6, d: -1.7, b: true }, { v: 62.6, d: -6.1, b: true }, { v: 61.2, d: -1.4 }] },
+    { label: 'ClinSeekAgent',         cells: ['full', '✓', '5–10', 63.9, 59.3, 68.8, 62.5], highlight: true },
+  ],
+};
+renderTable(modesTable, 'modes');
+
+// ─── Multi-run consistency (GPT-5.6 Sol, 5 runs) ─────────────────────
+const multirunTable = {
+  caption: '<span class="font-medium text-slate-700">Five independent runs of GPT-5.6 Sol under both modes</span> (overall F1, %). Run 1 is the run reported above. The 95% CI is the paired-bootstrap interval of the run-averaged per-question difference.',
+  head: [
+    [{ t: '', rs: 2 }, { t: 'ClinSeek-Bench-Text', cs: 3, align: 'text-center' }, { t: 'ClinSeek-Bench-MM', cs: 3, align: 'text-center' }],
+    ['ClinSeekAgent', 'Curated Input', 'Δ', 'ClinSeekAgent', 'Curated Input', 'Δ'],
+  ],
+  rows: [
+    { label: 'Run 1', cells: [59.3, 57.8, '+1.6', 62.5, 60.0, '+2.5'] },
+    { label: 'Run 2', cells: [59.3, 57.3, '+2.0', 62.9, 59.5, '+3.3'] },
+    { label: 'Run 3', cells: [59.6, 57.4, '+2.2', 62.6, 59.9, '+2.7'] },
+    { label: 'Run 4', cells: [59.3, 57.3, '+2.0', 61.9, 59.4, '+2.6'] },
+    { label: 'Run 5', cells: [59.5, 57.3, '+2.3', 62.2, 59.9, '+2.3'] },
+    { label: 'Mean ± SD', cells: ['59.4 ± 0.1', '57.4 ± 0.2', '+2.0 ± 0.3', '62.4 ± 0.4', '59.7 ± 0.3', '+2.7 ± 0.4'], highlight: true },
+    { label: '95% CI of Δ', cells: ['', '', '[0.9, 3.1]', '', '', '[1.5, 4.0]'] },
+  ],
+};
+renderTable(multirunTable, 'multirun');
+
+// ─── More models: text ───────────────────────────────────────────────
+const moreTextTable = {
+  caption: '<span class="font-medium text-slate-700">ClinSeek-Bench-Text, more models</span> (sample-wise F1, %). Δ = ClinSeekAgent − Curated Input; bold when the paired-bootstrap 95% CI excludes zero. Risk prediction: 18 tasks, N = 720; decision making: 27 tasks, N = 1,080.',
+  head: [
+    [{ t: 'Model', rs: 2, align: 'text-left' }, { t: 'Risk prediction', cs: 3, align: 'text-center' }, { t: 'Decision making', cs: 3, align: 'text-center' }, { t: 'Overall', cs: 3, align: 'text-center' }],
+    ['ClinSeekAgent', 'Curated', 'Δ', 'ClinSeekAgent', 'Curated', 'Δ', 'ClinSeekAgent', 'Curated', 'Δ'],
+  ],
+  rows: [
+    { label: 'Claude Opus 4.6', cells: [81.2, 81.2, { d: 0.0 },          40.1, 43.0, { d: -2.9 }, 56.6, 58.3, { d: -1.7 }] },
+    { label: 'GLM-5.2',         cells: [79.0, 75.6, { d: 3.4, b: true }, 33.5, 34.6, { d: -1.1 }, 51.7, 51.0, { d: 0.7 }] },
+    { label: 'Kimi K2.6',       cells: [79.6, 76.4, { d: 3.2 },          30.1, 33.5, { d: -3.3 }, 49.9, 50.6, { d: -0.7 }] },
+  ],
+};
+renderTable(moreTextTable, 'moretext');
+
+// ─── More models: multimodal ─────────────────────────────────────────
+const moreMMTable = {
+  caption: '<span class="font-medium text-slate-700">ClinSeek-Bench-MM, more models</span> (sample-wise F1, %; GLM-5.2 was not evaluated on the multimodal benchmark). Δ = ClinSeekAgent − Curated Input; bold when the paired-bootstrap 95% CI excludes zero.',
+  head: [['Model · setting', 'CXR presence', 'CXR enumeration', 'CXR change', 'Clinical deterioration', 'Mortality', 'Phenotype', 'Overall']],
+  rows: [
+    { label: 'Claude Opus 4.6 · ClinSeekAgent', cells: [71.9, 40.5, 54.2, 92.0, 77.6, 46.8, 62.4], highlight: true },
+    { label: 'Claude Opus 4.6 · Curated Input', cells: [76.6, 35.3, 50.1, 95.2, 68.8, 17.2, 57.2] },
+    { label: 'Δ', delta: true, cells: [{ d: -4.7 }, { d: 5.2, b: true }, { d: 4.1 }, { d: -3.2 }, { d: 8.8 }, { d: 29.6, b: true }, { d: 5.1, b: true }] },
+    { label: 'Kimi K2.6 · ClinSeekAgent',       cells: [78.3, 32.8, 52.0, 89.6, 77.6, 15.8, 57.8], highlight: true },
+    { label: 'Kimi K2.6 · Curated Input',       cells: [72.3, 34.0, 46.3, 95.2, 78.4, 11.9, 55.7] },
+    { label: 'Δ', delta: true, cells: [{ d: 6.0, b: true }, { d: -1.2 }, { d: 5.7, b: true }, { d: -5.6 }, { d: -0.8 }, { d: 3.9, b: true }, { d: 2.0 }] },
+  ],
+};
+renderTable(moreMMTable, 'moremm');
+
+// ─── Distillation: AgentEHR-Bench ────────────────────────────────────
+const B = v => ({ v, bold: true });
+const distillTable = {
+  caption: '<span class="font-medium text-slate-700">Results on AgentEHR-Bench</span> (F1, %; 100 questions per task). All models run ClinSeekAgent under the same temporal policy. Bold: best model in each group. Last two rows: difference of ClinSeek-35B-A3B from its base model and from its teacher; all gains over the base model are significant under a paired bootstrap (95% CI).',
+  head: [['Model', 'Diagnoses', 'Labs', 'Microbiology', 'Procedures', 'Transfers', 'Avg.']],
+  rows: [
+    { label: 'GPT-5.6 Sol (teacher)',  group: 'Closed-source models', cells: [47.0, 43.1, B(31.1), B(45.5), B(27.3), B(38.8)] },
+    { label: 'GPT-5.6 Luna',           group: 'Closed-source models', cells: [43.7, 37.8, 24.8, 37.9, 24.9, 33.8] },
+    { label: 'Claude Opus 4.6',        group: 'Closed-source models', cells: [B(51.1), 42.1, 25.4, 28.7, 18.6, 33.2] },
+    { label: 'Claude Sonnet 4.6',      group: 'Closed-source models', cells: [49.5, 36.8, 22.9, 25.9, 24.5, 31.9] },
+    { label: 'Claude Opus 5',          group: 'Closed-source models', cells: [48.0, B(44.5), 23.2, 20.5, 22.0, 31.6] },
+    { label: 'Qwen3.5-397B-A17B',      group: 'Open-source models',   cells: [38.4, 30.9, 21.2, 26.2, 23.7, 28.1] },
+    { label: 'MiniMax M2.7',           group: 'Open-source models',   cells: [39.4, 22.3, 22.1, 32.0, 22.9, 27.7] },
+    { label: 'Kimi K2.6',              group: 'Open-source models',   cells: [42.8, 20.2, 18.5, 24.6, 23.3, 25.9] },
+    { label: 'GLM-5.2',                group: 'Open-source models',   cells: [B(43.8), 20.4, 16.0, 24.0, 20.4, 24.9] },
+    { label: 'Qwen3.5-122B-A10B',      group: 'Open-source models',   cells: [32.6, 23.7, 21.6, 23.8, 20.5, 24.4] },
+    { label: 'Nemotron 3 Super',       group: 'Open-source models',   cells: [29.5, 27.5, 23.1, 24.9, 13.3, 23.7] },
+    { label: 'Qwen3.5-35B-A3B (base)', group: 'Open-source models',   cells: [28.4, 16.5, 19.5, 17.9, 15.1, 19.5] },
+    { label: 'ClinSeek-35B-A3B (ours)', group: 'Open-source models',  cells: [41.7, B(40.4), B(27.1), B(41.3), B(27.4), B(35.6)], highlight: true },
+    { label: 'Ours − base',    group: 'Differences', delta: true, cells: ['+13.3', '+23.9', '+7.6', '+23.4', '+12.3', '+16.1'] },
+    { label: 'Ours − teacher', group: 'Differences', delta: true, cells: [MINUS + '5.3', MINUS + '2.7', MINUS + '4.0', MINUS + '4.2', '+0.1', MINUS + '3.2'] },
+  ],
+};
+renderTable(distillTable, 'distill');
 
 // ─── Lightbox ────────────────────────────────────────────────────────
 const lb     = document.getElementById('lightbox');
 const lbImg  = document.getElementById('lightbox-img');
 const lbClose= document.getElementById('lightbox-close');
-const open = src => {
+const openLb = src => {
   lbImg.src = src;
   lb.classList.remove('hidden');
   document.documentElement.classList.add('lightbox-active');
 };
-const close = () => {
+const closeLb = () => {
   lb.classList.add('hidden');
   lbImg.src = '';
   document.documentElement.classList.remove('lightbox-active');
 };
 document.querySelectorAll('img[data-lightbox]').forEach(img => {
-  img.addEventListener('click', () => open(img.src));
+  img.addEventListener('click', () => openLb(img.src));
 });
-lb.addEventListener('click', e => { if (e.target === lb) close(); });
-lbClose.addEventListener('click', close);
-document.addEventListener('keydown', e => { if (e.key === 'Escape') close(); });
+lb.addEventListener('click', e => { if (e.target === lb) closeLb(); });
+lbClose.addEventListener('click', closeLb);
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeLb(); });
 
 // ─── Copy BibTeX ─────────────────────────────────────────────────────
 const copyBtn = document.getElementById('copy-bibtex');

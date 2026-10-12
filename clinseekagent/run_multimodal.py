@@ -1,7 +1,6 @@
-"""Multimodal ClinSeekAgent runner — Bedrock Claude with EHR + Browser + Image tools.
+"""Multimodal ClinSeekAgent runner -- EHR + image tools (paper setting: 22 tools).
 
-This file is the multimodal twin of `run_text.py`. The text-only pipeline
-is never touched. Key differences:
+This file is the multimodal twin of `run_text.py`. Key differences:
 
 1. User message is built as a list of Anthropic content blocks: the sample's
    pre-rendered `question` text, each `image_paths[*]` attached as a base64
@@ -9,8 +8,9 @@ is never touched. Key differences:
    inlined as an extra text block. The existing Bedrock backend already
    supports list-typed `content` for user messages.
 
-2. Tool schemas come from `prompts_multimodal.COMBINED_TOOL_CONTENT_MM` (EHR +
-   browser + 6 Meissa image tools).
+2. Tool schemas come from `prompts_multimodal.get_tools_mm`: the 16 EHR tools,
+   plus the 6 image tools with `--enable_image` (the paper setting), plus the
+   optional browser tools with `--enable_browser`.
 
 3. `image_tool_pool.ImageToolPool` routes `image.*` tool calls to the image
    MCP server (default http://127.0.0.1:5203/mcp).
@@ -22,11 +22,11 @@ unchanged.
 import argparse
 import asyncio
 import base64
+import hashlib
 import io
 import json
 import os
 import traceback
-import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -53,11 +53,24 @@ from run_text import (
     resolve_qid,
     summarize_conversation_completion,
     truncate_tool_result,
+    # single-pass retrieval -- orientation and directive are EHR-only and
+    # identical across text and MM, so reuse rather than fork.
+    _extract_subject_and_time,
+    _estimate_tokens,
+    _run_orientation,
+    _SINGLE_SHOT_DIRECTIVE,
+    _ORIENTATION_TOOLS,
 )
 from ehr_tool_pool import EHRToolPool
 from image_tool_pool import ImageToolPool
+from multimodal_manifest_policy import (
+    STRICT_POLICY_VERSION,
+    validate_agentic_manifest,
+)
 from prompts_multimodal import (
     COMBINED_TOOL_CONTENT_MM,
+    get_developer_content_mm,
+    get_tools_mm,
     DEVELOPER_CONTENT_CLAUDE_MM,
 )
 
@@ -157,7 +170,22 @@ _MEDIA_TYPE_BY_SUFFIX = {
     ".gif": "image/gif",
 }
 _MAX_REPORT_CHARS = 4000
+# The agent loop hard-codes this per-request cap; named so run_config can
+# record the same value the requests actually carry.
+DEFAULT_MM_MAX_TOKENS = 8192
 _MAX_IMAGES_PER_SAMPLE = 4
+
+
+def _sha256_file(path: str) -> Optional[str]:
+    """Digest of the benchmark manifest, so a run can be tied to its inputs."""
+    try:
+        digest = hashlib.sha256()
+        with open(path, "rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
+    except OSError:
+        return None
 
 
 def resolve_asset_path(path: str, bench_root) -> Optional[Path]:
@@ -172,14 +200,23 @@ def resolve_asset_path(path: str, bench_root) -> Optional[Path]:
     candidate = Path(path)
     if candidate.is_absolute() and candidate.exists():
         return candidate
+    # Released manifests prefix asset paths with the source package name
+    # (`EHRXQAOriginalLinked_v1/...`, `MedModOriginalLinked_v1/...`), while the
+    # rebuilt roots (`mm_bench/ehrxqa`, `mm_bench/medmod`) start at
+    # `mimic-cxr/...`; try both spellings, as run_multimodal_curated does.
+    relatives = [path]
+    first, sep, rest = path.partition("/")
+    if sep and (first.endswith("OriginalLinked_v1") or first.endswith("AgentBench_v3")):
+        relatives.append(rest)
     if bench_root:
         roots = [bench_root] if isinstance(bench_root, (str, Path)) else list(bench_root)
-        for root in roots:
-            if not root:
-                continue
-            rooted = Path(root) / path
-            if rooted.exists():
-                return rooted
+        for rel in relatives:
+            for root in roots:
+                if not root:
+                    continue
+                rooted = Path(root) / rel
+                if rooted.exists():
+                    return rooted
     if candidate.exists():
         return candidate.resolve()
     return None
@@ -312,9 +349,12 @@ def build_multimodal_user_content(
         "<run_context>",
         f"- images_attached: {len(resolved_images)}",
         f"- reports_inlined: {len(resolved_reports)}",
-        f"- patient_ehr_available: {'yes' if (has_subject_id and not is_cohort_scope) else 'no'}"
-        + ("  (this row is cohort-scope — ehr.load_ehr is not applicable)"
-           if is_cohort_scope else ""),
+        f"- ehr_database_available: {'yes' if has_subject_id else 'no'}"
+        + (
+            "  (cohort-scope pseudo-subject database)"
+            if is_cohort_scope and has_subject_id
+            else ""
+        ),
     ]
     if resolved_images:
         availability_lines.append("- image_paths (use these VERBATIM in image.* calls):")
@@ -323,7 +363,7 @@ def build_multimodal_user_content(
     availability_lines.extend([
         "",
         "Only call tools whose preconditions are satisfied:",
-        "- call ehr.load_ehr ONLY if patient_ehr_available=yes",
+        "- call ehr.load_ehr ONLY if ehr_database_available=yes",
         "- call image.* tools ONLY if images_attached>0 — use the absolute",
         "  image_paths listed above, NOT a derived path from study_id",
         "- if neither is available, answer from the question text alone",
@@ -355,9 +395,9 @@ def resolve_question_mm(
     """Return (plain_text_question, content_blocks, summary).
 
     Does NOT force-attach anything. If the sample has no `image_paths`, no
-    image block is added. If it has no `subject_id` (or is cohort-scope), the
-    preamble tells the model the patient EHR is not available and suppresses
-    ehr.load_ehr calls.
+    image block is added. If it has no `subject_id`, the preamble tells the
+    model the EHR database is unavailable. Cohort-scope rows use their
+    packaged pseudo-subject database.
     """
     question_text = item.get("question") or item.get("query") or ""
     image_paths = item.get("image_paths") or []
@@ -435,12 +475,14 @@ async def run_one_native_mm(
     if hasattr(generator, "_init_tokenizer"):
         await generator._init_tokenizer()
 
-    system_prompt = DEVELOPER_CONTENT_CLAUDE_MM
+    browser_enabled = getattr(browser_pool, "enabled", True)
+    image_enabled = image_pool is not None
+    system_prompt = get_developer_content_mm(browser_enabled, image_enabled)
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_content_blocks},
     ]
-    tools = json.loads(COMBINED_TOOL_CONTENT_MM)
+    tools = get_tools_mm(browser_enabled, image_enabled)
 
     round_num = 0
     try:
@@ -507,42 +549,6 @@ async def run_one_native_mm(
                     f"[qid={qid}] Round {round_num}: No tool calls detected; stopping",
                     flush=True,
                 )
-                # Salvage: some OSS models (Qwen, GLM) stop calling tools once
-                # they are ready to answer — they emit the final answer as
-                # plain text and treat that as implicit end-of-turn. Synthesize
-                # a matching `ehr.finish` call so downstream scoring can pick
-                # the content up as the prediction instead of marking the row
-                # incomplete.
-                answer_text = (content or "").strip()
-                if answer_text:
-                    # Heuristic: split on newlines / bullets to mimic the
-                    # list-valued `response` the finish tool expects.
-                    items: List[str] = []
-                    for raw in answer_text.splitlines():
-                        raw = raw.strip().lstrip("-*•").strip()
-                        if raw:
-                            items.append(raw)
-                    if not items:
-                        items = [answer_text]
-                    synth_call = {
-                        "id": f"synthetic_finish_{uuid.uuid4().hex[:8]}",
-                        "type": "function",
-                        "function": {
-                            "name": "ehr.finish",
-                            "arguments": json.dumps({"response": items}),
-                        },
-                    }
-                    messages[-1]["tool_calls"] = [synth_call]
-                    messages.append({
-                        "role": "tool",
-                        "content": "Finish (synthesized from plain-text answer)",
-                        "tool_call_id": synth_call["id"],
-                    })
-                    print(
-                        f"[qid={qid}] DONE Round {round_num}: synthesized ehr.finish "
-                        f"from {len(items)}-line plain-text answer",
-                        flush=True,
-                    )
                 break
 
             finish_tool_called = False
@@ -649,6 +655,181 @@ async def run_one_native_mm(
             await image_pool.cleanup(qid)
 
 
+async def run_one_single_shot_mm(
+    *,
+    question_text: str,
+    user_content_blocks: List[Dict[str, Any]],
+    qid: Any,
+    generator: Any,
+    browser_pool: BrowserPool,
+    ehr_pool: Optional[EHRToolPool],
+    image_pool: Optional[ImageToolPool],
+    evidence_budget_tokens: Optional[int],
+    max_tool_result_chars: int,
+    temperature: float,
+    model_name: str,
+) -> Tuple[List[dict], Dict[str, Any]]:
+    """Single-pass retrieval (`--retrieval_mode single_shot`) for MM.
+
+    Same three phases as the text-only version (free EHR schema orientation ->
+    one retrieval turn -> forced finish), but the first user turn carries the
+    attached CXR image blocks, and the retrieval turn keeps the image tools so
+    the single plan can inspect the image as well as query the EHR. The image
+    itself is always visible; what is constrained is retrieval to one turn.
+    """
+    browser_pool.init_session(qid)
+    if ehr_pool:
+        await ehr_pool.init_session(qid)
+    if image_pool:
+        await image_pool.init_session(qid)
+    if hasattr(generator, "_init_tokenizer"):
+        await generator._init_tokenizer()
+
+    stats: Dict[str, Any] = {
+        "retrieval_mode": "single_shot",
+        "n_retrieval_calls": 0,
+        "tool_result_tokens": 0,
+        "evidence_budget_tokens": evidence_budget_tokens,
+        "budget_exceeded": False,
+        "orientation_ok": False,
+    }
+    subject_id, timestamp = _extract_subject_and_time(question_text)
+
+    try:
+        # ── Phase 0: EHR schema orientation (free) ───────────────────────────
+        orientation = ""
+        if ehr_pool and subject_id and timestamp:
+            try:
+                orientation = await _run_orientation(
+                    ehr_pool, qid, subject_id, timestamp, max_tool_result_chars)
+                stats["orientation_ok"] = True
+            except Exception as exc:  # noqa: BLE001
+                print(f"[qid={qid}] MM single-shot orientation failed: {exc}",
+                      flush=True)
+
+        # Append the orientation + directive as a trailing text block, leaving
+        # the image blocks in place.
+        user_blocks = list(user_content_blocks)
+        if orientation:
+            user_blocks.append({"type": "text",
+                                "text": f"\n\n{orientation}{_SINGLE_SHOT_DIRECTIVE}"})
+
+        messages: List[dict] = [
+            {"role": "system", "content": get_developer_content_mm(
+                getattr(browser_pool, "enabled", True), image_pool is not None)},
+            {"role": "user", "content": user_blocks},
+        ]
+
+        all_tools = get_tools_mm(
+            getattr(browser_pool, "enabled", True), image_pool is not None)
+
+        def _base(name: str) -> str:
+            return name.split(".", 1)[1] if "." in name else name
+        retrieval_tools = [
+            t for t in all_tools
+            if t["function"]["name"] != "ehr.finish"
+            and _base(t["function"]["name"]) not in _ORIENTATION_TOOLS
+        ]
+        finish_tool = [t for t in all_tools
+                       if t["function"]["name"] == "ehr.finish"]
+
+        # ── Phase 1: the single retrieval turn ───────────────────────────────
+        print(f"[qid={qid}] MM single-shot PHASE 1: retrieval", flush=True)
+        r1 = await generator.chat_completion(
+            messages=messages, tools=retrieval_tools, tool_choice="any",
+            temperature=temperature, max_tokens=8192)
+        m1 = r1["choices"][0]["message"]
+        tool_calls = m1.get("tool_calls") or []
+        normalized = normalize_tool_calls_mm(tool_calls)
+        stats["n_retrieval_calls"] = len(tool_calls)
+        print(f"[qid={qid}] MM single-shot: model issued {len(tool_calls)} "
+              f"tool call(s) in one turn", flush=True)
+
+        assistant_turn = {"role": "assistant", "content": m1.get("content", ""),
+                          "tool_calls": normalized if normalized else None}
+        if m1.get("reasoning_content"):
+            assistant_turn["reasoning_content"] = m1["reasoning_content"]
+        if m1.get("bedrock_content_blocks"):
+            assistant_turn["bedrock_content_blocks"] = m1["bedrock_content_blocks"]
+        messages.append(assistant_turn)
+
+        for tc, ntc in zip(tool_calls, normalized):
+            tool_id = ntc["id"]
+            fname_raw = ntc["function"]["name"]
+            # Mirror the agentic loop: a model that merges the two namespaces
+            # (`ehr.image_chest_xray_classifier`) must still reach the image
+            # server. Without this the call is dispatched to the EHR MCP, which
+            # answers "Unknown tool", and the arm silently loses every image
+            # tool while still reporting status=success.
+            fname = _resolve_tool_namespace(fname_raw)
+            if fname != fname_raw:
+                print(f"[qid={qid}] MM single-shot TOOL_NAME_FIX: "
+                      f"{fname_raw!r} -> {fname!r}", flush=True)
+            try:
+                args = ntc["function"]["arguments"]
+                args = args if isinstance(args, dict) else json.loads(args)
+            except Exception:
+                args = {}
+
+            over_budget = (evidence_budget_tokens is not None
+                           and stats["tool_result_tokens"] >= evidence_budget_tokens)
+            if over_budget:
+                stats["budget_exceeded"] = True
+                result = "[omitted: evidence budget exhausted]"
+            else:
+                try:
+                    if fname.startswith("ehr.") and ehr_pool:
+                        result = await ehr_pool.call_tool(
+                            qid, fname.split(".", 1)[1], args)
+                    elif fname.startswith("image.") and image_pool:
+                        # MM convention: image pool takes the full dotted name.
+                        result = await image_pool.call_tool(qid, fname, args)
+                    elif fname.startswith("browser."):
+                        result = await browser_pool.call_tool(
+                            qid, fname.split(".", 1)[1], args) or f"{fname} completed"
+                    else:
+                        result = f"Tool unavailable: {fname}"
+                except Exception as exc:  # noqa: BLE001
+                    result = f"Error executing {fname}: {exc}"
+                result = truncate_tool_result(result, max_tool_result_chars)
+                stats["tool_result_tokens"] += _estimate_tokens(result)
+
+            messages.append({"role": "tool", "tool_call_id": tool_id,
+                             "content": result})
+            print(f"[qid={qid}] MM single-shot TOOL[{fname}] result_len={len(result)}"
+                  + ("  [OVER BUDGET]" if over_budget else ""), flush=True)
+
+        # ── Phase 2: answer, finish only ─────────────────────────────────────
+        print(f"[qid={qid}] MM single-shot PHASE 2: answer "
+              f"(tool_result_tokens={stats['tool_result_tokens']})", flush=True)
+        r2 = await generator.chat_completion(
+            messages=messages, tools=finish_tool, tool_choice="ehr.finish",
+            temperature=temperature, max_tokens=8192)
+        m2 = r2["choices"][0]["message"]
+        normalized2 = normalize_tool_calls_mm(m2.get("tool_calls") or [])
+
+        answer_turn = {"role": "assistant", "content": m2.get("content", ""),
+                       "tool_calls": normalized2 if normalized2 else None}
+        if m2.get("reasoning_content"):
+            answer_turn["reasoning_content"] = m2["reasoning_content"]
+        if m2.get("bedrock_content_blocks"):
+            answer_turn["bedrock_content_blocks"] = m2["bedrock_content_blocks"]
+        messages.append(answer_turn)
+
+        if normalized2:
+            for ntc in normalized2:
+                messages.append({"role": "tool", "tool_call_id": ntc["id"],
+                                 "content": "Finish (single-shot)"})
+
+        return messages, stats
+    finally:
+        browser_pool.cleanup(qid)
+        if ehr_pool:
+            await ehr_pool.cleanup(qid)
+        if image_pool:
+            await image_pool.cleanup(qid)
+
+
 async def run_one_query_mm(
     *,
     item: Dict[str, Any],
@@ -666,26 +847,58 @@ async def run_one_query_mm(
     temperature: float,
     max_tool_result_chars: int,
     model_name: str,
+    retrieval_mode: str = "agentic",
+    evidence_budget_tokens: Optional[int] = None,
 ):
     try:
+        if ehr_pool:
+            ehr_pool.configure_session(session_id, item)
         question_text, user_blocks, mm_summary = resolve_question_mm(
             item, bench_root=bench_root, image_max_edge=image_max_edge
         )
-        messages = await run_one_native_mm(
-            question_text=question_text,
-            user_content_blocks=user_blocks,
-            qid=session_id,
-            generator=generator,
-            browser_pool=browser_pool,
-            ehr_pool=ehr_pool,
-            image_pool=image_pool,
-            max_rounds=max_rounds,
-            temperature=temperature,
-            max_tool_result_chars=max_tool_result_chars,
-            model_name=model_name,
-        )
+        if image_pool:
+            # Bind image.* calls to this row's linked assets. The absolute
+            # paths come from the summary because those are the spellings the
+            # run_context preamble shows the model.
+            image_pool.configure_session(
+                session_id,
+                item,
+                resolved_assets=(
+                    mm_summary["resolved_image_paths"]
+                    + mm_summary["resolved_report_paths"]
+                ),
+            )
+        single_shot_stats = None
+        if retrieval_mode == "single_shot":
+            messages, single_shot_stats = await run_one_single_shot_mm(
+                question_text=question_text,
+                user_content_blocks=user_blocks,
+                qid=session_id,
+                generator=generator,
+                browser_pool=browser_pool,
+                ehr_pool=ehr_pool,
+                image_pool=image_pool,
+                evidence_budget_tokens=evidence_budget_tokens,
+                max_tool_result_chars=max_tool_result_chars,
+                temperature=temperature,
+                model_name=model_name,
+            )
+        else:
+            messages = await run_one_native_mm(
+                question_text=question_text,
+                user_content_blocks=user_blocks,
+                qid=session_id,
+                generator=generator,
+                browser_pool=browser_pool,
+                ehr_pool=ehr_pool,
+                image_pool=image_pool,
+                max_rounds=max_rounds,
+                temperature=temperature,
+                max_tool_result_chars=max_tool_result_chars,
+                model_name=model_name,
+            )
         completed, stop_reason = summarize_conversation_completion(messages)
-        return {
+        result = {
             "qid": qid,
             "run_index": run_index,
             "runs_per_question": runs_per_question,
@@ -697,6 +910,9 @@ async def run_one_query_mm(
             "stop_reason": stop_reason,
             "multimodal_summary": mm_summary,
         }
+        if single_shot_stats is not None:
+            result["single_shot"] = single_shot_stats
+        return result
     except Exception as exc:
         print(f"[qid={qid}] ERROR: {exc}")
         traceback.print_exc()
@@ -737,6 +953,8 @@ async def process_query_item_mm(
     output_file: str,
     write_lock: asyncio.Lock,
     model_name: str,
+    retrieval_mode: str = "agentic",
+    evidence_budget_tokens: Optional[int] = None,
 ) -> Dict[str, Any]:
     qid = resolve_qid(item)
     session_id = f"{qid}__q_{question_index}__run_{run_index}"
@@ -767,6 +985,8 @@ async def process_query_item_mm(
                 temperature=temperature,
                 max_tool_result_chars=max_tool_result_chars,
                 model_name=model_name,
+                retrieval_mode=retrieval_mode,
+                evidence_budget_tokens=evidence_budget_tokens,
             )
             result = attach_source_fields(result, item)
     except Exception as exc:
@@ -801,20 +1021,49 @@ async def main():
     dotenv.load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"))
 
     parser = argparse.ArgumentParser(description="ClinSeekAgent multimodal evaluation driver")
-    parser.add_argument("--backend", type=str, choices=["bedrock", "vllm"], default="bedrock",
-                        help="LLM backend. 'vllm' requires an OpenAI-compatible server "
-                             "serving a multimodal model.")
+    parser.add_argument("--backend", type=str, choices=["bedrock", "vertex", "vllm"], default="bedrock",
+                        help="LLM backend. 'vllm' takes any OpenAI-compatible "
+                             "endpoint serving a vision-capable model.")
     parser.add_argument("--model_name_or_path", type=str, default=DEFAULT_BEDROCK_MODEL_ID)
     parser.add_argument("--use_bedrock", action="store_true", default=False,
                         help="Deprecated alias for --backend bedrock.")
     parser.add_argument("--bedrock_model_id", type=str, default=None)
     parser.add_argument("--bedrock_region", type=str, default=DEFAULT_BEDROCK_REGION)
     parser.add_argument("--bedrock_api_key", type=str, default=None)
+    parser.add_argument("--vertex_model_id", type=str, default=None,
+                        help="Vertex AI model ID (overrides model_name_or_path).")
+    parser.add_argument("--vertex_project", type=str, default=None,
+                        help="GCP project for Vertex AI (defaults to "
+                             "ANTHROPIC_VERTEX_PROJECT_ID / GOOGLE_CLOUD_PROJECT).")
+    parser.add_argument("--vertex_region", type=str, default=None,
+                        help="Vertex AI region, e.g. global / us-east5 "
+                             "(defaults to CLOUD_ML_REGION or 'global').")
     parser.add_argument("--api_base_url", type=str, default=DEFAULT_VLLM_BASE_URL,
-                        help="OpenAI-compatible API base URL for vLLM.")
+                        help="OpenAI-compatible API base URL (--backend vllm).")
     parser.add_argument("--api_key", type=str, default=DEFAULT_VLLM_API_KEY,
                         help="API key for the OpenAI-compatible API.")
 
+    # Reasoning / request knobs, mirroring run_text.py.
+    parser.add_argument("--thinking_budget_tokens", type=int, default=4096,
+                        help="Claude extended-thinking budget for models that "
+                             "accept a fixed budget (Claude 4.6 and older).")
+    parser.add_argument("--reasoning_effort", type=str, default="high",
+                        help="Effort for adaptive-only Claude models and OpenAI "
+                             "reasoning models when thinking is enabled.")
+    parser.add_argument("--api_max_attempts", type=int, default=3,
+                        help="--backend vllm: attempts per request for transient "
+                             "errors.")
+    parser.add_argument("--api_retry_base_seconds", type=float, default=5.0,
+                        help="--backend vllm: initial retry delay.")
+    parser.add_argument("--api_retry_max_seconds", type=float, default=60.0,
+                        help="--backend vllm: maximum retry delay.")
+    parser.add_argument("--api_min_request_interval_seconds", type=float,
+                        default=0.0,
+                        help="--backend vllm: minimum spacing between request starts.")
+
+    parser.add_argument("--enable_browser", action="store_true",
+                        help="Add the optional browser.* web-search tools (not "
+                             "part of the paper's tool space).")
     parser.add_argument("--search_url", type=str, default="http://localhost:8001")
     parser.add_argument("--browser_backend", type=str, default="local", choices=["local", "serper"])
 
@@ -827,8 +1076,12 @@ async def main():
                         help="Override EHR MCP URL for source_benchmark=ehrxqa samples.")
     parser.add_argument("--ehr_mcp_url_medmod", type=str, default=None,
                         help="Override EHR MCP URL for source_benchmark=medmod samples.")
+    parser.add_argument("--disable_browser", action="store_true",
+                        help="Deprecated no-op; browser tools are off unless "
+                             "--enable_browser.")
     parser.add_argument("--enable_image", action="store_true",
-                        help="Enable medical-image MCP tools.")
+                        help="Enable the 6 medical-image MCP tools (paper setting "
+                             "for ClinSeek-Bench-MM).")
     parser.add_argument("--image_mcp_url", type=str, default="http://127.0.0.1:5203/mcp")
     parser.add_argument("--bench_root", type=str, default=None,
                         help="Benchmark root for resolving relative image/report paths. "
@@ -840,7 +1093,16 @@ async def main():
     parser.add_argument("--data_path", type=str, required=True)
     parser.add_argument("--output_dir", type=str, default="./results")
     parser.add_argument("--max_rounds", type=int, default=200)
-    parser.add_argument("--temperature", type=float, default=1.0)
+    parser.add_argument("--retrieval_mode", choices=["agentic", "single_shot"],
+                        default="agentic",
+                        help="agentic: iterative loop (default). single_shot: "
+                             "Single-Pass Retrieval -- free EHR schema orientation, "
+                             "one retrieval turn (EHR+image tools), then forced "
+                             "finish.")
+    parser.add_argument("--evidence_budget_tokens", type=int, default=None,
+                        help="single_shot only: cap on total tool-result tokens.")
+    parser.add_argument("--temperature", type=float, default=0.0,
+                        help="Sampling temperature (paper: 0 where accepted).")
     parser.add_argument("--runs_per_question", type=int, default=1)
     parser.add_argument("--max_concurrency", type=int, default=MAX_PARALLEL_QUERIES)
     parser.add_argument("--max_tool_result_chars", type=int, default=DEFAULT_MAX_TOOL_RESULT_CHARS)
@@ -852,18 +1114,33 @@ async def main():
 
     browser_backend_explicit = "--browser_backend" in os.sys.argv
 
+    if args.api_max_attempts < 1:
+        raise ValueError("--api_max_attempts must be at least 1")
+    if args.api_retry_base_seconds <= 0 or args.api_retry_max_seconds <= 0:
+        raise ValueError("API retry delays must be positive")
+    if args.api_min_request_interval_seconds < 0:
+        raise ValueError("--api_min_request_interval_seconds cannot be negative")
+
     global VERBOSE
     VERBOSE = args.verbose
 
-    if (
-        not browser_backend_explicit
-        and args.browser_backend == "local"
-        and os.getenv("SERPER_API_KEY")
-    ):
-        args.browser_backend = "serper"
-        print("SERPER_API_KEY detected; using Serper browser backend")
-    if args.browser_backend == "serper" and not os.getenv("SERPER_API_KEY"):
-        raise ValueError("SERPER_API_KEY is required when using --browser_backend serper")
+    if args.enable_browser and args.disable_browser:
+        raise ValueError("--enable_browser conflicts with --disable_browser")
+    if not args.enable_browser:
+        # No browser backend is ever constructed, so a Serper key is neither
+        # needed nor meaningful.
+        args.browser_backend = "disabled"
+        print("Browser tools off (paper setting); --enable_browser adds them")
+    else:
+        if (
+            not browser_backend_explicit
+            and args.browser_backend == "local"
+            and os.getenv("SERPER_API_KEY")
+        ):
+            args.browser_backend = "serper"
+            print("SERPER_API_KEY detected; using Serper browser backend")
+        if args.browser_backend == "serper" and not os.getenv("SERPER_API_KEY"):
+            raise ValueError("SERPER_API_KEY is required when using --browser_backend serper")
     if args.max_concurrency < 1:
         raise ValueError("--max_concurrency must be at least 1")
     if args.runs_per_question < 1:
@@ -876,19 +1153,10 @@ async def main():
 
     selected_backend = "bedrock" if args.use_bedrock else args.backend
     if args.use_bedrock and args.backend != "bedrock":
-        raise ValueError("--use_bedrock conflicts with --backend vllm")
+        raise ValueError(f"--use_bedrock conflicts with --backend {args.backend}")
 
     if selected_backend == "bedrock":
-        import bedrock_backend as _bgen
         from bedrock_backend import BedrockAsyncGenerator
-
-        # Runtime shim: bedrock_backend.py has a latent NameError at line 555
-        # (`use_reasoning_content` is a parameter of chat_completion(), not a
-        # local of _chat_completion_anthropic). The text-only pipeline never hits
-        # the path where the tool_use branch runs under our invocation pattern, but
-        # the multimodal run does. Inject the name into the module globals so the
-        # reference always resolves — no edit to bedrock_backend.py.
-        _bgen.__dict__.setdefault("use_reasoning_content", True)
 
         bedrock_api_key = configure_bedrock_auth(args.bedrock_api_key)
         resolved_model_id = resolve_bedrock_model_id(
@@ -897,8 +1165,10 @@ async def main():
         generator = BedrockAsyncGenerator(
             model_id=resolved_model_id,
             region_name=args.bedrock_region,
-            max_tokens_default=8192,
+            max_tokens_default=DEFAULT_MM_MAX_TOKENS,
             enable_thinking=args.enable_thinking,
+            thinking_budget_tokens=args.thinking_budget_tokens,
+            reasoning_effort=args.reasoning_effort,
         )
         if bedrock_api_key:
             print(f"Using Bedrock bearer token auth: {mask_secret(bedrock_api_key)}")
@@ -907,6 +1177,30 @@ async def main():
         print(
             "Using AWS Bedrock: "
             f"{generator.model_id} @ {args.bedrock_region} | "
+            f"thinking={'auto' if args.enable_thinking is None else args.enable_thinking}"
+        )
+    elif selected_backend == "vertex":
+        from vertex_backend import VertexAsyncGenerator
+
+        # An untouched --model_name_or_path still holds the Bedrock default, so
+        # treat it as "unset" here and let the backend auto-pick.
+        vertex_model = args.vertex_model_id or args.model_name_or_path
+        if vertex_model == DEFAULT_BEDROCK_MODEL_ID:
+            vertex_model = None
+
+        generator = VertexAsyncGenerator(
+            model_id=vertex_model,
+            project_id=args.vertex_project,
+            region=args.vertex_region,
+            max_tokens_default=DEFAULT_MM_MAX_TOKENS,
+            enable_thinking=args.enable_thinking,
+            thinking_budget_tokens=args.thinking_budget_tokens,
+            reasoning_effort=args.reasoning_effort,
+        )
+        print(
+            "Using Google Vertex AI: "
+            f"{generator.model_id} @ {generator.region} "
+            f"(project={generator.project_id}) | "
             f"thinking={'auto' if args.enable_thinking is None else args.enable_thinking}"
         )
     elif selected_backend == "vllm":
@@ -921,8 +1215,14 @@ async def main():
             model_name=vllm_model,
             base_url=args.api_base_url,
             api_key=args.api_key,
-            max_tokens_default=8192,
+            max_tokens_default=DEFAULT_MM_MAX_TOKENS,
+            max_workers=concurrency,
             enable_thinking=args.enable_thinking,
+            reasoning_effort=args.reasoning_effort,
+            request_max_attempts=args.api_max_attempts,
+            retry_base_delay=args.api_retry_base_seconds,
+            retry_max_delay=args.api_retry_max_seconds,
+            min_request_interval=args.api_min_request_interval_seconds,
         )
         print(
             "Using vLLM OpenAI-compatible API: "
@@ -933,7 +1233,11 @@ async def main():
     else:
         raise NotImplementedError(f"Unsupported backend: {selected_backend}")
 
-    browser_pool = BrowserPool(args.search_url, browser_backend=args.browser_backend)
+    browser_pool = BrowserPool(
+        args.search_url,
+        browser_backend=args.browser_backend,
+        enabled=args.enable_browser,
+    )
 
     # --- EHR pools, keyed on source_benchmark. ---------------------------------
     # Default pool handles samples without a registered override.
@@ -966,12 +1270,92 @@ async def main():
         print("No --bench_root / $BENCH_ROOT set — image/report paths must be absolute.")
 
     data = load_query_data(args.data_path)
+    validate_agentic_manifest(data)
     total_task_runs = len(data) * args.runs_per_question
     print(f"Loaded {len(data)} queries from {args.data_path}")
     print(f"Running {args.runs_per_question} run(s) per query ({total_task_runs} total runs)")
     print(f"Running with max concurrency: {concurrency}")
     print(f"Tool result char limit: {args.max_tool_result_chars}")
     print(f"Image max edge: {args.image_max_edge}")
+
+    # Provenance sidecar, matching run_text.py. Without it a finished run
+    # cannot say which tool families, cutoff policy or thinking settings
+    # produced it, which is exactly what an ablation needs to record.
+    effective_request = {
+        "tool_choice": "auto",
+        "stream": False,
+        "api_worker_threads": getattr(
+            getattr(generator, "executor", None), "_max_workers", None
+        ),
+    }
+    model_for_request = getattr(
+        generator, "model_name",
+        getattr(generator, "model_id", args.model_name_or_path),
+    )
+    for attr, key in (
+        ("_build_extra_body", "extra_body"),
+        ("_reasoning_kwargs", "reasoning_kwargs"),
+    ):
+        if hasattr(generator, attr):
+            fn = getattr(generator, attr)
+            effective_request[key] = (
+                fn() if attr == "_build_extra_body" else fn(model_for_request)
+            )
+    if hasattr(generator, "_sampling_kwargs"):
+        effective_request["sampling_kwargs"] = generator._sampling_kwargs(
+            model_for_request, args.temperature
+        )
+    if hasattr(generator, "_max_token_kwargs"):
+        effective_request["max_token_kwargs"] = generator._max_token_kwargs(
+            model_for_request, DEFAULT_MM_MAX_TOKENS
+        )
+
+    run_config_file = os.path.join(args.output_dir, "run_config.json")
+    with open(run_config_file, "w", encoding="utf-8") as f:
+        json.dump(
+            {
+                "backend": selected_backend,
+                "model": args.model_name_or_path,
+                "data_path": os.path.abspath(args.data_path),
+                "data_sha256": _sha256_file(args.data_path),
+                "output_dir": os.path.abspath(args.output_dir),
+                "enable_thinking": args.enable_thinking,
+                "thinking_budget_tokens": args.thinking_budget_tokens,
+                "reasoning_effort": args.reasoning_effort,
+                "api_max_attempts": args.api_max_attempts,
+                "api_retry_base_seconds": args.api_retry_base_seconds,
+                "api_retry_max_seconds": args.api_retry_max_seconds,
+                "api_min_request_interval_seconds":
+                    args.api_min_request_interval_seconds,
+                "temperature_cli": args.temperature,
+                "max_tokens": DEFAULT_MM_MAX_TOKENS,
+                "max_rounds": args.max_rounds,
+                "max_concurrency": concurrency,
+                "runs_per_question": args.runs_per_question,
+                "max_tool_result_chars": args.max_tool_result_chars,
+                "retrieval_mode": args.retrieval_mode,
+                # Tool-space ablation: these three decide the tool list and the
+                # system prompt, so they are the fields that identify an arm.
+                "browser_backend": args.browser_backend,
+                "browser_enabled": bool(args.enable_browser),
+                "image_enabled": bool(args.enable_image),
+                "tool_count": len(
+                    get_tools_mm(bool(args.enable_browser), bool(args.enable_image))
+                ),
+                "ehr_enabled": bool(args.enable_ehr),
+                "ehr_mcp_url": args.ehr_mcp_url if args.enable_ehr else None,
+                "ehr_mcp_url_ehrxqa": args.ehr_mcp_url_ehrxqa,
+                "ehr_mcp_url_medmod": args.ehr_mcp_url_medmod,
+                "image_mcp_url": args.image_mcp_url if args.enable_image else None,
+                "image_max_edge": args.image_max_edge,
+                "bench_root": bench_root,
+                "leakage_policy_version": STRICT_POLICY_VERSION,
+                "effective_model_request": effective_request,
+            },
+            f,
+            indent=2,
+        )
+    print(f"Run config written to {run_config_file}")
 
     if hasattr(generator, "_init_tokenizer"):
         await generator._init_tokenizer()
@@ -980,6 +1364,7 @@ async def main():
 
     completed_qids = set()
     existing_lines: List[str] = []
+    retryable = 0
     if os.path.exists(output_file):
         with open(output_file, "r", encoding="utf-8") as f:
             for line in f:
@@ -988,22 +1373,31 @@ async def main():
                     continue
                 try:
                     result = json.loads(line)
-                    if result.get("completed"):
-                        completed_qids.add(result["qid"])
-                    existing_lines.append(line)
                 except json.JSONDecodeError:
                     existing_lines.append(line)
-    if completed_qids:
-        print(f"Resuming: {len(completed_qids)} already completed, skipping them")
+                    continue
+                # A row is re-run only when the request never landed
+                # (status "error": 429s, dead MCP sessions). A row where the
+                # model was reached and did not produce a finish call is a
+                # datapoint -- keep it, do not retry it into a nicer number.
+                # (Keying on `completed` instead would re-run and drop every
+                # recorded incomplete row on resume.)
+                if result.get("status") == "error":
+                    retryable += 1
+                    continue
+                completed_qids.add(result["qid"])
+                existing_lines.append(line)
+    if retryable:
+        print(f"Resuming: {retryable} errored row(s) will be re-run; "
+              f"{len(completed_qids)} kept (incomplete rows kept as-is)")
+    elif completed_qids:
+        print(f"Resuming: {len(completed_qids)} already in results, skipping them")
 
     with open(output_file, "w", encoding="utf-8") as out_f:
+        # existing_lines already excludes errored rows, so write them all back:
+        # filtering again on `completed` here is what deleted incomplete rows.
         for line in existing_lines:
-            try:
-                r = json.loads(line)
-                if r.get("completed"):
-                    out_f.write(line + "\n")
-            except json.JSONDecodeError:
-                pass
+            out_f.write(line + "\n")
         out_f.flush()
 
         semaphore = asyncio.Semaphore(concurrency)
@@ -1052,6 +1446,8 @@ async def main():
                             output_file=output_file,
                             write_lock=write_lock,
                             model_name=args.model_name_or_path,
+                            retrieval_mode=args.retrieval_mode,
+                            evidence_budget_tokens=args.evidence_budget_tokens,
                         )
                     )
                 )
@@ -1064,6 +1460,21 @@ async def main():
                 await asyncio.gather(*batch_tasks)
 
     print(f"\nAll multimodal queries processed. Results in {output_file}")
+
+    # One billable request per round per query, so only the run-level total is
+    # meaningful. Written next to the results so a run's cost stays traceable.
+    if hasattr(generator, "token_usage"):
+        print(generator.usage_summary())
+        usage_file = os.path.join(args.output_dir, "usage.json")
+        with open(usage_file, "w", encoding="utf-8") as f:
+            json.dump(
+                {"model": getattr(generator, "model_id", args.model_name_or_path),
+                 "backend": selected_backend,
+                 **generator.token_usage},
+                f,
+                indent=2,
+            )
+        print(f"Token usage written to {usage_file}")
 
     if ehr_pool_default:
         await ehr_pool_default.close()

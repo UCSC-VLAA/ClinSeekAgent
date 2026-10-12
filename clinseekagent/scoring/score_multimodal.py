@@ -31,14 +31,17 @@ Outputs:
                                 per_task_unified (len1+len2plus folded).
   <output_dir>/summary.md       Human-readable companion.
 
-The scorer is driven by Bedrock creds (same auth as run_multimodal.py):
-  - AWS_BEARER_TOKEN_BEDROCK or BEDROCK_API_KEY (preferred), or
-  - standard boto3 credential chain.
+The judge runs on `--backend bedrock` (default; AWS_BEARER_TOKEN_BEDROCK /
+BEDROCK_API_KEY or the boto3 credential chain), `--backend vertex` (Google
+Application Default Credentials), or `--backend vllm` (any OpenAI-compatible
+endpoint serving the judge model, `--api-base-url` / `--api-key`). The paper
+uses Claude Sonnet 4.6 as the judge.
 """
 from __future__ import annotations
 
 import argparse
 import asyncio
+import ast
 import json
 import os
 import re
@@ -56,14 +59,8 @@ for _candidate in (SCRIPT_DIR, SCRIPT_DIR.parent):
     if str(_candidate) not in sys.path:
         sys.path.insert(0, str(_candidate))
 
-import bedrock_backend as _bgen
-# Runtime shim: bedrock_backend._chat_completion_anthropic references a
-# `use_reasoning_content` variable that is a parameter of chat_completion but
-# was never forwarded to its module scope. Inject so NameErrors don't kill
-# the judge path. Same fix as run_multimodal.py.
-_bgen.__dict__.setdefault("use_reasoning_content", True)
-
 from bedrock_backend import BedrockAsyncGenerator  # noqa: E402
+from categories import category_of, category_order  # noqa: E402
 from run_text import configure_bedrock_auth, resolve_bedrock_model_id  # noqa: E402
 
 
@@ -74,7 +71,101 @@ from run_text import configure_bedrock_auth, resolve_bedrock_model_id  # noqa: E
 FINISH_NAMES = {"ehr.finish", "finish"}
 
 
-def extract_prediction(row: Dict[str, Any]) -> Tuple[Optional[Any], str]:
+# Notes that still carry a usable prediction. Anything else routes to
+# "incomplete" and scores 0.
+OK_NOTES = {"ok", "fallback_string_list", "fallback_bullet_list",
+            "fallback_free_text"}
+
+# A free-text answer handed to the judge is capped so a model that narrates its
+# whole reasoning does not drown the verdict prompt.
+_FREE_TEXT_MAX_CHARS = 2000
+
+
+def _last_assistant_text(messages: List[Dict[str, Any]]) -> str:
+    """Text of the final assistant turn: `content`, else `reasoning_content`.
+
+    Mirrors score_text.py's fallback source. Only the LAST assistant message is
+    considered -- mid-conversation thinking is not an answer.
+    """
+    for m in reversed(messages or []):
+        if not isinstance(m, dict) or m.get("role") != "assistant":
+            continue
+        for key in ("content", "reasoning_content"):
+            v = (m.get(key) or "").strip()
+            if v:
+                return v
+        return ""
+    return ""
+
+
+def _explicit_string_list(text: str) -> Optional[List[str]]:
+    """A literal list the model wrote out, e.g. ["Cardiomegaly", "Edema"].
+
+    Scans every bracketed span and keeps the last one that parses as a list of
+    non-empty strings, so a closing answer wins over an earlier example.
+    """
+    found: Optional[List[str]] = None
+    for m in re.finditer(r"\[[^\[\]]*\]", text, re.DOTALL):
+        for loader in (json.loads, ast.literal_eval):
+            try:
+                val = loader(m.group(0))
+            except Exception:
+                continue
+            if (isinstance(val, list) and val
+                    and all(isinstance(x, str) and x.strip() for x in val)):
+                found = [x.strip() for x in val]
+            break
+    return found
+
+
+_BULLET_RE = re.compile(r"^\s*(?:[-*\u2022]|\d+[.)])\s+(.{1,120}?)\s*$")
+
+
+def _bullet_list(text: str) -> Optional[List[str]]:
+    """A markdown-ish bullet or numbered list, taken from the final block."""
+    items: List[str] = []
+    for line in text.splitlines():
+        m = _BULLET_RE.match(line)
+        if m:
+            v = m.group(1).strip().strip("*_`")
+            head = v.split(":", 1)[0].strip()
+            if len(head) >= 3:
+                v = head          # "Cardiomegaly: seen at ..." -> "Cardiomegaly"
+            if v:
+                items.append(v)
+        elif items:
+            break                 # list ended; keep the first complete block
+    return items or None
+
+
+def extract_text_fallback(
+    messages: List[Dict[str, Any]], gold_len: int
+) -> Tuple[Optional[Any], str]:
+    """Recover an answer the model wrote as prose instead of via `ehr.finish`.
+
+    Two shapes, matching the two scoring routes:
+
+      * a list (explicit literal or bullets) -- usable by either route;
+      * for `gold_len == 1` only, the raw final text, which the judge reads
+        directly. A blob of prose cannot be set-compared, so len>=2 rows with
+        no list stay unscored rather than being scored against noise.
+    """
+    text = _last_assistant_text(messages)
+    if not text:
+        return None, "no_finish_call"
+    lst = _explicit_string_list(text)
+    if lst:
+        return lst, "fallback_string_list"
+    lst = _bullet_list(text)
+    if lst:
+        return lst, "fallback_bullet_list"
+    if gold_len == 1:
+        return text[:_FREE_TEXT_MAX_CHARS], "fallback_free_text"
+    return None, "no_finish_call"
+
+
+def extract_prediction(row: Dict[str, Any], *, allow_text: bool = False,
+                       gold_len: int = 0) -> Tuple[Optional[Any], str]:
     """Return the `response` arg from the last `ehr.finish` call.
 
     Returns (prediction, note). `note` is a short reason string when we
@@ -99,6 +190,8 @@ def extract_prediction(row: Dict[str, Any]) -> Tuple[Optional[Any], str]:
             break
 
     if last_args_raw is None:
+        if allow_text:
+            return extract_text_fallback(msgs, gold_len)
         return None, "no_finish_call"
 
     if isinstance(last_args_raw, dict):
@@ -435,7 +528,7 @@ def build_task_vocabularies(rows: Iterable[Dict[str, Any]]) -> Dict[str, List[st
     buckets: Dict[str, set] = defaultdict(set)
     for row in rows:
         task = row.get("task", "?")
-        for item in row.get("label") or []:
+        for item in row.get("label") or row.get("ground_truth") or []:
             name = item.get("name") if isinstance(item, dict) else item
             if isinstance(name, str) and name.strip():
                 buckets[task].add(name.strip())
@@ -538,6 +631,13 @@ async def score_file(
     vocab_matcher: Optional[VocabMatcher] = None,
     vocab_skip_tasks: Optional[Iterable[str]] = None,
     vocab_gold_path: Optional[Path] = None,
+    backend: str = "bedrock",
+    vertex_project: Optional[str] = None,
+    vertex_region: Optional[str] = None,
+    judge_request_interval: float = 0.0,
+    allow_text: bool = False,
+    api_base_url: str = "http://127.0.0.1:4000/v1",
+    api_key: Optional[str] = None,
 ) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     scored_path = out_dir / "scored.jsonl"
@@ -600,14 +700,15 @@ async def score_file(
         if key in already:
             prepared.append(already[key])
             continue
-        gold = row.get("label") or []
+        gold = row.get("label") or row.get("ground_truth") or []
         gold_names = [g for g in gold_to_strings(gold) if g.strip()]
         if not gold_names:
             # Empty-label rows were supposed to be filtered upstream; skip
             # defensively with a logged marker rather than scoring them.
             skipped_empty += 1
             continue
-        prediction, note = extract_prediction(row)
+        prediction, note = extract_prediction(
+            row, allow_text=allow_text, gold_len=len(gold_names))
         pred_strs = pred_to_strings(prediction)
         pred_flat = " | ".join(s.strip() for s in pred_strs if s) if pred_strs else ""
 
@@ -615,6 +716,7 @@ async def score_file(
             "qid": row.get("qid"),
             "run_index": row.get("run_index"),
             "task": row.get("task"),
+            "category": category_of("mm", row),
             "scope": row.get("scope"),
             "source_benchmark": row.get("source_benchmark"),
             "len_gold": len(gold_names),
@@ -626,7 +728,7 @@ async def score_file(
             "status": row.get("status"),
         }
 
-        if note != "ok" or prediction is None:
+        if note not in OK_NOTES or prediction is None:
             base.update({
                 "route": "incomplete",
                 "correct": False,
@@ -693,25 +795,56 @@ async def score_file(
 
     # ---- Second pass: run judge in parallel -------------------------------
     if judge_tasks:
-        configure_bedrock_auth(None)  # propagate env
-        # Build a pool of generators — one per region. Each gets its own
-        # semaphore so the caller's `--concurrency` is the per-region cap;
-        # global concurrency = concurrency × len(regions).
-        regions = bedrock_regions if bedrock_regions else [bedrock_region]
+        # Build a pool of judge generators, each with its own semaphore so the
+        # caller's `--concurrency` is the per-generator cap.
         pool = []
-        for region in regions:
-            # Anthropic requires a region-prefixed id (us. / eu. / global.).
-            mid = resolve_bedrock_model_id(bedrock_model_id)
-            # If the caller passed a `global.` alias, it still works anywhere;
-            # otherwise for multi-region we switch the `us.` / `eu.` prefix.
-            region_mid = _anthropic_id_for_region(mid, region)
-            gen = BedrockAsyncGenerator(
-                model_id=region_mid,
-                region_name=region,
+        if backend == "vllm":
+            # Any OpenAI-compatible endpoint serving the judge model. The
+            # generator is OpenAI-shaped rather than a BedrockAsyncGenerator
+            # subclass, but judge_once only calls .chat_completion(), which
+            # both expose identically. No thinking switch is sent: the judge
+            # returns a short verdict, and strict endpoints reject unknown
+            # body fields.
+            from vllm_backend import VLLMOpenAIAsyncGenerator
+            gen = VLLMOpenAIAsyncGenerator(
+                model_name=bedrock_model_id,
+                base_url=api_base_url,
+                api_key=api_key or "EMPTY",
+                max_tokens_default=512,
+                max_workers=concurrency,
+                enable_thinking=None,
+                request_max_attempts=5,
+                min_request_interval=judge_request_interval,
+            )
+            pool.append(("openai-compatible", gen, asyncio.Semaphore(concurrency)))
+        elif backend == "vertex":
+            # VertexAsyncGenerator subclasses BedrockAsyncGenerator, so
+            # judge_once (which only calls .chat_completion) works unchanged.
+            from vertex_backend import VertexAsyncGenerator
+            gen = VertexAsyncGenerator(
+                model_id=bedrock_model_id,
+                project_id=vertex_project,
+                region=vertex_region,
                 max_tokens_default=200,
                 enable_thinking=False,
             )
-            pool.append((region, gen, asyncio.Semaphore(concurrency)))
+            # One generator, N concurrent slots — Vertex has no region fan-out
+            # here (see run_text_curated's VertexInvoker).
+            pool.append((gen.region, gen, asyncio.Semaphore(concurrency)))
+        else:
+            configure_bedrock_auth(None)  # propagate env
+            regions = bedrock_regions if bedrock_regions else [bedrock_region]
+            for region in regions:
+                # Anthropic requires a region-prefixed id (us. / eu. / global.).
+                mid = resolve_bedrock_model_id(bedrock_model_id)
+                region_mid = _anthropic_id_for_region(mid, region)
+                gen = BedrockAsyncGenerator(
+                    model_id=region_mid,
+                    region_name=region,
+                    max_tokens_default=200,
+                    enable_thinking=False,
+                )
+                pool.append((region, gen, asyncio.Semaphore(concurrency)))
 
         progress_every = max(10, len(judge_tasks) // 20)
 
@@ -913,6 +1046,9 @@ def aggregate(scored: List[Dict[str, Any]]) -> Dict[str, Any]:
     per_task_unified: Dict[str, Dict[str, List[float]]] = defaultdict(
         lambda: {k: [] for k in _METRIC_KEYS_ALL}
     )
+    per_category_unified: Dict[str, Dict[str, List[float]]] = defaultdict(
+        lambda: {k: [] for k in _METRIC_KEYS_ALL}
+    )
     unified_totals: Dict[str, List[float]] = {k: [] for k in _METRIC_KEYS_ALL}
 
     for r in scored:
@@ -931,8 +1067,10 @@ def aggregate(scored: List[Dict[str, Any]]) -> Dict[str, Any]:
             vals = {k: 0.0 for k in _METRIC_KEYS_ALL}
         else:
             continue
+        category = r.get("category") or category_of("mm", r) or "uncategorized"
         for k, x in vals.items():
             per_task_unified[task][k].append(x)
+            per_category_unified[category][k].append(x)
             unified_totals[k].append(x)
 
     per_task_unified_final = {
@@ -941,6 +1079,16 @@ def aggregate(scored: List[Dict[str, Any]]) -> Dict[str, Any]:
             **{k: _avg(d[k]) for k in _METRIC_KEYS_ALL},
         }
         for task, d in per_task_unified.items()
+    }
+    # Paper task categories (6 for ClinSeek-Bench-MM), in the paper's order.
+    _cat_order = category_order("mm") + sorted(
+        c for c in per_category_unified if c not in category_order("mm"))
+    per_category_unified_final = {
+        cat: {
+            "count": len(per_category_unified[cat]["f1"]),
+            **{k: _avg(per_category_unified[cat][k]) for k in _METRIC_KEYS_ALL},
+        }
+        for cat in _cat_order if cat in per_category_unified
     }
 
     return {
@@ -976,6 +1124,7 @@ def aggregate(scored: List[Dict[str, Any]]) -> Dict[str, Any]:
         "unified_accuracy_raw": _avg(unified_totals["accuracy_raw"]),
         "unified_subset_match_raw": _avg(unified_totals["subset_match_raw"]),
         "per_task_unified": per_task_unified_final,
+        "per_category_unified": per_category_unified_final,
     }
 
 
@@ -1093,6 +1242,14 @@ def render_markdown(summary: Dict[str, Any], results_path: Path) -> str:
                 f"| {task} | {d['count']} | {d['precision']:.4f} "
                 f"| {d['recall']:.4f} | {d['f1']:.4f} | {d['accuracy']:.4f} |"
             )
+
+    per_category = summary.get("per_category_unified") or {}
+    if per_category:
+        lines.append("\n## Per-category unified F1 (paper task categories)\n")
+        lines.append("| category | n | F1 |")
+        lines.append("|---|---:|---:|")
+        for cat, d in per_category.items():
+            lines.append(f"| {cat} | {d['count']} | {d['f1']:.4f} |")
     return "\n".join(lines) + "\n"
 
 
@@ -1101,6 +1258,12 @@ def render_markdown(summary: Dict[str, Any], results_path: Path) -> str:
 # ---------------------------------------------------------------------------
 
 DEFAULT_MODEL = "global.anthropic.claude-sonnet-4-6"
+# Same judge model (Claude Sonnet 4.6), addressed the way each backend names
+# it. --backend vllm has no default: the served name depends on the endpoint.
+DEFAULT_MODEL_BY_BACKEND = {
+    "bedrock": DEFAULT_MODEL,
+    "vertex": "claude-sonnet-4-6",
+}
 
 
 def parse_args() -> argparse.Namespace:
@@ -1111,7 +1274,21 @@ def parse_args() -> argparse.Namespace:
              "its own <output_root>/<dirname> subdirectory.",
     )
     p.add_argument("--output-root", type=str, required=True)
-    p.add_argument("--judge-model", type=str, default=DEFAULT_MODEL)
+    p.add_argument("--backend", choices=["bedrock", "vertex", "vllm"], default="bedrock",
+                   help="Judge backend: AWS Bedrock, Google Vertex AI, or an "
+                        "OpenAI-compatible endpoint (vllm).")
+    p.add_argument("--judge-model", type=str, default=None,
+                   help="Judge model id. Defaults to Claude Sonnet 4.6 as named "
+                        "by --backend bedrock/vertex; required for --backend vllm.")
+    p.add_argument("--api-base-url", type=str,
+                   default=os.environ.get("VLLM_BASE_URL", "http://127.0.0.1:4000/v1"),
+                   help="OpenAI-compatible base URL (--backend vllm).")
+    p.add_argument("--api-key", type=str, default=None,
+                   help="API key (--backend vllm; defaults to $VLLM_API_KEY).")
+    p.add_argument("--vertex-project", type=str, default=None,
+                   help="GCP project (defaults to ANTHROPIC_VERTEX_PROJECT_ID).")
+    p.add_argument("--vertex-region", type=str, default=None,
+                   help="Vertex region (defaults to VERTEX_REGION, else us-east5).")
     p.add_argument("--region", type=str, default=os.environ.get("BEDROCK_REGION", "ca-west-1"),
                    help="Single-region fallback if --regions is not provided.")
     p.add_argument(
@@ -1123,6 +1300,17 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--concurrency", type=int, default=10,
                    help="Per-region concurrency. Global concurrency is "
                         "concurrency × len(regions).")
+    p.add_argument("--judge-request-interval", type=float, default=0.0,
+                   help="Minimum seconds between judge call starts, globally "
+                        "(--backend vllm). Raise it if a rate-limited endpoint "
+                        "starts returning 429s.")
+    p.add_argument(
+        "--extract-text-answer-without-finish", action="store_true",
+        help="When a row has no ehr.finish call, recover the answer from the "
+             "final assistant turn: an explicit string list or bullet list "
+             "(either scoring route), or -- for single-gold rows only -- the "
+             "raw text, which the judge reads directly. Off by default so "
+             "published numbers stay byte-comparable.")
     p.add_argument("--max-rows", type=int, default=0)
     p.add_argument("--no-resume", action="store_true")
 
@@ -1168,6 +1356,13 @@ async def _main() -> None:
     out_root = Path(args.output_root).resolve()
     out_root.mkdir(parents=True, exist_ok=True)
 
+    # Credentials for the judge live in .env, same as for the runners.
+    try:
+        import dotenv
+        dotenv.load_dotenv(SCRIPT_DIR.parent.parent / ".env")
+    except Exception:
+        pass
+
     os.environ.setdefault("BEDROCK_REGION", args.region)
     os.environ.setdefault("AWS_DEFAULT_REGION", args.region)
 
@@ -1182,6 +1377,16 @@ async def _main() -> None:
         )
 
     vocab_gold = Path(args.vocab_gold).resolve() if args.vocab_gold else None
+
+    # Resolve the judge id for the chosen backend before the rule-based pass,
+    # so a missing id fails fast rather than on the first judged row.
+    if not args.judge_model:
+        if args.backend not in DEFAULT_MODEL_BY_BACKEND:
+            raise SystemExit(
+                "--backend vllm needs --judge-model (the judge's served name)")
+        args.judge_model = DEFAULT_MODEL_BY_BACKEND[args.backend]
+        print(f"[scorer] judge model defaulted to {args.judge_model} "
+              f"for --backend {args.backend}")
 
     for raw in args.results:
         p = Path(raw).resolve()
@@ -1202,6 +1407,13 @@ async def _main() -> None:
             vocab_matcher=vocab_matcher,
             vocab_skip_tasks=args.vocab_skip_tasks,
             vocab_gold_path=vocab_gold,
+            judge_request_interval=args.judge_request_interval,
+            backend=args.backend,
+            vertex_project=args.vertex_project,
+            vertex_region=args.vertex_region,
+            allow_text=args.extract_text_answer_without_finish,
+            api_base_url=args.api_base_url,
+            api_key=args.api_key or os.environ.get("VLLM_API_KEY"),
         )
 
 

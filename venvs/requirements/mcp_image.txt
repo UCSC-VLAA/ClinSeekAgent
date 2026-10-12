@@ -41,3 +41,7 @@ protobuf
 # --- HuggingFace tooling -----------------------------------------------------
 huggingface-hub
 hf-transfer
+
+# --- Tabular + progress helpers used by the image MCP tools ------------------
+pandas>=3.0.5
+tqdm>=4.69.0

@@ -1,10 +1,11 @@
 # ClinSeek-Bench's Text-Based Benchmark Data Preparation
 
 This document describes how to prepare the patient-level EHR assets required by
-ClinSeek-Bench's text-based benchmark. This benchmark is derived from
-EHR-Bench in EHR-R1 and reformulated for ClinSeekAgent's
-Automated Evidence-Seeking setting, where the model retrieves evidence from raw
-clinical data rather than answering only from pre-selected context.
+ClinSeek-Bench-Text. The benchmark is derived from EHR-Bench (EHR-R1): 40
+questions from each of its 45 subtasks, 1,800 in total, grouped into 13 task
+categories, and reformulated for ClinSeekAgent's Automated Evidence-Seeking
+setting, where the model retrieves evidence from the raw patient record rather
+than answering from pre-selected context.
 
 The public release does not redistribute raw MIMIC files. Users must obtain
 MIMIC-IV through PhysioNet under their own credentialed access. The released
@@ -145,21 +146,56 @@ Representative row schema:
   "qid": "ehr_bench_risk_prediction_329",
   "subject_id": 11824833,
   "hadm_id": 24876618,
+  "target_hadm_id": null,
+  "target_stay_id": null,
   "prediction_time": "2183-08-13 01:15:18",
   "latest_event_time": "2183-08-13 01:15:17",
   "task": "ED_Critical_Outcomes",
   "task_type": "risk_prediction",
-  "question": "<task_instruction>...",
-  "input": "## Patient Demographics [None]\\n- Anchor_Age: 37\\n...",
+  "category": "Escalation of care",
+  "instruction": "Please predict whether the patient will die during hospitalization or ...",
   "label": "yes",
   "output": "yes",
-  "candidates": ["yes", "no"]
+  "candidates": ["yes", "no"],
+  "task_info": {"metric": "aucroc", "task_type": "risk_prediction", "...": "..."},
+  "source_file": "ehr_bench_risk_prediction.jsonl",
+  "source_idx": 329
 }
 ```
 
-Only `subject_id` is required for patient DB generation. `hadm_id`,
-`prediction_time`, `task`, `question`, `label`, and other fields are consumed
-by the ClinSeekAgent evaluation and scoring code.
+Only `subject_id` is required for patient DB generation. The agentic runner
+builds its prompt from `instruction`, `task`, `prediction_time`,
+`subject_id`, `hadm_id`, and `candidates`, and binds `subject_id`,
+`prediction_time`, `task`, `hadm_id`, `target_hadm_id`, and `target_stay_id`
+into every EHR load (the model cannot change them). `label` is used for
+scoring and `category` for per-category reporting.
+
+`target_hadm_id` / `target_stay_id` name the encounter whose codes a
+diagnosis-code task (`diagnoses_icd`, `diagnoses_ccs`, `diagnosis`,
+`diagnosis_ccs`) asks for; the strict temporal policy hides that encounter's
+codes regardless of the cutoff and refuses to load those rows without them.
+
+### Upstream `input` / `question` (not in the public file)
+
+The public file does not redistribute the upstream EHR-Bench serialization of
+the curated record (`input`) or the source benchmark's single-turn prompt built
+from it (`question`). Every row maps 1:1 to a row of
+[BlueZeros/EHR-Bench](https://huggingface.co/datasets/BlueZeros/EHR-Bench)
+through `source_file` + `source_idx`. Only the Curated Input corpus builder
+(`scripts/clean_data/`) and `run_text_curated.py --data` need them; restore
+both fields byte-for-byte with:
+
+```bash
+huggingface-cli download BlueZeros/EHR-Bench --repo-type dataset \
+    --local-dir "$CLINSEEK_DATA_ROOT/raw/EHR-Bench"
+python scripts/data_build/restore_ehr_bench_inputs.py \
+    --manifest "$CLINSEEK_DATA_ROOT/text/ClinSeek-Bench_text.json" \
+    --ehr-bench-dir "$CLINSEEK_DATA_ROOT/raw/EHR-Bench" \
+    --output "$CLINSEEK_DATA_ROOT/text/ClinSeek-Bench_text_with_inputs.json"
+```
+
+The script exits non-zero if an upstream row is missing or its label disagrees
+with the manifest.
 
 Optional sanity check:
 
@@ -314,6 +350,39 @@ If you are preparing a full release artifact, include `candidate_table.db` and
   shorter.
 - Redirected Python stdout is block-buffered by default. If logs appear empty
   for the first few minutes, use `PYTHONUNBUFFERED=1` or `python -u`.
+
+### 7. Target Encounters And Runtime Validation
+
+The public manifest already carries `target_hadm_id` / `target_stay_id`. To
+re-derive them (for example for a different EHR-Bench sample), run the
+materializer. It selects the admission (or ED stay) whose codes match the
+label, verifying against the ICD / CCS reference tables
+(`d_icd_diagnoses`, `d_ccs_diagnoses`; e.g. the `reference_table.db` shipped
+with AgentEHR-Bench, see `scripts/download_agentehr_bench.sh`):
+
+```bash
+python scripts/data_build/materialize_ehr_bench_target_encounters.py \
+    --manifest "$CLINSEEK_DATA_ROOT/text/ClinSeek-Bench_text.json" \
+    --data-root "$CLINSEEK_DATA_ROOT/ehr_bench" \
+    --reference-db /path/to/reference_table.db \
+    --output "$CLINSEEK_DATA_ROOT/text/ClinSeek-Bench_text_targets.json"
+```
+
+Then check the strict runtime view (`strict-ehr-runtime-v8`) on every row:
+every row builds (diagnosis-code rows need their target encounter),
+administrative code tables carry an availability time instead of a synthetic
+`charttime`, and outcome-bearing or late-filled fields (`patients.dod`,
+`admissions.text`, `cost`, mutable `poe_detail` / `emar_detail` / `pharmacy`
+fields) are not exposed:
+
+```bash
+python scripts/data_build/validate_text_strict_runtime.py \
+    --data-root "$CLINSEEK_DATA_ROOT/ehr_bench" \
+    --manifest "$CLINSEEK_DATA_ROOT/text/ClinSeek-Bench_text.json" \
+    --output outputs/text_strict_runtime_gate.json
+```
+
+Both run in the EHR MCP environment (they load patients through `EHRManager`).
 
 ---
 

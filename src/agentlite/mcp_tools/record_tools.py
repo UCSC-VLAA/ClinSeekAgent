@@ -1,6 +1,7 @@
 import pandas as pd
 from typing import Dict
 import inspect
+import re
 
 from typing import Annotated
 from pydantic import Field
@@ -8,7 +9,91 @@ import sqlite3
 from fastmcp import Context
 
 from agentlite.commons.fastmcp import mcp
-from agentlite.mcp_tools.tool_utils import find_timestamp_column, normalize_datetime, get_resource, get_resource_df
+from agentlite.commons.temporal_policy import (
+    CHILD_POLICIES,
+    READMISSION_DISCHARGE_TIME_COLUMN,
+    TABLE_POLICIES,
+    availability_times,
+    coalesce_times,
+)
+from agentlite.mcp_tools.tool_utils import (
+    find_timestamp_column,
+    get_resource,
+    get_resource_df,
+    get_session_ehr_timestamp,
+    normalize_datetime,
+)
+
+
+def query_timestamp_series(
+    table_name: str,
+    df: pd.DataFrame,
+) -> pd.Series | None:
+    """Return the explicit query-time semantics for a loaded table."""
+
+    if table_name == "discharge" and READMISSION_DISCHARGE_TIME_COLUMN in df:
+        # Episode-complete readmission views redact a late source storetime
+        # and attach the index discharge boundary explicitly. Historical
+        # notes still use their real storetime.
+        return coalesce_times(
+            df,
+            (READMISSION_DISCHARGE_TIME_COLUMN, "storetime"),
+        )
+
+    policy = TABLE_POLICIES.get(table_name)
+    if policy is not None:
+        if policy.available_at:
+            return availability_times(df, policy)
+        if policy.event_at:
+            return coalesce_times(df, policy.event_at)
+
+    child_policy = CHILD_POLICIES.get(table_name)
+    if (
+        child_policy is not None
+        and child_policy.derived_time_column is not None
+    ):
+        return coalesce_times(
+            df,
+            (child_policy.derived_time_column,),
+        )
+
+    # Non-MIMIC/multimodal schemas retain their existing query behavior. Their
+    # runtime loader has already applied its own strict temporal policy.
+    timestamp_column = find_timestamp_column(df)
+    if timestamp_column is None:
+        return None
+    return pd.to_datetime(df[timestamp_column], errors="coerce")
+
+
+async def bounded_time_range(
+    ctx: Context,
+    start_time: str,
+    end_time: str,
+) -> tuple[pd.Timestamp | None, pd.Timestamp | None, str | None]:
+    """Parse a requested range and clamp it below the session cutoff."""
+
+    start_ts = normalize_datetime(start_time)
+    end_ts = normalize_datetime(end_time)
+    if start_ts is None or end_ts is None:
+        return None, None, (
+            "Error: Start time or end time format is invalid. Please use "
+            "'YYYY-MM-DD' or 'YYYY-MM-DD HH:MM:SS'."
+        )
+    if start_ts > end_ts:
+        return None, None, "Error: start_time must not be after end_time."
+
+    cutoff_value = await get_session_ehr_timestamp(ctx)
+    if cutoff_value is None:
+        return None, None, "Error: No session-bound prediction cutoff."
+    cutoff = normalize_datetime(cutoff_value)
+    if cutoff is None:
+        return None, None, "Error: Session prediction cutoff is invalid."
+    if start_ts >= cutoff:
+        return start_ts, cutoff - pd.Timedelta(nanoseconds=1), None
+    return start_ts, min(
+        end_ts,
+        cutoff - pd.Timedelta(nanoseconds=1),
+    ), None
 
 @mcp.tool(
     name="get_records_by_time",
@@ -42,23 +127,25 @@ async def get_records_by_time(
         else:
             return f"Error: Table '{table_name}' not found in EHR Table list: {table_list}. Make sure to call load_ehr first."
 
-    # 使用封装好的函数来找到时间戳列
-    timestamp_column = find_timestamp_column(df)
-    if timestamp_column is None:
+    query_times = query_timestamp_series(table_name, df)
+    if query_times is None:
         return f"Error: No timestamp column found in table '{table_name}'. Cannot filter by time."
 
     try:
-        # 确保时间列是datetime类型
-        df[timestamp_column] = pd.to_datetime(df[timestamp_column])
-        
-        # 转换开始和结束时间
-        start_ts = normalize_datetime(start_time)
-        end_ts = normalize_datetime(end_time)
-        
-        df[timestamp_column] = df[timestamp_column].apply(normalize_datetime)
-        
-        # 筛选出符合时间范围的记录
-        filtered_df = df[(df[timestamp_column] >= start_ts) & (df[timestamp_column] <= end_ts)]
+        start_ts, end_ts, range_error = await bounded_time_range(
+            ctx, start_time, end_time
+        )
+        if range_error:
+            return range_error
+        if start_ts > end_ts:
+            return (
+                "No records found: the requested range begins at or after "
+                "the session prediction cutoff."
+            )
+
+        filtered_df = df[
+            (query_times >= start_ts) & (query_times <= end_ts)
+        ]
         
         if filtered_df.empty:
             return f"No records found in table '{table_name}' between {start_time} and {end_time}."
@@ -88,12 +175,16 @@ async def get_event_counts_by_time(
     Returns:
         str: A formatted string of event counts, or an error message.
     """
-    # 統一處理輸入的開始和結束時間
-    start_ts = normalize_datetime(start_time)
-    end_ts = normalize_datetime(end_time)
-
-    if start_ts is None or end_ts is None:
-        return "Error: Start time or end time format is invalid. Please use a format like 'YYYY-MM-DD' or 'YYYY-MM-DD HH:MM:SS'."
+    start_ts, end_ts, range_error = await bounded_time_range(
+        ctx, start_time, end_time
+    )
+    if range_error:
+        return range_error
+    if start_ts > end_ts:
+        return (
+            "No events found: the requested range begins at or after the "
+            "session prediction cutoff."
+        )
         
     # 從 EHRManager 獲取所有 EHR 表的名稱
     ehr_table_names = await get_resource(ctx, f"cache://ehr/ehr_data/{subject_id}/table_list.json")
@@ -109,18 +200,18 @@ async def get_event_counts_by_time(
         if df is None:
             continue
 
-        # 找到時間戳列
-        timestamp_column = find_timestamp_column(df)
-        if timestamp_column is None or timestamp_column not in df.columns:
+        query_times = query_timestamp_series(table_name, df)
+        if query_times is None:
             counts[table_name] = -1 # 用 -1 表示無法計數
             continue
         
         try:
-            # 統一處理 DataFrame 中時間列的值
-            df[timestamp_column] = df[timestamp_column].apply(normalize_datetime)
-            
-            # 篩選出符合時間範圍的記錄
-            filtered_df = df[(df[timestamp_column] >= start_ts) & (df[timestamp_column] <= end_ts)].dropna(subset=[timestamp_column])
+            mask = (
+                query_times.notna()
+                & (query_times >= start_ts)
+                & (query_times <= end_ts)
+            )
+            filtered_df = df[mask]
             
             counts[table_name] = len(filtered_df)
             
@@ -159,22 +250,18 @@ async def get_latest_records(
         else:
             return f"Error: Table '{table_name}' not found in EHR Table list: {table_list}. Make sure to call load_ehr first."
 
-    # 使用工具函数找到时间戳列
-    timestamp_column = find_timestamp_column(df)
-    if timestamp_column is None:
+    query_times = query_timestamp_series(table_name, df)
+    if query_times is None:
         return f"Error: No timestamp column found in table '{table_name}'. Cannot find the latest records."
     
     try:
-        # 确保时间列是 datetime 类型
-        df[timestamp_column] = pd.to_datetime(df[timestamp_column])
-        
         # 找到最新的时间戳
-        latest_timestamp = df[timestamp_column].max()
+        latest_timestamp = query_times.max()
         if pd.isna(latest_timestamp):
             return f"No valid timestamps found in table '{table_name}' to determine the latest records."
             
         # 筛选出所有与最新时间戳匹配的记录
-        latest_records = df[df[timestamp_column] == latest_timestamp]
+        latest_records = df[query_times == latest_timestamp]
         
         if latest_records.empty:
             return f"No records found in table '{table_name}' for the latest timestamp: {latest_timestamp}."
@@ -306,6 +393,18 @@ async def run_sql_query(
     Returns:
         str: The query result formatted as a string, or an error message.
     """
+    normalized_sql = re.sub(
+        r"\A(?:\s|--[^\n]*(?:\n|\Z)|/\*.*?\*/)*",
+        "",
+        sql_query,
+        flags=re.DOTALL,
+    )
+    if not re.match(r"(?is)^(select|with)\b", normalized_sql):
+        return (
+            "SQL Execution Error: only a single read-only SELECT/WITH query "
+            "is allowed."
+        )
+
     # 1. 获取该患者所有可用的表名
     try:
         record_list = await get_resource(ctx, f"cache://ehr/ehr_data/{subject_id}/table_list.json")
@@ -351,6 +450,42 @@ async def run_sql_query(
         
         if tables_loaded == 0:
             return f"Error: The SQL query does not seem to reference any available tables. Available tables: {table_list}"
+
+        denied_actions = {
+            getattr(sqlite3, name)
+            for name in (
+                "SQLITE_ATTACH",
+                "SQLITE_DETACH",
+                "SQLITE_INSERT",
+                "SQLITE_UPDATE",
+                "SQLITE_DELETE",
+                "SQLITE_ALTER_TABLE",
+                "SQLITE_DROP_TABLE",
+                "SQLITE_DROP_INDEX",
+                "SQLITE_DROP_TRIGGER",
+                "SQLITE_DROP_VIEW",
+                "SQLITE_CREATE_TABLE",
+                "SQLITE_CREATE_INDEX",
+                "SQLITE_CREATE_TRIGGER",
+                "SQLITE_CREATE_VIEW",
+                "SQLITE_CREATE_VTABLE",
+                "SQLITE_DROP_VTABLE",
+                "SQLITE_PRAGMA",
+                "SQLITE_TRANSACTION",
+            )
+            if hasattr(sqlite3, name)
+        }
+
+        def read_only_authorizer(action, arg1, arg2, _db_name, _trigger):
+            if action in denied_actions:
+                return sqlite3.SQLITE_DENY
+            if action == getattr(sqlite3, "SQLITE_FUNCTION", -1):
+                function_name = str(arg2 or arg1 or "").lower()
+                if function_name in {"load_extension", "readfile", "writefile"}:
+                    return sqlite3.SQLITE_DENY
+            return sqlite3.SQLITE_OK
+
+        conn.set_authorizer(read_only_authorizer)
 
         # 4. 执行 SQL 查询
         result_df = pd.read_sql_query(sql_query, conn)

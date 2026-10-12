@@ -114,35 +114,79 @@ def _parse_ehr_uri(uri: str):
 
 async def _get_session_ehr_data(ctx: Context):
     """Return session-scoped EHR data snapshot if available."""
+    session_state = await _get_session_ehr_state(ctx)
+    if session_state is not None:
+        return session_state.get(SESSION_EHR_DATA_KEY)
+    return None
+
+
+async def _get_session_ehr_state(ctx: Context):
+    """Return the complete session-scoped EHR state, if one exists."""
     session_store = _get_ehr_session_store()
     if session_store is not None:
         session_state = session_store.get(ctx.session_id)
         if session_state is not None:
-            return session_state.get(SESSION_EHR_DATA_KEY)
+            return session_state
 
-    return await ctx_get_state(ctx, SESSION_EHR_DATA_KEY, default=None)
+    ehr_data = await ctx_get_state(ctx, SESSION_EHR_DATA_KEY, default=None)
+    if ehr_data is None:
+        return None
+    return {
+        SESSION_EHR_DATA_KEY: ehr_data,
+        SESSION_EHR_TABLE_NAMES_KEY: await ctx_get_state(
+            ctx, SESSION_EHR_TABLE_NAMES_KEY, default=None
+        ),
+        SESSION_EHR_SUBJECT_ID_KEY: await ctx_get_state(
+            ctx, SESSION_EHR_SUBJECT_ID_KEY, default=None
+        ),
+        SESSION_EHR_TIMESTAMP_KEY: await ctx_get_state(
+            ctx, SESSION_EHR_TIMESTAMP_KEY, default=None
+        ),
+    }
 
 
 async def _get_session_ehr_table_names(ctx: Context):
     """Return session-scoped EHR table names if available."""
-    session_store = _get_ehr_session_store()
-    if session_store is not None:
-        session_state = session_store.get(ctx.session_id)
-        if session_state is not None:
-            return session_state.get(SESSION_EHR_TABLE_NAMES_KEY)
+    session_state = await _get_session_ehr_state(ctx)
+    if session_state is not None:
+        return session_state.get(SESSION_EHR_TABLE_NAMES_KEY)
+    return None
 
-    return await ctx_get_state(ctx, SESSION_EHR_TABLE_NAMES_KEY, default=None)
+
+async def get_session_ehr_subject_id(ctx: Context):
+    """Return the patient identifier bound to the active session."""
+    session_state = await _get_session_ehr_state(ctx)
+    if session_state is None:
+        return None
+    value = session_state.get(SESSION_EHR_SUBJECT_ID_KEY)
+    return None if value is None else str(value)
+
+
+async def get_session_ehr_timestamp(ctx: Context):
+    """Return the prediction cutoff bound to the active session."""
+    session_state = await _get_session_ehr_state(ctx)
+    if session_state is None:
+        return None
+    return session_state.get(SESSION_EHR_TIMESTAMP_KEY)
 
 async def get_resource_df(ctx: Context, uri: str) -> pd.DataFrame:
-    """Get resource as DataFrame, preferring session-scoped EHR data when available."""
+    """Get a resource as a DataFrame.
+
+    Patient data is session-only and fails closed. Candidate/reference
+    resources may still use the shared read-only resource fallback.
+    """
     subject_id, table_name = _parse_ehr_uri(uri)
     if subject_id and table_name:
+        bound_subject_id = await get_session_ehr_subject_id(ctx)
+        if bound_subject_id is None or str(subject_id) != bound_subject_id:
+            return None
         session_ehr_data = await _get_session_ehr_data(ctx)
-        if session_ehr_data is not None:
-            table_data = session_ehr_data.get(table_name)
-            if table_data is None:
-                return None
-            return pd.DataFrame(table_data)
+        if session_ehr_data is None:
+            return None
+        table_data = session_ehr_data.get(table_name)
+        if table_data is None:
+            return None
+        return pd.DataFrame(table_data)
 
     # Try to read from context resources next
     try:
@@ -155,20 +199,12 @@ async def get_resource_df(ctx: Context, uri: str) -> pd.DataFrame:
     except Exception:
         pass
 
-    # Fall back to global EHRManager
+    # Fall back to global read-only candidate/reference data only.
     ehr_mgr = _get_ehr_manager()
     if ehr_mgr is None:
         return None
 
-    # Parse URI to determine what data to get
-    if "ehr_data/" in uri and ".json" in uri:
-        parts = uri.split("/")
-        if len(parts) >= 4:
-            subject_id = parts[-2]
-            table_name = parts[-1].replace(".json", "")
-            if hasattr(ehr_mgr, 'ehr_data') and table_name in ehr_mgr.ehr_data:
-                return ehr_mgr.ehr_data[table_name]
-    elif "candidate_data/" in uri:
+    if "candidate_data/" in uri:
         parts = uri.split("/")
         table_name = parts[-1].replace(".json", "")
         if table_name in ehr_mgr.candidate_data:
@@ -177,17 +213,20 @@ async def get_resource_df(ctx: Context, uri: str) -> pd.DataFrame:
     return None
 
 async def get_resource(ctx: Context, uri: str):
-    """Get resource data, preferring session-scoped EHR state when available."""
+    """Get resource data, with patient resources restricted to one session."""
     subject_id, table_name = _parse_ehr_uri(uri)
     if subject_id:
+        bound_subject_id = await get_session_ehr_subject_id(ctx)
+        if bound_subject_id is None or str(subject_id) != bound_subject_id:
+            return None
         if table_name is None:
             session_table_names = await _get_session_ehr_table_names(ctx)
-            if session_table_names is not None:
-                return session_table_names
+            return session_table_names
         else:
             session_ehr_data = await _get_session_ehr_data(ctx)
-            if session_ehr_data is not None:
-                return session_ehr_data.get(table_name)
+            if session_ehr_data is None:
+                return None
+            return session_ehr_data.get(table_name)
 
     # Try to read from context resources next
     try:
@@ -200,17 +239,14 @@ async def get_resource(ctx: Context, uri: str):
     except Exception:
         pass
 
-    # Fall back to global EHRManager
+    # Fall back to shared non-patient resources only.
     ehr_mgr = _get_ehr_manager()
     if ehr_mgr is None:
         return None
 
     # Parse URI to determine what data to get
     if "table_list.json" in uri:
-        if "ehr_data/" in uri:
-            if hasattr(ehr_mgr, 'ehr_data'):
-                return list(ehr_mgr.ehr_data.keys())
-        elif "candidate_data/" in uri:
+        if "candidate_data/" in uri:
             return list(ehr_mgr.candidate_data.keys())
     elif "descriptions.json" in uri:
         return ehr_mgr.descriptions

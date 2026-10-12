@@ -1,9 +1,39 @@
 cff-version: 1.2.0
 message: "If you use ClinSeekAgent, please cite the associated paper."
 title: "ClinSeekAgent: Automating Multimodal Evidence Seeking for Agentic Clinical Reasoning"
+type: software
 authors:
-  - name: "ClinSeekAgent authors"
-year: 2026
-version: "0.1.0"
+  - {family-names: Wu, given-names: Juncheng}
+  - {family-names: Zhang, given-names: Letian}
+  - {family-names: Wang, given-names: Yuhan}
+  - {family-names: Tu, given-names: Haoqin}
+  - {family-names: Chen, given-names: Hardy}
+  - {family-names: Wang, given-names: Zijun}
+  - {family-names: Xie, given-names: Cihang}
+  - {family-names: He, given-names: Yufan}
+  - {family-names: Zhao, given-names: Can}
+  - {family-names: Xu, given-names: Daguang}
+  - {family-names: Tang, given-names: Yucheng}
+  - {family-names: Zhou, given-names: Yuyin}
 repository-code: "https://github.com/UCSC-VLAA/ClinSeekAgent"
+url: "https://ucsc-vlaa.github.io/ClinSeekAgent/"
 license: "Apache-2.0"
+preferred-citation:
+  type: article
+  title: "ClinSeekAgent: Automating Multimodal Evidence Seeking for Agentic Clinical Reasoning"
+  authors:
+    - {family-names: Wu, given-names: Juncheng}
+    - {family-names: Zhang, given-names: Letian}
+    - {family-names: Wang, given-names: Yuhan}
+    - {family-names: Tu, given-names: Haoqin}
+    - {family-names: Chen, given-names: Hardy}
+    - {family-names: Wang, given-names: Zijun}
+    - {family-names: Xie, given-names: Cihang}
+    - {family-names: He, given-names: Yufan}
+    - {family-names: Zhao, given-names: Can}
+    - {family-names: Xu, given-names: Daguang}
+    - {family-names: Tang, given-names: Yucheng}
+    - {family-names: Zhou, given-names: Yuyin}
+  journal: "arXiv preprint arXiv:2605.20176"
+  year: 2026
+  url: "https://arxiv.org/abs/2605.20176"
