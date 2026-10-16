@@ -257,6 +257,10 @@ More details are in [`docs/sft_training.md`](docs/sft_training.md).
 ClinSeekAgent is for research on clinical evidence seeking. It is not a medical device and must not be used for clinical diagnosis, treatment, triage, or patient management without separate validation, governance, and regulatory review.
 
 <a id="citation"></a>
+## Acknowledgements
+
+We thank Yusheng Liao and Chaoyi Wu for their work on EHR-R1 / EHR-Bench and AgentEHR-Bench, which this project builds on, and for their help in checking the data details of our benchmark and evaluation.
+
 ## 📚 Citation
 
 If you use ClinSeekAgent, ClinSeek-Bench, or ClinSeek-35B-A3B, please cite:
