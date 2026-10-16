@@ -9,7 +9,8 @@ an explicitly declared episode artifact. It deliberately contains no
 MCP/session logic: the same policy can be reused by the runtime loader,
 offline builders, and auditors.
 
-Two synthetic timestamp transformations performed by AgentEHR's
+For AgentEHR-Bench this runtime view may be stricter than the original
+setting. Two synthetic timestamp transformations performed by AgentEHR's
 ``patient_event2db.py`` are not accepted as evidence of real-time
 availability:
 
