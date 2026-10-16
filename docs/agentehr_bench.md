@@ -8,6 +8,18 @@ split, 500 in total. All models run ClinSeekAgent with the 16 EHR tools, the
 strict temporal policy, up to 200 rounds, 8,192 output tokens per call, and
 temperature 0; the base and fine-tuned models are served locally with vLLM.
 
+**Relation to the original AgentEHR setting.** This evaluation uses the
+questions and labels of AgentEHR-Bench but runs them through ClinSeekAgent's
+own interface, which may differ from the original setup in a few respects: the
+agent uses the 16 EHR tools described in the README; the strict temporal policy
+builds a question-specific view of the patient database (the synthetic
+`diagnoses_icd` / `diagnosis` chart times produced when the databases were built
+are not accepted as evidence of availability, `admissions.text` is dropped, and
+for diagnosis tasks the target encounter's codes are excluded); and we evaluate a fixed
+sample of 100 questions per task over five of the six tasks. Numbers obtained
+here are therefore best compared with each other rather than with those reported
+in the AgentEHR paper.
+
 ## 1. Download
 
 AgentEHR-Bench contains MIMIC-derived patient databases; keep them local.

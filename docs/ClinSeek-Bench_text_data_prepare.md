@@ -7,6 +7,12 @@ categories, and reformulated for ClinSeekAgent's Automated Evidence-Seeking
 setting, where the model retrieves evidence from the raw patient record rather
 than answering from pre-selected context.
 
+Compared with the original EHR-Bench (EHR-R1) setting, which gives the model up
+to 100 events from the 24 hours before the prediction time, ClinSeek-Bench-Text
+keeps the questions and labels but lets the agent retrieve evidence from the
+patient's full record before that time. Results are therefore not directly
+comparable with those reported for the original input format.
+
 The public release does not redistribute raw MIMIC files. Users must obtain
 MIMIC-IV through PhysioNet under their own credentialed access. The released
 ClinSeek-Bench text-based evaluation JSON already includes `subject_id`, so
