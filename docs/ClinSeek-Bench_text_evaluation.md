@@ -29,6 +29,12 @@ $CLINSEEK_DATA_ROOT/
     +-- table_description/          (optional; schema descriptions)
 ```
 
+The paper's ClinSeek-Bench-Text results use the patient databases only.
+`candidate_table.db`, `reference_table.db`, and `table_description/` were not
+present. Adding them changes the tool behavior, so results are not directly
+comparable; see
+[ClinSeek-Bench_text_data_prepare.md](./ClinSeek-Bench_text_data_prepare.md#5-optional-candidate-table-reference-table-and-table-descriptions).
+
 The public manifest is enough for this setting: the agentic prompt is built
 from `instruction` and the row metadata, and never from the upstream
 `input` / `question` fields that the public file omits.
